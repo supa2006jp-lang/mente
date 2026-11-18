@@ -6,7 +6,7 @@ import {createOffsetExtrusionPresetView} from './offset-extrusion-preset-view.js
 import {loadOffsetDragStep,saveOffsetDragStep,validateOffsetDragStep} from './offset-extrusion-snap.js';
 
 const preferenceKey='forma-offset-extrusion-distance-v1';
-export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegions,getObjects,scene,camera,canvas,host}){
+export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegions,getObjects,getGrid,scene,camera,canvas,host}){
  let last=0,target=null,original=null;
  try{const text=localStorage.getItem(preferenceKey),value=text===null?0:Number(text);if(Number.isFinite(value)&&Math.abs(value)<=10000)last=value;}catch{}
  const preview=createOffsetExtrusionPreview({scene,host,canvas});let regions=[],previous=null,layoutKey='';
@@ -17,7 +17,7 @@ export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegio
  document.body.append(dialog);const input=dialog.querySelector('input'),error=dialog.querySelector('#offset-extrusion-error'),submit=dialog.querySelector('button[type=submit]');
  const value=()=>input.value.trim()===''?last:Number(input.value);let dragStep=loadOffsetDragStep(),stepSaveWarning=false;
  const presets=createOffsetExtrusionPresetView({dialog,canvas,getValue:value,getStep:()=>dragStep,setStep:step=>{validateOffsetDragStep(step);dragStep=step;try{saveOffsetDragStep(step);}catch(error){if(!stepSaveWarning)notify(error.message);stepSaveWarning=true;}},onSelect:value=>{input.value=String(value);refresh();input.focus({preventScroll:true});input.select();},notify});
- const guides=createOffsetExtrusionGuideView({dialog,canvas,camera,host,getData:()=>preview.data,getValue:value,getStep:()=>dragStep,onChange:value=>{presets.close();input.value=String(value);refresh();}});
+ const guides=createOffsetExtrusionGuideView({dialog,canvas,camera,host,getGrid,getData:()=>preview.data,getValue:value,getStep:()=>dragStep,onChange:value=>{presets.close();input.value=String(value);refresh();}});
  function reset(){guides.clear();presets.close();preview.clear();target=null;original=null;regions=[];previous=null;layoutKey='';}
  function close(){if(dialog.open)dialog.close();reset();}
  function layout(){

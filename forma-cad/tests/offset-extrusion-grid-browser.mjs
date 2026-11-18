@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import path from 'node:path';
+import {chromium} from 'playwright';
+import * as THREE from 'three';
+import {defaults,rebuild,volume} from '../src/geometry.js';
+import {decodeProjectDocument} from '../src/project-codec.js';
+const root=path.resolve('dist'),mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
+const server=http.createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url==='/'?'/index.html':req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream'}).end(await fs.readFile(file));}catch{res.writeHead(404).end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});let page;
+try{
+ page=await browser.newPage({viewport:{width:1700,height:1150},acceptDownloads:true});page.setDefaultTimeout(25000);const errors=[];page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
+ await page.addInitScript(()=>Object.defineProperty(window,'showSaveFilePicker',{value:undefined,configurable:true}));await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
+ const host=page.locator('#canvas-host'),dialog=page.locator('#offset-extrusion-dialog'),input=page.locator('#offset-extrusion-distance');
+ const sketch={...defaults,id:'shape',name:'交点吸着',kind:'sketch',width:31.26,height:11.26,groupId:'g',groupNumber:1,groupHidden:false};
+ async function load(feature){await page.locator('#file').setInputFiles({name:'os-grid.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:[feature]}))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.sketchRegionAnalysis!=='pending');}
+ async function screen(point){const rect=await page.locator('#canvas-host canvas').boundingBox(),state=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),camera=new THREE.OrthographicCamera(-100*rect.width/rect.height,100*rect.width/rect.height,100,-100,...clip);camera.position.fromArray(state);camera.quaternion.fromArray(state,3);camera.zoom=state[7];camera.updateProjectionMatrix();camera.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(camera);return [rect.x+(p.x+1)*rect.width/2,rect.y+(1-p.y)*rect.height/2];}
+ async function open(){await page.mouse.click(...await screen([3,2,0]));await page.locator('#face-extrude-shortcut-offset').click();await dialog.waitFor();await input.fill('0');}
+ async function save(){const download=page.waitForEvent('download');await page.locator('#save').click();return(await decodeProjectDocument(await fs.readFile(await(await download).path(),'utf8'))).document;}
+ async function drag(a,b,{alt=false,cancel=false}={}){await page.mouse.move(...await screen(a));await page.mouse.down();await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.offsetExtrusionDragging==='true');if(alt)await page.keyboard.down('Alt');await page.mouse.move(...await screen(b),{steps:10});if(cancel)await page.keyboard.press('Escape');await page.mouse.up();if(alt)await page.keyboard.up('Alt');}
+ await fs.mkdir('.sites-runtime/offset-grid',{recursive:true});await load(sketch);await page.locator('#snap-enabled').check();const original=await save();await open();
+ await page.locator('#offset-extrusion-presets-toggle').click();await page.locator('#offset-extrusion-drag-step').fill('.5');await page.keyboard.press('Escape');
+ await drag([15.63,0,0],[19.96,0,0]);assert(Math.abs(Number(await input.inputValue())-4.37)<1e-8,'grid target wins over 0.5 mm interval');
+ await page.waitForFunction(()=>document.querySelectorAll('[data-grid-snap-marker]').length===4);const snap=JSON.parse(await host.getAttribute('data-offset-extrusion-grid-snap'));assert.equal(snap.distance,4.37);assert.equal(snap.points.length,4);assert.equal(await page.locator('.offset-extrusion-dimensions').textContent(),'40 × 20 mm');
+ assert((await dialog.boundingBox()).height<100);await page.screenshot({path:'.sites-runtime/offset-grid/snapped.png'});
+ await input.fill('0');assert.equal(await host.getAttribute('data-offset-extrusion-grid-snap'),null);await drag([15.63,0,0],[19.96,0,0],{alt:true});assert.equal(Number(await input.inputValue()),4.5);assert.equal(await host.getAttribute('data-offset-extrusion-grid-snap'),null);
+ await input.fill('0');await drag([15.63,0,0],[19.96,0,0],{cancel:true});assert.equal(Number(await input.inputValue()),0);assert.equal(await host.getAttribute('data-offset-extrusion-grid-snap'),null);assert(await dialog.isVisible());
+ await page.locator('#offset-extrusion-cancel').click();assert.deepEqual((await save()).features,original.features);
+ await page.locator('#snap-enabled').uncheck();await open();await drag([15.63,0,0],[19.96,0,0]);assert.equal(Number(await input.inputValue()),4.5);assert.equal(await host.getAttribute('data-offset-extrusion-grid-snap'),null);await page.locator('#offset-extrusion-cancel').click();
+ await page.locator('#snap-enabled').check();await load({...sketch,height:14.26});await open();await drag([15.63,0,0],[19.96,0,0]);assert.equal(Number(await input.inputValue()),4.5);assert.equal(await host.getAttribute('data-offset-extrusion-grid-snap'),null,'single-axis grid alignment does not snap');await page.locator('#offset-extrusion-cancel').click();
+ await load(sketch);await open();await drag([15.63,0,0],[19.96,0,0]);assert.equal(Number(await input.inputValue()),4.37);await dialog.locator('button[type=submit]').click();assert.equal(await host.getAttribute('data-offset-extrusion-grid-snap'),null);assert.equal(await page.locator('[data-grid-snap-marker]').count(),0);
+ await page.locator('#viewport-depth').fill('3');await page.waitForFunction(()=>document.getElementById('extrusion-target-status').dataset.state==='valid'&&!document.querySelector('#extrude-distance button[type=submit]').disabled,null,{timeout:60000});await page.locator('#extrude-distance button[type=submit]').click();await page.locator('#extrude-distance').waitFor({state:'hidden',timeout:60000});const saved=await save(),last=saved.features.at(-1);assert.equal(last.profileOffset,4.37);const bodies=rebuild(saved.features);try{assert(Math.abs(volume(bodies.get(last.id).geometry)-2400)<.05);}finally{for(const body of bodies.values()){body.geometry.dispose();body.material.dispose();}}
+ assert.deepEqual(errors,[]);console.log('PASS actual OS contour grid drag, four visible intersection markers, non-step distance, Alt/global bypass, no single-line snap, Escape/cancel cleanup, saved native 40 x 20 x 3 solid');
+}catch(error){if(page){await page.screenshot({path:'.sites-runtime/offset-grid/failure.png'}).catch(()=>{});console.error(await page.locator('#offset-extrusion-error').textContent().catch(()=>''));}throw error;}
+finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

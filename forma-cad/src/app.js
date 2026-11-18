@@ -5628,6 +5628,7 @@ sketchConnectionsView=createSketchConnectionsView({scene,host,camera,canvas:rend
  onRepairApply:async(original,next,isCurrent)=>{const start=earliestSketchChange(original,next);if(start<next.length&&next.slice(start+1).some(f=>['cadop','extrusion'].includes(f.kind))){const result=await sketchGapKernel.run(next,{type:'replay',before:original,start});if(!isCurrent())throw Error('モデルが変更されました。隙間を調べ直してください');next=result.features;}if(!isCurrent())throw Error('隙間の修正を中止しました');setProject(next);selected=null;stage='model';draftTouched=false;clearSketchSelection();syncFields();notify('端点の隙間を修正しました。元に戻すで取り消せます');}
 });
 offsetExtrusionDialog=createOffsetExtrusionDialog({getFeatures:()=>features,notify,scene,camera,canvas:renderer.domElement,host,
+ getGrid:()=>({enabled:$('snap-enabled').checked,grids:[{object:sketchGrid,step:Number(host.dataset.sketchGridDisplayStep)||gridStep},{object:grid,step:Number(host.dataset.gridDisplayStep)||gridStep}].filter(entry=>entry.object)}),
  getRegions:shortcut=>shortcut.sketchRegion?[shortcut.sketchRegion]:shortcut.sketchRegions?.length?shortcut.sketchRegions:selectedFaces.length?selectedFaces.map(selectionFacePlane).filter(Boolean):[chosenRegion||selectedFace].filter(Boolean),
  getObjects:()=>{const objects=[...meshes.values()];for(const group of [sketchGroup,regionGroup])group.traverseVisible(object=>{if(object.geometry&&!object.userData.planeId&&!object.userData.constructionPlane)objects.push(object);});return objects;},
  onApply:async(shortcut,distance,{hasHoles=false}={})=>{
