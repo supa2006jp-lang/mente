@@ -1,6 +1,6 @@
 export const offsetDragSnapKey='forma-offset-extrusion-drag-snap-v1';
 export function validateOffsetDragStep(value){
- if(typeof value!=='number'||!Number.isFinite(value)||value<.001||value>1000)throw Error('ドラッグの刻みは0.001〜1000 mmで指定してください');return value;
+ if(typeof value!=='number'||!Number.isFinite(value)||value<.1||value>1000)throw Error('ドラッグの刻みは0.1〜1000 mmで指定してください');return value;
 }
 export function loadOffsetDragStep(storage=()=>window.localStorage){
  try{const text=storage().getItem(offsetDragSnapKey);if(text&&text.length<200){const data=JSON.parse(text);if(data.version===1)return validateOffsetDragStep(data.step);}}catch{}return .1;
