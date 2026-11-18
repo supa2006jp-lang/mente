@@ -6,11 +6,26 @@ import {dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawi
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {drawingViewTitle,drawingViewTitleSVG} from './drawing-view-title.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
-import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG} from './drawing-hole-table.js';
+import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout,drawingLeadersSVG} from './drawing-leaders.js';
 
 const backgroundColor=value=>validDimensionColor(value)&&value.toLowerCase()!=='#ffffff'?value.toLowerCase():null;
 export const drawingBackgroundColor=options=>backgroundColor(options.viewBackground)??backgroundColor(options.paperBackground);
+
+export function drawingFileStem(name='',revision=''){
+ const clean=value=>value.trim().replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,'_').replace(/[. ]+$/,'');
+ const part=clean(name)||'three-views',rev=clean(revision.trim().replace(/^rev(?:ision)?[\s._-]*/i,'').trim());
+ const suffix=rev?'_Rev'+rev:'',encoder=new TextEncoder();
+ // Leave room for the extension and keep the revision when a UTF-8 filename is long.
+ let stem='',remaining=250-encoder.encode(suffix).length;
+ for(const char of part){
+  remaining-=encoder.encode(char).length;
+  if(remaining<0)break;
+  stem+=char;
+ }
+ stem=stem.replace(/[. ]+$/,'')+suffix;
+ return /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(stem)?'_'+stem:stem;
+}
 
 function viewBackgroundSVG(name,boxes,fill){
  const margin=2,x=Math.min(...boxes.map(b=>b.x))-margin,y=Math.min(...boxes.map(b=>b.y))-margin;
@@ -44,6 +59,7 @@ function viewBreakMarks(view){
 }
 export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',options={}){
  options={paper:'A4',orientation:'landscape',...options};data=withDetails(data,options.details);
+ options.holeTable=resolveDrawingHoleTable(options.holeTable,data.views);
  if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を選択してください');
  const frames=drawingViewFrames(data,{...options,details:[]},scale),positions=options.positions||{};
  const sizeOf=(key,axis)=>frames[key]?displayedDrawingSpan(frames[key],axis==='width'?0:1)*frames[key].factor*scale:0;
@@ -123,10 +139,17 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
    note.lines.map((line,i)=>text(note.x,note.y+note.baseline+i*note.lineHeight,line,note.fontSize,'xml:space="preserve"')).join('')+'</g>';
  }).join('');
  const titleBlock=options.frame?{x:Math.max(10,width-165),y:height-32,width:160,height:27}:null;
- let frame='';if(titleBlock){const {x:fx,y:fy,width:fw,height:fh}=titleBlock;frame='<g data-titleblock="true" font-family="sans-serif"><rect x="5" y="5" width="'+(width-10)+'" height="'+(height-10)+'" fill="none" stroke="#111" stroke-width=".3"/><rect x="'+fx+'" y="'+fy+'" width="'+fw+'" height="'+fh+'" fill="white" stroke="#111" stroke-width=".25"/>';for(const [i,key,label] of [[0,'name','部品名'],[1,'material','材質'],[2,'date','作成日']]){const y=fy+i*9;frame+='<path d="M '+fx+' '+y+' H '+(fx+fw)+' M '+(fx+25)+' '+y+' V '+(y+9)+'" fill="none" stroke="#111" stroke-width=".18"/>'+text(fx+3,y+5.5,label,3);const rows=commentLines(options[key]||'',128,2.8).slice(0,2);rows.forEach((r,j)=>frame+=text(fx+28,y+3.5+j*3.5,r,2.8));}frame+='</g>';}
+ let frame='';if(titleBlock){const {x:fx,y:fy,width:fw,height:fh}=titleBlock;frame='<g data-titleblock="true" font-family="sans-serif"><rect x="5" y="5" width="'+(width-10)+'" height="'+(height-10)+'" fill="none" stroke="#111" stroke-width=".3"/><rect x="'+fx+'" y="'+fy+'" width="'+fw+'" height="'+fh+'" fill="white" stroke="#111" stroke-width=".25"/>';for(const [i,key,label] of [[0,'name','部品名'],[1,'material','材質'],[2,'date','作成日']]){const y=fy+i*9;frame+='<path d="M '+fx+' '+y+' H '+(fx+fw)+' M '+(fx+25)+' '+y+' V '+(y+9)+'" fill="none" stroke="#111" stroke-width=".18"/>'+text(fx+3,y+5.5,label,3);const rows=commentLines(options[key]||'',128,2.8).slice(0,2);rows.forEach((r,j)=>frame+=text(fx+28,y+3.5+j*3.5,r,2.8));}
+  if(options.revision?.trim()){
+   const x=fx+77,y=fy+18;
+   frame+='<path d="M '+x+' '+y+' v 9 M '+(x+22)+' '+y+' v 9" fill="none" stroke="#111" stroke-width=".18"/>'+text(x+3,y+5.5,'改訂番号',3);
+   commentLines(options.revision.trim(),fw-102,2.8).slice(0,2).forEach((row,i)=>frame+=text(x+25,y+3.5+i*3.5,row,2.8));
+  }
+  frame+='</g>';
+ }
  const baseViews=[...drawingProjectionNames,'iso'].filter(key=>layout[key]).map(view).join('');
  const extraViews=extraNames.map(view).join('');
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor)).join(''):'';
  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':layout.front&&drawingViewFactor('front',options)!==1?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,options.pageViews?.length===0?'mm':'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,width,height,layout,viewTitles,note,notes,holeBox,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,viewTitles,note,notes,holeBox,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
 }

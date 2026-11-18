@@ -4,6 +4,7 @@ import * as R from 'replicad';
 import {Quaternion} from 'three';
 import {validateFrame,frameMatrix} from './frames.js';
 import {drawingSilhouette} from './drawing-silhouette.js';
+import {drawingHoleRims,projectDrawingHoles} from './drawing-hole-geometry.js';
 // Project the complete assembly so bodies also hide edges of other bodies.
 export function orthographicProjection(bodies,ids,sections=[],requested=[...defaultDrawingViews,'iso'],frontFrame,silhouettes=false){
  if(!ids?.length)throw Error('図面にするボディがありません');
@@ -23,6 +24,11 @@ export function orthographicProjection(bodies,ids,sections=[],requested=[...defa
  const {normal,horizontal}=name==='iso'?{normal:[1,-1,1],horizontal:[1,1,0]}:drawingProjections[name];
  const camera=new R.ProjectionCamera([0,0,0],normal,horizontal);try{const p=R.drawProjection(compound,camera);views[name]={visible:p.visible.toSVGPaths().flat(Infinity),hidden:p.hidden.toSVGPaths().flat(Infinity),viewBox:p.visible.toSVGViewBox(0).trim().split(/\s+/).map(Number)};}finally{camera.delete();}
  if(mesh)views[name].silhouette=drawingSilhouette(mesh,normal,horizontal);
+ }
+ const roundViews=Object.keys(views).filter(name=>drawingProjections[name]&&views[name].visible.some(path=>path.includes('A')));
+ if(roundViews.length){
+  const rims=drawingHoleRims(compound);
+  for(const name of roundViews)views[name].holeMachining=projectDrawingHoles(rims,drawingProjections[name]);
  }
  const sectionErrors={};for(const section of sections){try{views[section.id]=sectionProjection(compound,bounds,section,silhouettes);}catch(e){sectionErrors[section.id]=typeof e==='number'?'断面の計算に失敗しました':e.message;}}
  return {bounds,views,bodyCount:ids.length,sectionErrors};

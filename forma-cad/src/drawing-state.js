@@ -13,6 +13,7 @@ export function drawingSignature(features){let a=2166136261,b=5381;for(const c o
 export function readDrawingState(value){if(value==null)return null;const fail=()=>{throw Error('図面編集データが不正です');};if(value.version!==1||typeof value.signature!=='string'||!Array.isArray(value.dimensions)||value.dimensions.length>500)fail();
  const s=structuredClone(value);if(!Number.isFinite(s.scale)||s.scale<.0001||s.scale>1000||typeof s.hidden!=='boolean'||typeof s.comment!=='string'||s.comment.length>2000||!Array.isArray(s.targets)||s.targets.some(id=>typeof id!=='string')||!['visible','selected'].includes(s.targetMode))fail();
  const o=s.options;if(!o||!['auto','A4','A3'].includes(o.paper)||!['landscape','portrait'].includes(o.orientation)||typeof o.frame!=='boolean')fail();if(o.viewPriority!==undefined&&!['balanced','front'].includes(o.viewPriority)||o.isoMode!==undefined&&!['full','small','hidden'].includes(o.isoMode))fail();if(o.layout!==undefined&&!['projection','compact'].includes(o.layout))fail();for(const key of ['name','material','date'])if(typeof o[key]!=='string'||o[key].length>100)fail();
+ if(o.revision!==undefined&&(typeof o.revision!=='string'||o.revision.length>20))fail();
  if(o.viewSelection!==undefined&&(!Array.isArray(o.viewSelection)||o.viewSelection.length>drawingProjectionNames.length||
   new Set(o.viewSelection).size!==o.viewSelection.length||o.viewSelection.some(view=>!drawingProjectionNames.includes(view))||
   !o.viewSelection.length&&o.isoMode==='hidden'))fail();

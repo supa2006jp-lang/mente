@@ -3,7 +3,8 @@ import {drawingProjections} from './drawing-view-preferences.js';
 import {completeDrawingCircles} from './drawing-auto-dimensions.js';
 
 export const maxDrawingTableHoles=48;
-const rowsPerBlock=24,columnWidths=[11,21,21,21],rowHeight=4.6;
+// Keep the original 74 mm block width so saved sheet placements still fit.
+const rowsPerBlock=24,columnWidths=[7,11.5,11.5,9,10,11.5,13.5],rowHeight=4.6;
 const blockWidth=columnWidths.reduce((a,b)=>a+b,0);
 const rounded=n=>Number(n.toFixed(3));
 const text=(s,x,y,anchor='start',size=2.8)=>'<text x="'+x+'" y="'+y+'" text-anchor="'+anchor+'" font-size="'+size+'">'+s+'</text>';
@@ -22,11 +23,17 @@ export function drawingHoleTableSVG(table,box){
   const widths=columnWidths.map((_,i)=>columnWidths.slice(0,i).reduce((a,b)=>a+b,0));
   for(const offset of [...widths,blockWidth])grid+=line(left+offset,top,left+offset,top+(rows+1)*rowHeight);
   for(let index=0;index<=rows+1;index++)grid+=line(left,top+rowHeight*index,left+blockWidth,top+rowHeight*index);
-  const print=(values,row)=>values.map((value,i)=>text(value,left+widths[i]+columnWidths[i]/2,top+row*rowHeight+3.25,'middle')).join('');
-  labels+=print(['ID','X','Y','Ø'],0);
+  const print=(values,row)=>values.map((value,i)=>{
+   const ems=Array.from(String(value)).reduce((width,ch)=>width+(ch.codePointAt(0)>255?1:.65),0);
+   const size=Math.min(row?2.8:2.5,(columnWidths[i]-1)/ems);
+   return text(value,left+widths[i]+columnWidths[i]/2,top+row*rowHeight+3.25,'middle',size);
+  }).join('');
+  labels+=print(['ID','X','Y','穴径 Ø','穴深さ','座ぐり径','座ぐり深さ'],0);
   for(let index=start;index<end;index++){
-   const {center,radius}=table.holes[index];
-   labels+=print(['H'+(index+1),rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),rounded(radius*2)],index-start+1);
+   const {center,radius,machining}=table.holes[index],recess=machining?.counterbore;
+   const depth=machining?.through?'貫通':machining?rounded(machining.depth):'—';
+   labels+=print(['H'+(index+1),rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),
+    rounded(radius*2),depth,recess?rounded(recess.radius*2):'—',recess?rounded(recess.depth):'—'],index-start+1);
   }
  }
  return '<g data-hole-table="true"><g stroke="#24455b" stroke-width=".2" fill="none">'+grid+'</g>'+labels+'</g>';
@@ -50,11 +57,30 @@ export function drawingHoleMarkersSVG(table,view){
  }).join('');
  return '<g data-hole-labels="'+table.view+'" fill="#24455b">'+ids+'</g>';
 }
+function sameCircle(a,b,radius=b.radius){
+ return Math.hypot(a.center[0]-b.center[0],a.center[1]-b.center[1])<1e-4&&Math.abs(a.radius-radius)<1e-4;
+}
+function resolveHoles(circles,view){
+ const seen=new Set(),holes=[];
+ for(const {center,radius} of circles){
+  const circle={center,radius};
+  const machining=view?.holeMachining?.find(bore=>sameCircle(circle,bore)||bore.counterbore&&sameCircle(circle,bore,bore.counterbore.radius));
+  if(!machining){holes.push(circle);continue;}
+  if(seen.has(machining))continue;
+  seen.add(machining);
+  holes.push({center,radius:machining.radius,machining});
+ }
+ return holes;
+}
+export function resolveDrawingHoleTable(table,views){
+ return table&&!table.review?{...table,holes:resolveHoles(table.holes,views[table.view])}:table;
+}
 export function drawingTableHoles(view){
- return completeDrawingCircles(view).sort((a,b)=>a.center[1]-b.center[1]||a.center[0]-b.center[0]||b.radius-a.radius);
+ const circles=completeDrawingCircles(view).sort((a,b)=>a.center[1]-b.center[1]||a.center[0]-b.center[0]||b.radius-a.radius);
+ return resolveHoles(circles,view);
 }
 export function drawingHoleTableMatches(table,view){
  if(!view)return false;
- const current=drawingTableHoles(view);
- return table.holes.every(hole=>current.some(c=>Math.hypot(c.center[0]-hole.center[0],c.center[1]-hole.center[1])<1e-4&&Math.abs(c.radius-hole.radius)<1e-4));
+ const current=completeDrawingCircles(view);
+ return table.holes.every(hole=>current.some(c=>sameCircle(hole,c)));
 }

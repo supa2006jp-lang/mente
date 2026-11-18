@@ -405,7 +405,7 @@ try{
  await drawing('hole-all').click();
  await drawing('hole-add').click();
  const holeRows=()=>drawing('preview').locator('[data-hole-table] text').allTextContents();
- assert.deepEqual((await holeRows()).slice(1),['ID','X','Y','Ø','H1','-13','-13','6','H2','-37','-29','6']);
+ assert.deepEqual((await holeRows()).slice(1),['ID','X','Y','穴径 Ø','穴深さ','座ぐり径','座ぐり深さ','H1','-13','-13','6','貫通','—','—','H2','-37','-29','6','貫通','—','—']);
  assert.match(await svg.locator('[data-hole-labels=top]').textContent(),/H1.*H2/);
  await drawing('expand').click();
  assert.match((await download(drawing('svg'))).toString(),/data-hole-table="true"/);
