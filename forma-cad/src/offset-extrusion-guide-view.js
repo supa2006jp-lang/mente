@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {basisFor} from './frames.js';
 import {findPanelSpace} from './panel-placement.js';
 import {offsetDragNormal,offsetDragValue} from './offset-extrusion-guides.js';
+import {snapOffsetDrag} from './offset-extrusion-snap.js';
 
 const ns='http://www.w3.org/2000/svg',node=(tag,attrs={})=>{const element=document.createElementNS(ns,tag);for(const [key,value] of Object.entries(attrs))element.setAttribute(key,value);return element;};
 function closestSegment(points,x,y){let best=-1,distance=Infinity;
@@ -9,7 +10,7 @@ function closestSegment(points,x,y){let best=-1,distance=Infinity;
  return best;
 }
 
-export function createOffsetExtrusionGuideView({dialog,canvas,camera,host,getData,getValue,onChange}){
+export function createOffsetExtrusionGuideView({dialog,canvas,camera,host,getData,getValue,getStep=()=>.1,onChange}){
  const svg=node('svg',{'aria-hidden':'true',id:'offset-extrusion-guides'});svg.style.cssText='position:fixed;inset:0;width:100vw;height:100vh;overflow:visible;pointer-events:none;z-index:1';
  const defs=node('defs'),clip=node('clipPath',{id:'offset-extrusion-guide-clip'}),clipRect=node('rect');clip.append(clipRect);defs.append(clip);svg.append(defs);
  const hits=node('g',{'clip-path':'url(#offset-extrusion-guide-clip)'}),labels=node('g',{'pointer-events':'none'});svg.append(hits,labels);dialog.append(svg);
@@ -24,11 +25,12 @@ export function createOffsetExtrusionGuideView({dialog,canvas,camera,host,getDat
  svg.addEventListener('pointerdown',event=>{
   if(event.button!==0||gesture)return;const index=Number(event.target.dataset.guide),guide=getData()?.guides[index],points=screenRings[index];if(!guide||!points)return;
   const point=onPlane(event,guide.region),segment=closestSegment(points,event.clientX,event.clientY),normal=offsetDragNormal(guide,segment);if(!point||!normal)return;
-  event.preventDefault();event.stopPropagation();const value=getValue();gesture={id:event.pointerId,region:guide.region,normal,point,value,initial:value};svg.setPointerCapture(event.pointerId);svg.style.cursor='grabbing';host.dataset.offsetExtrusionDragging='true';
+  event.preventDefault();event.stopPropagation();const value=getValue();gesture={id:event.pointerId,region:guide.region,normal,point,value,applied:value,initial:value};svg.setPointerCapture(event.pointerId);svg.style.cursor='grabbing';host.dataset.offsetExtrusionDragging='true';
  });
  svg.addEventListener('pointermove',event=>{
   if(!gesture||event.pointerId!==gesture.id)return;event.preventDefault();event.stopPropagation();const point=onPlane(event,gesture.region);if(!point)return;
-  gesture.value=offsetDragValue(gesture.value,point.clone().sub(gesture.point).dot(gesture.normal),event.shiftKey);gesture.point=point;onChange(Number(gesture.value.toFixed(3)));
+  gesture.value=offsetDragValue(gesture.value,point.clone().sub(gesture.point).dot(gesture.normal),event.shiftKey);gesture.point=point;
+  const value=snapOffsetDrag(gesture.value,getStep(),event.shiftKey);if(value!==gesture.applied){gesture.applied=value;onChange(value);}
  });
  svg.addEventListener('pointerup',event=>{if(gesture){event.preventDefault();event.stopPropagation();finish(event);}});
  svg.addEventListener('pointercancel',event=>finish(event,true));svg.addEventListener('lostpointercapture',event=>finish(event,true));
@@ -41,7 +43,7 @@ export function createOffsetExtrusionGuideView({dialog,canvas,camera,host,getDat
   const project=point=>{const p=new THREE.Vector3(...point).project(camera);return {x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2,z:p.z};};
   for(const [index,guide] of data.guides.entries()){
    const points=guide.world.map(project);screenRings.push(points);if(points.every(p=>p.z< -1||p.z>1))continue;
-   const path=node('path',{d:points.map((p,i)=>(i?'L':'M')+p.x+','+p.y).join(' ')+'Z',fill:'none',stroke:'transparent','stroke-width':16,'data-guide':index,'pointer-events':'stroke'});path.style.cssText='cursor:grab;touch-action:none';path.append(node('title'));path.firstChild.textContent='ドラッグでOS距離を調整（Shiftで微調整）';hits.append(path);
+   const path=node('path',{d:points.map((p,i)=>(i?'L':'M')+p.x+','+p.y).join(' ')+'Z',fill:'none',stroke:'transparent','stroke-width':16,'data-guide':index,'pointer-events':'stroke'});path.style.cssText='cursor:grab;touch-action:none';path.append(node('title'));path.firstChild.textContent='ドラッグで指定した刻みに吸着（▼で変更／Shiftは1/10刻み）';hits.append(path);
   }
   const obstacles=[{left:panel.left-rect.left,top:panel.top-rect.top,right:panel.right-rect.left,bottom:panel.bottom-rect.top}];
   for(const dimensions of data.dimensions){

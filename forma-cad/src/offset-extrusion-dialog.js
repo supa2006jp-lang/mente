@@ -3,6 +3,7 @@ import {findPanelSpace,projectedBounds} from './panel-placement.js';
 import {createOffsetExtrusionPreview} from './offset-extrusion-preview.js';
 import {createOffsetExtrusionGuideView} from './offset-extrusion-guide-view.js';
 import {createOffsetExtrusionPresetView} from './offset-extrusion-preset-view.js';
+import {loadOffsetDragStep,saveOffsetDragStep,validateOffsetDragStep} from './offset-extrusion-snap.js';
 
 const preferenceKey='forma-offset-extrusion-distance-v1';
 export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegions,getObjects,scene,camera,canvas,host}){
@@ -14,9 +15,9 @@ export function createOffsetExtrusionDialog({getFeatures,onApply,notify,getRegio
  dialog.innerHTML='<form><label id="offset-extrusion-label" for="offset-extrusion-distance">OS押出 (mm)</label><div style="display:flex;align-items:center;gap:5px;margin-top:4px"><input id="offset-extrusion-distance" type="number" step="any" min="-10000" max="10000" title="外周が基準。−で狭く、＋で広く。空欄は前回値。Enterで押し出しへ。" style="width:100%;min-width:0;box-sizing:border-box"><button type="button" id="offset-extrusion-cancel" title="キャンセル（Esc）">キャンセル</button><button class="accent" type="submit" title="押し出しへ（Enter）">押出</button></div><p id="offset-extrusion-error" role="alert" hidden></p></form>';
  const style=document.createElement('style');style.textContent='#offset-extrusion-dialog::backdrop{background:#0000000a}#offset-extrusion-dialog form{padding:0;display:block}#offset-extrusion-dialog label{font-size:12px;margin:0}#offset-extrusion-dialog button{font-size:11px;padding:3px 6px;min-height:28px;white-space:nowrap}#offset-extrusion-dialog input{font-size:14px;padding:4px 6px;min-height:30px;margin:0}#offset-extrusion-error{font-size:11px;margin:5px 0 0}#offset-extrusion-error[hidden]{display:none}';document.head.append(style);
  document.body.append(dialog);const input=dialog.querySelector('input'),error=dialog.querySelector('#offset-extrusion-error'),submit=dialog.querySelector('button[type=submit]');
- const value=()=>input.value.trim()===''?last:Number(input.value);
- const presets=createOffsetExtrusionPresetView({dialog,canvas,getValue:value,onSelect:value=>{input.value=String(value);refresh();input.focus({preventScroll:true});input.select();},notify});
- const guides=createOffsetExtrusionGuideView({dialog,canvas,camera,host,getData:()=>preview.data,getValue:value,onChange:value=>{presets.close();input.value=String(value);refresh();}});
+ const value=()=>input.value.trim()===''?last:Number(input.value);let dragStep=loadOffsetDragStep(),stepSaveWarning=false;
+ const presets=createOffsetExtrusionPresetView({dialog,canvas,getValue:value,getStep:()=>dragStep,setStep:step=>{validateOffsetDragStep(step);dragStep=step;try{saveOffsetDragStep(step);}catch(error){if(!stepSaveWarning)notify(error.message);stepSaveWarning=true;}},onSelect:value=>{input.value=String(value);refresh();input.focus({preventScroll:true});input.select();},notify});
+ const guides=createOffsetExtrusionGuideView({dialog,canvas,camera,host,getData:()=>preview.data,getValue:value,getStep:()=>dragStep,onChange:value=>{presets.close();input.value=String(value);refresh();}});
  function reset(){guides.clear();presets.close();preview.clear();target=null;original=null;regions=[];previous=null;layoutKey='';}
  function close(){if(dialog.open)dialog.close();reset();}
  function layout(){
