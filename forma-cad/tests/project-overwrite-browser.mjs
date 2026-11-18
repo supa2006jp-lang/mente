@@ -1,4 +1,5 @@
 import {defaults} from '../src/geometry.js';
+import {encodeProjectDocument} from '../src/project-codec.js';
 import {chromium} from 'playwright';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -28,9 +29,9 @@ try{
   window.showOpenFilePicker=async()=>{t.opens++;if(t.cancel)throw new DOMException('cancel','AbortError');return [handle(t.openName)];};
   window.showSaveFilePicker=async()=>{t.picks++;if(t.cancel)throw new DOMException('cancel','AbortError');return handle(t.saveName);};
  });
- await page.goto('http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ await page.goto('http://127.0.0.1:'+server.address().port+prefix);await page.locator('#canvas-host canvas').waitFor();
  async function saveStatus(state,configured,hasTime=false){
-  assert.equal(await page.locator('#project-save-state').getAttribute('data-state'),state);
+  await page.waitForFunction(expected=>document.getElementById('project-save-state').dataset.state===expected,state);
   assert.equal(await page.locator('#project-save-target').getAttribute('data-configured'),String(configured));
   assert.equal(await page.locator('#project-save-time').isVisible(),hasTime);
   if(hasTime){assert.ok(Number.isFinite(Date.parse(await page.locator('#project-save-time').getAttribute('datetime'))));assert.match(await page.locator('#project-save-time').textContent(),/\d{2}:\d{2}:\d{2}/);}
@@ -38,7 +39,15 @@ try{
  await saveStatus('unsaved',false);
  const A={format:'forma-cad',version:1,units:'mm',features:[{...defaults,id:'box',kind:'extrusion',name:'箱A',width:40,height:30,depth:20}]};
  await page.evaluate(data=>window.fileTest.files['A.forma.json']=JSON.stringify(data),A);
- async function openNative(name,confirm=true){await page.evaluate(name=>window.fileTest.openName=name,name);await page.locator('#load').click();await page.locator('#project-load-preview').waitFor({state:'visible'});await page.locator(confirm?'#project-preview-open':'#project-preview-cancel').click();}
+ async function openNative(name,confirm=true){
+  await page.evaluate(name=>window.fileTest.openName=name,name);
+  await page.locator('#load').click();
+  await page.locator(confirm?'#project-preview-open':'#project-preview-cancel').click();
+  if(confirm)await page.waitForFunction(name=>document.getElementById('project-file-name').textContent===name&&document.getElementById('project-save-state').dataset.state==='loaded',name);
+ }
+ async function historyButtons(canUndo,canRedo){
+  await page.waitForFunction(([undo,redo])=>document.getElementById('undo').disabled===!undo&&document.getElementById('redo').disabled===!redo,[canUndo,canRedo]);
+ }
  async function edit(depth){await page.locator('#features .row-label').first().click();await page.locator('#depth').fill(String(depth));await page.locator('#apply').click();}
  async function overwrite(){await page.locator('#save-overwrite').click();await page.waitForFunction(()=>!document.getElementById('save-overwrite').disabled);}
  async function saved(name){return page.evaluate(name=>JSON.parse(window.fileTest.files[name]),name);}
@@ -56,6 +65,7 @@ try{
  const beforeFailureTime=await page.locator('#project-save-time').getAttribute('datetime');await edit(28);await page.evaluate(()=>window.fileTest.fail=true);await overwrite();await saveStatus('error',true,true);assert.equal(await page.locator('#project-save-time').getAttribute('datetime'),beforeFailureTime);assert.match(await page.locator('#project-save-state').getAttribute('title'),/ディスク書込エラー/);assert.equal((await saved('A.forma.json')).features[0].depth,26);assert.equal(await page.locator('#dirty').textContent(),'•');
  await gallery(1);await page.locator('.project-library-open').click();await page.locator('#project-preview-open').click(); // gallery snapshot is 26, and intentionally detaches disk
  await saveStatus('loaded',false);
+ await historyButtons(false,false);
  await page.evaluate(()=>{window.fileTest.fail=false;window.fileTest.saveName='A.forma.json';});
  await edit(30);await overwrite();await saveStatus('saved',true,true);assert.equal(await page.evaluate(()=>window.fileTest.picks),1);assert.equal((await saved('A.forma.json')).features[0].depth,30);
  await gallery(1);await page.locator('.project-library-open').click();await page.locator('#project-preview-open').click();
@@ -70,6 +80,35 @@ try{
  await page.evaluate(()=>window.fileTest.saveName='copy.forma.json');await edit(38);const beforePicks=await page.evaluate(()=>window.fileTest.picks);await overwrite();assert.equal(await page.evaluate(()=>window.fileTest.picks),beforePicks+1);assert.equal((await saved('A.forma.json')).features[0].depth,36);assert.equal((await saved('copy.forma.json')).features[0].depth,38);
  // New document detaches target.
  await page.locator('#clear').click();await saveStatus('unsaved',false);await page.evaluate(()=>window.fileTest.saveName='empty.forma.json');await overwrite();assert.deepEqual((await saved('empty.forma.json')).features,[]);assert.equal((await saved('copy.forma.json')).features[0].depth,38);
+ // Only a confirmed open starts a new undo history, even when both models share feature IDs.
+ await openNative('A.forma.json');
+ const savedA=await saved('A.forma.json');
+ await edit(40);await edit(42);
+ await page.locator('#undo').click();await historyButtons(true,true);
+ await openNative('B.forma.json',false);await historyButtons(true,true);
+ await page.evaluate(()=>{window.fileTest.files['invalid.forma.json']='{';window.fileTest.openName='invalid.forma.json';});
+ await page.locator('#load').click();
+ await page.waitForFunction(()=>document.getElementById('toast').textContent.includes('読み込みできません'));
+ await page.keyboard.press('Control+y');await historyButtons(true,false);
+ await page.keyboard.press('Control+z');await historyButtons(true,true);
+
+ await openNative('B.forma.json');await historyButtons(false,false);
+ await page.keyboard.press('Control+z');await page.keyboard.press('Control+y');
+ await page.keyboard.press('Control+s');
+ await page.waitForFunction(()=>document.getElementById('project-save-state').dataset.state==='saved'&&!document.getElementById('save-overwrite').disabled);
+ assert.equal((await saved('B.forma.json')).features[0].depth,90);
+ await edit(92);await page.locator('#undo').click();await historyButtons(false,true);
+ await overwrite();assert.equal((await saved('B.forma.json')).features[0].depth,90);
+ await page.locator('#redo').click();await historyButtons(true,false);
+ await overwrite();assert.equal((await saved('B.forma.json')).features[0].depth,92);
+ assert.deepEqual((await saved('A.forma.json')).features,savedA.features);
+
+ const compressed=await encodeProjectDocument(A,{compress:true});
+ await page.locator('#file').setInputFiles({name:'B.forma.json',mimeType:'application/json',buffer:Buffer.from(compressed.text)});
+ await page.locator('#project-preview-open').click();
+ await saveStatus('loaded',false);await historyButtons(false,false);
+ console.log('PASS confirmed file opens isolate Undo/Redo and overwrite, including same-name file uploads; canceled and invalid opens preserve history');
+
  // Unsupported direct-write still allows downloading under a chosen name.
  await page.locator('#clear').click();await page.evaluate(()=>{delete window.showSaveFilePicker;});await overwrite();assert.match(await page.locator('#toast').textContent(),/名前を付けて保存/);const fallback=page.waitForEvent('download');await page.locator('#save').click();await fallback;await saveStatus('downloaded',false,true);
  // Exercise Chromium's real FileSystemFileHandle and transactional writable stream using origin-private storage.
