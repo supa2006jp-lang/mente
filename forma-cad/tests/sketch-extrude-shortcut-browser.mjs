@@ -14,7 +14,8 @@ try{
  const context=await browser.newContext({viewport:{width:1800,height:1100},acceptDownloads:true}),page=await context.newPage(),errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>{window.shortcutJobs=[];const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(p,...args){if(p.spec)window.shortcutJobs.push(p.spec.type);return post.call(this,p,...args);};});
- await page.goto('http://127.0.0.1:'+server.address().port+'/');
+ await fs.mkdir('.sites-runtime',{recursive:true});
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  const host=page.locator('#canvas-host'),canvas=page.locator('#canvas-host canvas'),shortcut=page.locator('#face-extrude-shortcut'),panel=page.locator('#extrude-distance'),picker=page.locator('#selection-candidates');
  const boxes=[{...defaults,id:'a',kind:'extrusion',name:'左の箱',x:-24,width:20,height:20,depth:10},{...defaults,id:'b',kind:'extrusion',name:'右の箱',x:24,width:20,height:20,depth:10}];
  async function load(features,view='top'){
@@ -28,7 +29,22 @@ try{
  function checkSolid(features,id,expectedVolume,maxZ){const bodies=rebuild(features);try{const g=bodies.get(id).geometry;g.computeBoundingBox();assert.ok(Math.abs(volume(g)-expectedVolume)<.05);assert.ok(Math.abs(g.boundingBox.max.z-maxZ)<.001);}finally{for(const body of bodies.values())body.geometry.dispose();}}
  async function selectFace(point,add=false){if(add)await page.keyboard.down('Control');await page.mouse.click(...await screen(point));if(add)await page.keyboard.up('Control');await page.waitForTimeout(150);}
 
- await load([]);await page.locator('#new-rect').click();await selectFace([-20,-10,0]);assert.equal(await shortcut.isVisible(),false,'an unfinished rectangle is not extrudable');await selectFace([20,10,0]);await shortcut.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),true,'rectangle tool remains active');assert.match(await shortcut.getAttribute('aria-label'),/閉じたスケッチ/);const before=await save();assert.equal(before.features.length,1);const jobs=await page.evaluate(()=>window.shortcutJobs.length);await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'showing a closed sketch shortcut does not run CAD');await page.screenshot({path:'.sites-runtime/sketch-extrude-shortcut-preview.png'});
+ await load([]);await page.locator('#new-rect').click();await selectFace([-20,-10,0]);assert.equal(await shortcut.isVisible(),false,'an unfinished rectangle is not extrudable');await selectFace([20,10,0]);await shortcut.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),true,'rectangle tool remains active');assert.match(await shortcut.getAttribute('aria-label'),/閉じたスケッチ/);
+ // Cross the buttons with a stroke inside the same layer that draws sketch constraints.
+ const shortcutIds=['face-extrude-shortcut','face-extrude-shortcut-unextruded','face-extrude-shortcut-offset'];
+ const hits=await page.evaluate(ids=>{
+  const layer=document.getElementById('sketch-constraint-markers'),wasHidden=layer.hidden;
+  const boxes=ids.map(id=>document.getElementById(id).getBoundingClientRect());
+  const y=boxes[0].top+boxes[0].height/2,ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg'),line=document.createElementNS(ns,'line');
+  svg.style.cssText='position:absolute;inset:0;width:100%;height:100%';
+  for(const [key,value] of Object.entries({x1:boxes[0].left,x2:boxes.at(-1).right,y1:y,y2:y,stroke:'#2464bd','stroke-width':5,'pointer-events':'stroke'}))line.setAttribute(key,value);
+  svg.append(line);layer.append(svg);layer.hidden=false;
+  try{return boxes.map(box=>document.elementFromPoint(box.left+box.width/2,y)?.closest('button')?.id??null);}
+  finally{svg.remove();layer.hidden=wasHidden;}
+ },shortcutIds);
+ assert.deepEqual(hits,shortcutIds,'all extrusion buttons stay in front of intersecting sketch lines');
+ const before=await save();assert.equal(before.features.length,1);const jobs=await page.evaluate(()=>window.shortcutJobs.length);await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'showing a closed sketch shortcut does not run CAD');await page.screenshot({path:'.sites-runtime/sketch-extrude-shortcut-preview.png'});
  // Starting the next rectangle must not destroy the already completed one.
  await selectFace([40,30,0]);await shortcut.waitFor();const view=JSON.parse(await host.getAttribute('data-camera-state'));await shortcut.click();await panel.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),false);const afterView=JSON.parse(await host.getAttribute('data-camera-state'));assert.ok(afterView.slice(3).every((v,i)=>Math.abs(v-view[i+3])<1e-6));assert.equal(await page.locator('#body-count').textContent(),'0');await page.locator('#viewport-depth').fill('5');await ready();await confirm();let data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,1);assert.equal(data.features.find(f=>f.kind==='sketch').id,before.features[0].id);checkSolid(data.features,data.features.at(-1).id,4000,5);await page.keyboard.press('Control+z');assert.equal(await page.locator('#body-count').textContent(),'0');await page.keyboard.press('Control+y');assert.equal(await page.locator('#body-count').textContent(),'1');
  // Every closed frame keeps its own shortcut and an older frame remains directly extrudable.
@@ -41,7 +57,11 @@ try{
  // A secondary icon must launch its own profile rather than the first region.
  await load([]);await page.locator('#new-rect').click();for(const point of [[-40,-20,0],[-10,10,0],[10,-20,0],[30,0,0]])await selectFace(point);await page.waitForFunction(()=>document.querySelectorAll('.face-extrude-shortcut:not([hidden])').length===2);const secondary=page.locator('.face-extrude-shortcut:not([hidden])').nth(1),secondaryRegion=await secondary.getAttribute('data-region-id');await secondary.click();await panel.waitFor();await page.locator('#viewport-depth').fill('5');await ready();await confirm();data=await save();assert.equal(data.features.at(-1).region.id,secondaryRegion);checkSolid(data.features,data.features.at(-1).id,2000,5);
  // Open line chains do not offer extrusion; closing them offers it without Finish Sketch.
- await load([]);await page.locator('#new-line').click();for(const point of [[-20,-10,0],[20,-10,0],[20,10,0],[-20,10,0]]){await selectFace(point);assert.equal(await shortcut.isVisible(),false);}await selectFace([-20,-10,0]);await shortcut.waitFor();data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,4);await shortcut.click();await panel.waitFor();await page.locator('#viewport-extrude-cancel').click();assert.equal((await save()).features.filter(f=>f.kind==='sketch').length,4);
+ await load([]);await page.locator('#new-line').click();
+ const step=await host.evaluate(el=>Number(el.dataset.sketchGridDisplayStep||el.dataset.gridDisplayStep));assert(step>0);
+ const corners=[[-step,-step,0],[step,-step,0],[step,step,0],[-step,step,0]];
+ for(const point of corners){await selectFace(point);assert.equal(await shortcut.isVisible(),false);}
+ await selectFace(corners[0]);await shortcut.waitFor();data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,4);await shortcut.click();await panel.waitFor();await page.locator('#viewport-extrude-cancel').click();assert.equal((await save()).features.filter(f=>f.kind==='sketch').length,4);
  // A closed region from another sketch must not masquerade as a newly closed frame.
  await load([{...defaults,id:'old',kind:'sketch',name:'別のスケッチ',width:20,height:20,groupId:'old',groupNumber:1}]);await page.locator('#new-line').click();await selectFace([40,30,0]);await selectFace([60,30,0]);await page.waitForTimeout(100);assert.equal(await shortcut.isVisible(),false);
  assert.deepEqual(errors,[]);const proof={allClosedRegionsHaveIcons:true,earlierFrameIconRetained:true,threeIndependentIcons:true,iconsDoNotOverlap:true,olderIconExtrudesItsRegion:true,secondaryIconExtrudesItsRegion:true,allSketchesPreserved:true,noMultipleIconCadJobs:true,rectangleDuringDrawing:true,unfinishedRectangleHidden:true,partialNextRectangleIgnored:true,preserveCompletedSketches:true,lineChainClosed:true,openChainHidden:true,otherSessionExcluded:true,noSelectionCadJobs:true,preserveView:true,actualExtrusion:true,cancelPreservesSketches:true,undoRedo:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/sketch-extrude-shortcut-browser-proof.json',JSON.stringify(proof,null,2));await context.close();

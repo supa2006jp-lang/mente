@@ -106,6 +106,9 @@ try{
  await field('close').click();
 
  await open({...drawing,dimensions:[]});
+ const [autoColor,arrangeColor]=await Promise.all(['dimension-auto','dimension-arrange'].map(id=>
+  field(id).evaluate(button=>getComputedStyle(button).backgroundColor)));
+ assert.notEqual(autoColor,arrangeColor,'automatic dimension entry has a visible accent');
  await field('auto-unique-overall').check();
  await field('dimension-auto').click();
  await field('view-scales').locator('summary').click();

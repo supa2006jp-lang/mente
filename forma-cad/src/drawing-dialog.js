@@ -112,7 +112,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  conflictList.innerHTML='<summary></summary><div id="drawing-conflict-rows"></div>';
  viewportBar.append(conflictList);
  $('drawing-undo').closest('.drawing-controls').classList.add('drawing-history-controls');
- $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" title="外形・円形部の直径・中心位置をまとめて追加します">寸法を自動入力</button>');
+ $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" class="accent" type="button" title="外形・円形部の直径・中心位置をまとめて追加します">寸法を自動入力</button>');
  $('drawing-dimension-auto').insertAdjacentHTML('afterend','<button id="drawing-dimension-arrange" title="既存の寸法を重なりにくい位置へ移動します">寸法を自動配置</button>');
  $('drawing-dimension-arrange').insertAdjacentHTML('afterend','<button type="button" id="drawing-dimension-group" title="同じ図・実寸法・書式のRや穴径を数量付きの表記にまとめます">同じR・穴径をまとめる</button>');
  $('drawing-dimension-arrange').insertAdjacentHTML('afterend',
