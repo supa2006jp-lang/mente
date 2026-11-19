@@ -801,6 +801,7 @@ button.form-control-point.invalid { background:#bc2634; }
 #interior-edge-adjustment #fillet-interior-candidates { background:#e1f3df !important; border-color:#78a987 !important; color:#185438 !important; }
 
 #drawing-alignment,#drawing-page-assignments{padding:7px 10px;border:1px solid #486072;border-radius:6px;margin:6px 0}
+.drawing-controls > #drawing-page-assignments{box-sizing:border-box;flex:0 0 100%;min-width:0;margin:0}
 #drawing-alignment summary,#drawing-page-assignments summary{cursor:pointer}
 #drawing-alignment .drawing-controls,#drawing-page-assignments .drawing-controls{margin-top:7px;gap:8px}
 #drawing-alignment-items,#drawing-page-items{max-height:180px;overflow:auto}

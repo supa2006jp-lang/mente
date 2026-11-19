@@ -21,7 +21,7 @@ export function installDrawingWorkspace(dialog){
  }
  const print=document.createElement('div');
  print.className='drawing-controls';
- print.append(get('print-palette').closest('label'),get('pdf-layout').closest('label'),get('pdf-placement-label'));
+ print.append(get('print-palette').closest('label'),get('pdf-layout').closest('label'),get('page-assignments'),get('pdf-placement-label'));
  const navigationHelp=toolbar.querySelector('small');
  const notices=document.createElement('div');
  notices.className='drawing-notices';

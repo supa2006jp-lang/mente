@@ -56,12 +56,21 @@ try{
 
  await open(drawing);
  assert.equal(await field('pdf-placement').inputValue(),'keep');
+ const assignments=field('page-assignments');
+ assert(await assignments.isVisible());
+ const [pageLayoutBox,assignmentsBox]=await Promise.all([field('pdf-layout').boundingBox(),assignments.boundingBox()]);
+ assert(assignmentsBox.y>=pageLayoutBox.y+pageLayoutBox.height);
+ assert.deepEqual(await assignments.evaluate(panel=>[
+  panel.previousElementSibling?.querySelector('select')?.id,panel.nextElementSibling?.id,
+ ]),['drawing-pdf-layout','drawing-pdf-placement-label']);
  const pagesNote=field('pdf-pages-note');
  assert(await pagesNote.isVisible());
  assert.match(await pagesNote.textContent(),/複数ページ.*全体を1枚.*PDFをプレビュー/);
  await field('pdf-layout').selectOption('');
  assert(await pagesNote.isHidden());
+ assert(await assignments.isHidden());
  await field('pdf-layout').selectOption('manual');
+ assert(await assignments.evaluate(panel=>panel.open));
  await field('page-count').fill('1');await field('page-count').press('Tab');
  assert(await pagesNote.isHidden());
  await field('page-count').fill('2');await field('page-count').press('Tab');

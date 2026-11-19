@@ -90,7 +90,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  scaleRows.after(alignmentPanel);
  const pagePanel=document.createElement('details');pagePanel.id='drawing-page-assignments';
  pagePanel.innerHTML='<summary>PDFのページ割り当て</summary><label>ページ数<input id="drawing-page-count" type="number" min="1" max="32" step="1" value="2"></label><div id="drawing-page-items" class="drawing-controls"></div><small>各項目の掲載ページを指定します。配置と縮尺はPDFプレビューで確認できます。</small>';
- alignmentPanel.after(pagePanel);
+ $('drawing-pdf-layout').closest('label').after(pagePanel);
  const pdfPagesNote=document.createElement('p');
  pdfPagesNote.id='drawing-pdf-pages-note';pdfPagesNote.hidden=true;
  pdfPagesNote.setAttribute('role','status');viewportBar.append(pdfPagesNote);
