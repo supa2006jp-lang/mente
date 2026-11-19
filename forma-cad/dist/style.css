@@ -218,6 +218,7 @@
 #drawing-settings small { color:#bdcbd5; }
 .drawing-sheet-pane { display:grid; grid-template-rows:auto minmax(0,1fr) clamp(48px,7vh,76px); flex:1; min-width:0; min-height:0; }
 .drawing-sheet-pane .drawing-viewport-controls { position:static; gap:5px 8px; margin:0; padding:6px 8px; }
+#drawing-pdf-pages-note { box-sizing:border-box; flex:0 0 100%; margin:0; padding:5px 8px; border-inline-start:2px solid #50a4bc; background:#173144; color:#d5edf3; font-size:.875rem; line-height:1.45; }
 .drawing-sheet-pane #drawing-preview { height:100%; min-height:0; min-width:0; }
 .drawing-feedback { display:flex; align-items:flex-start; gap:12px; padding-top:4px; min-height:0; overflow:auto; }
 .drawing-feedback #drawing-status { flex:1; margin:0; min-height:1.5em; }

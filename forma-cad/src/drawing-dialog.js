@@ -1,5 +1,5 @@
 import {circles,viewPoints,insideView,withDetails,snapDimension} from './drawing-annotations.js';
-import {drawingPDFPages} from './drawing-pdf-pages.js';
+import {drawingPDFHasMultiplePages,drawingPDFPages} from './drawing-pdf-pages.js';
 import {installDrawingPDFPreview} from './drawing-pdf-preview.js';
 import {drawingPDFIssues,drawingSheetOverflow} from './drawing-sheet-check.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
@@ -91,6 +91,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  const pagePanel=document.createElement('details');pagePanel.id='drawing-page-assignments';
  pagePanel.innerHTML='<summary>PDFのページ割り当て</summary><label>ページ数<input id="drawing-page-count" type="number" min="1" max="32" step="1" value="2"></label><div id="drawing-page-items" class="drawing-controls"></div><small>各項目の掲載ページを指定します。配置と縮尺はPDFプレビューで確認できます。</small>';
  alignmentPanel.after(pagePanel);
+ const pdfPagesNote=document.createElement('p');
+ pdfPagesNote.id='drawing-pdf-pages-note';pdfPagesNote.hidden=true;
+ pdfPagesNote.setAttribute('role','status');viewportBar.append(pdfPagesNote);
  const overflowList=document.createElement('div');overflowList.id='drawing-overflow-list';
  viewportBar.querySelector('small').insertAdjacentHTML('beforebegin',
   '<label>用紙内の背景色<input id="drawing-preview-background" type="color" title="用紙内の部品まわりを着色します。SVG・PDFにも反映します"></label>'+
@@ -705,6 +708,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-pdf-placement-label').hidden=!pdfLayout;
   $('drawing-pdf-placement').disabled=!ready;
   $('drawing-pdf-placement').value=pdfPlacement;
+  const splitPDF=sheet&&drawingPDFHasMultiplePages(Object.keys(sheet.layout),{pdfLayout,pageAssignments,holeTable});
+  const pdfNote=splitPDF?'PDFは複数ページに分かれます。ここでは図面全体を1枚で表示します。各ページは「PDFをプレビュー」で確認できます。':'';
+  pdfPagesNote.hidden=!splitPDF;
+  if(pdfPagesNote.textContent!==pdfNote)pdfPagesNote.textContent=pdfNote;
   $('drawing-print-palette').value=printPalette;$('drawing-print-palette').disabled=!ready;
   $('drawing-pdf').disabled=blockPDFExport();
   $('drawing-pdf-preview-open').disabled=blockPDFExport();

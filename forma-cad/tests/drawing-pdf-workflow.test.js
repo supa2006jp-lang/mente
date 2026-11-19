@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
-import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
+import {drawingPDFHasMultiplePages,drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {readDrawingState} from '../src/drawing-state.js';
@@ -17,6 +17,16 @@ const options={paper:'A4',orientation:'landscape',frame:true,layout:'projection'
 };
 const frontDimension={view:'front',kind:'horizontal',a:[0,0],b:[60,0],at:[25,12]};
 const header=sheet=>sheet.svg.match(/data-sheet-scale="true">([^<]+)/)?.[1];
+
+test('the editor announces a PDF only when more than one page will be produced',()=>{
+ const views=['front','top','right'];
+ assert.equal(drawingPDFHasMultiplePages(views,{pdfLayout:''}),false);
+ assert.equal(drawingPDFHasMultiplePages(views,{pdfLayout:'manual',pageAssignments:{pageCount:1}}),false);
+ assert.equal(drawingPDFHasMultiplePages(views,{pdfLayout:'manual',pageAssignments:{pageCount:2}}),true);
+ assert.equal(drawingPDFHasMultiplePages(views,{pdfLayout:'multi'}),false);
+ assert.equal(drawingPDFHasMultiplePages([...views,'section-a'],{pdfLayout:'multi'}),true);
+ assert.equal(drawingPDFHasMultiplePages(views,{pdfLayout:'multi',holeTable:{view:'top'}}),true);
+});
 
 test('an assigned PDF preserves editor positions, real scales, wrapped notes and sheet size',()=>{
  const dimension={...frontDimension,at:[20,10]},notes='Plate note\nKeep this note with the section.';

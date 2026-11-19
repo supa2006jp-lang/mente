@@ -56,6 +56,19 @@ try{
 
  await open(drawing);
  assert.equal(await field('pdf-placement').inputValue(),'keep');
+ const pagesNote=field('pdf-pages-note');
+ assert(await pagesNote.isVisible());
+ assert.match(await pagesNote.textContent(),/複数ページ.*全体を1枚.*PDFをプレビュー/);
+ await field('pdf-layout').selectOption('');
+ assert(await pagesNote.isHidden());
+ await field('pdf-layout').selectOption('manual');
+ await field('page-count').fill('1');await field('page-count').press('Tab');
+ assert(await pagesNote.isHidden());
+ await field('page-count').fill('2');await field('page-count').press('Tab');
+ assert(await pagesNote.isVisible());
+ await field('pdf-layout').selectOption('multi');
+ assert(await pagesNote.isVisible());
+ await field('pdf-layout').selectOption('manual');
  await field('pdf').click();
  await preview.waitFor();
  assert.match(await field('pdf-preview-check-summary').textContent(),/寸法の重なり 2 件.*参照先を要確認 1 件/);

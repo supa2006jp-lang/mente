@@ -3,6 +3,19 @@ import {withDetails} from './drawing-annotations.js';
 import {optimizeDrawingLayout} from './drawing-auto-layout.js';
 import {drawingSheet} from './drawing-sheet.js';
 
+const isAuxiliaryView=name=>name.startsWith('section-')||name.startsWith('detail-');
+
+function auxiliaryPDFItems(views,holeTable){
+ const items=views.filter(isAuxiliaryView);
+ if(holeTable&&views.includes(holeTable.view)&&!isAuxiliaryView(holeTable.view))items.push('holeTable');
+ return items;
+}
+
+export function drawingPDFHasMultiplePages(views,{pdfLayout,pageAssignments,holeTable}){
+ if(pdfLayout==='manual')return (pageAssignments?.pageCount??2)>1;
+ return pdfLayout==='multi'&&auxiliaryPDFItems(views,holeTable).length>0;
+}
+
 function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet){
  const keep=options.pdfPlacement!=='auto';
  const source=keep?(editorSheet??drawingSheet(data,scale,hidden,dimensions,comment,options)):null;
@@ -52,7 +65,7 @@ export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,opt
  const assignment=options.pageAssignments??{pageCount:2,views:{},comments:{}};
  const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet);
  const pageOf=(kind,id)=>Math.min(assignment.pageCount,assignment[kind]?.[id]??(
-  kind==='views'&&(id.startsWith('section-')||id.startsWith('detail-'))?2:1));
+  kind==='views'&&isAuxiliaryView(id)?2:1));
  for(let page=1;page<=assignment.pageCount;page++){
   const views=names.filter(name=>pageOf('views',name)===page);
   const notes=comments.filter(note=>pageOf('comments',note.id)===page);
@@ -67,9 +80,7 @@ export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,opt
 export function drawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet){
  if(options.pdfLayout==='manual')return assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet);
  const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet);
- const overview=names.filter(name=>!name.startsWith('section-')&&!name.startsWith('detail-'));
- const auxiliary=names.filter(name=>!overview.includes(name));
- const hasTable=!!options.holeTable&&overview.includes(options.holeTable.view);
+ const overview=names.filter(name=>!isAuxiliaryView(name));
  add(overview,false,comment,comments);
  function fitAuxiliary(items){
   if(!items.length)return;
@@ -80,6 +91,6 @@ export function drawingPDFPages(data,scale,hidden,dimensions,comment,options,edi
    fitAuxiliary(items.slice(0,mid));fitAuxiliary(items.slice(mid));
   }
  }
- fitAuxiliary([...auxiliary,...(hasTable?['holeTable']:[])]);
+ fitAuxiliary(auxiliaryPDFItems(names,options.holeTable));
  return render();
 }
