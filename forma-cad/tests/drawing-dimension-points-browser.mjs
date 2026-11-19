@@ -9,11 +9,12 @@ import {cadMesh} from '../src/cad-mesh.js';
 import {drawingSignature,readDrawingState} from '../src/drawing-state.js';
 
 R.setOC(await init({wasmBinary:await readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
-const box=R.makeBox([0,0,0],[40,20,12]),tool=R.makeBox([8,6,3],[30,14,14]),solid=box.cut(tool);
+const box=R.makeBox([0,0,0],[40,20,12]),tool=R.makeBox([8,6,3],[30,14,14]),pocket=box.cut(tool);
+const drill=R.makeCylinder(2,14,[35,10,-1]),solid=pocket.cut(drill);
 const features=[{kind:'cadop',id:'part',name:'検証用の角溝',remove:[],outputs:[{
  id:'part',brep:solid.serialize(),...cadMesh(solid),cadCoordinatePrecision:true
 }]}];
-for(const shape of [box,tool,solid])shape.delete();
+for(const shape of [box,tool,pocket,drill,solid])shape.delete();
 const project={format:'forma-cad',version:1,features,drawing:{
  version:1,signature:drawingSignature(features),targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',
  dimensions:[],options:{paper:'A4',orientation:'landscape',frame:false,name:'',material:'',date:'',layout:'projection',
@@ -38,12 +39,13 @@ try{
  page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
  const field=id=>page.locator('#drawing-'+id),preview=field('preview');
  const front=preview.locator('[data-view="front"] > g[transform]');
+ const top=preview.locator('[data-view="top"] > g[transform]');
  const manual=preview.locator('[data-dimension-point]');
  const frontManual=preview.locator('[data-dimension-point][data-snap-view="front"]');
  const points=()=>frontManual.evaluateAll(marks=>marks.map(mark=>JSON.parse(mark.dataset.snapPoint)));
  const label=preview.locator('[data-dimension] text');
  const guides=preview.locator('[data-dimension-point-guide]');
- const kind=field('dimension-kind'),hint=field('dimension-hint');
+ const kind=field('dimension-kind'),hint=field('dimension-hint'),hover=preview.locator('[data-dimension-hover]');
  async function load(document){
   const buffer=Buffer.from(JSON.stringify(document));
   await page.locator('#file').setInputFiles({name:'drawing-points.forma.json',mimeType:'application/json',buffer});
@@ -52,12 +54,13 @@ try{
   await field('tool').click();
   await front.waitFor();
  }
- async function screen(at){
-  return front.evaluate((g,[x,y])=>{
+ async function screen(at,view=front){
+  return view.evaluate((g,[x,y])=>{
    const p=new DOMPoint(x,y).matrixTransform(g.getScreenCTM());
    return [p.x,p.y];
   },at);
  }
+ async function moveAt(at,view){await page.mouse.move(...await screen(at,view));}
  async function clickAt(at){await page.mouse.click(...await screen(at));}
  async function labelBoxInFront(){
   return preview.locator('[data-dimension] rect').evaluate(rect=>{
@@ -93,14 +96,44 @@ try{
   assert.match(await hint.textContent(),target);
  }
  await field('dimension-add').click();
+ await moveAt([20,-12]);
+ assert.equal(await hover.getAttribute('data-dimension-hover'),'line');
+ assert.equal(await hover.evaluate(el=>getComputedStyle(el).stroke),'rgb(207, 40, 86)');
  await clickAt([20,-12]);
  assert.match(await hint.textContent(),/２本目の直線/);
+ assert.equal(await hover.count(),0);
+ await moveAt([24,-12]);
+ assert.equal(await hover.count(),0);
+ await moveAt([0,-6]);
+ assert.equal(await hover.getAttribute('data-dimension-hover'),'line');
  await clickAt([0,-6]);
  assert.match(await hint.textContent(),/置く位置/);
+ assert.equal(await hover.count(),0);
+ await kind.selectOption('radius');
+ await field('dimension-add').click();
+ const arcPoint=await top.locator('g:not([data-hidden]) > [data-curve][d*=" A "]').first().evaluate(path=>{
+  const point=path.getPointAtLength(path.getTotalLength()/3);
+  return [point.x,point.y];
+ });
+ await moveAt(arcPoint,top);
+ assert.equal(await hover.getAttribute('data-dimension-hover'),'arc');
+ await kind.hover();
+ assert.equal(await hover.count(),0);
+ const arcScreen=await screen(arcPoint,top);
+ await page.mouse.move(...arcScreen);
+ assert.equal(await hover.getAttribute('data-dimension-hover'),'arc');
+ await page.mouse.click(...arcScreen);
+ assert.match(await field('status').textContent(),/寸法 2 mm/);
+ assert.equal(await hover.count(),0);
  await kind.selectOption('horizontal');
  assert.match(await hint.textContent(),/「寸法線を追加」.*横の距離/);
  assert.equal(await field('dimension-cancel').isHidden(),true);
  await field('dimension-add').click();
+ await moveAt([.2,-11.9]);
+ assert.equal(await hover.getAttribute('data-snap-point'),'[0,-12]');
+ assert.equal(await hover.evaluate(el=>getComputedStyle(el).fill),'rgb(207, 40, 86)');
+ await moveAt([20,-6]);
+ assert.equal(await hover.count(),0);
  assert.equal(await preview.locator('[data-snap-view="front"][data-snap-point="[8,-3]"]').count(),0);
  await field('dimension-point-add').click();
  assert.equal(await field('dimension-point-add').getAttribute('aria-pressed'),'true');
@@ -120,10 +153,17 @@ try{
  assert.deepEqual(await points(),[[8,-3],[30,-3]]);
  await field('dimension-add').click();
  assert.equal(await guides.count(),0);
+ await moveAt([8.25,-3.25]);
+ assert.equal(await hover.getAttribute('data-snap-point'),'[8,-3]');
+ assert.ok(await hover.getAttribute('data-dimension-point'));
  await frontManual.first().click();
  assert.match(await hint.textContent(),/２点目の寸法点/);
+ assert.equal(await hover.count(),0);
+ await moveAt([30.25,-3.25]);
+ assert.equal(await hover.getAttribute('data-snap-point'),'[30,-3]');
  await frontManual.last().click();
  assert.match(await hint.textContent(),/置く位置/);
+ assert.equal(await hover.count(),0);
  await clickAt([20,.5]);
  assert.match(await hint.textContent(),/「寸法線を追加」.*横の距離/);
  assert.deepEqual(await label.allTextContents(),['22']);
@@ -181,12 +221,12 @@ try{
  const svg=await download(field('svg'));
  assert.match(svg,/data-dimension="0"/);
  assert.match(svg,/>20<\/text>/);
- assert.doesNotMatch(svg,/data-dimension-point|data-snap-point/);
+ assert.doesNotMatch(svg,/data-dimension-hover|data-dimension-point|data-snap-point/);
  await field('pdf-preview-open').click();
  const print=field('pdf-preview-host');
  await print.locator('[data-dimension] text').waitFor();
  assert.equal(await print.locator('[data-dimension] text').textContent(),'20');
- assert.equal(await print.locator('[data-dimension-point],[data-snap-point],[data-dimension-point-guide]').count(),0);
+ assert.equal(await print.locator('[data-dimension-hover],[data-dimension-point],[data-snap-point],[data-dimension-point-guide]').count(),0);
  await field('pdf-preview-close').click();
  await field('close').click();
  const saved=JSON.parse(await download(page.locator('#save')));
@@ -206,7 +246,7 @@ try{
  assert.equal(await manual.count(),3);
  assert.deepEqual(await label.allTextContents(),['20']);
  assert.deepEqual(errors,[]);
- console.log('PASS dimension click guidance, manual points, axis guides, hidden-edge snapping, clearance from drawn edges, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
+ console.log('PASS dimension hover targets, click guidance, manual points, axis guides, hidden-edge snapping, clearance from drawn edges, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
