@@ -1,5 +1,5 @@
 import {createSupportCoverageView} from './print-support-coverage-view.js';
-import {createSupportBatchPanel,supportBatchPackage,supportHistoryFeature} from './print-support-batch.js';
+import {createSupportBatchPanel,supportBatchPackage,supportHistoryFeature,supportPreviewExportable} from './print-support-batch.js';
 import {createSupportClearanceView} from './print-support-clearance-view.js';
 import {createSupportContactView} from './print-support-contact-view.js';
 import {contactGapVariants} from './print-support-contact-settings.js';
@@ -33,12 +33,13 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const style=document.createElement('style');style.textContent='#print-support-dialog label{display:block;color:#193a50;margin:8px 0}#print-support-dialog input:not([type="checkbox"]),#print-support-dialog select{width:100%;box-sizing:border-box}#print-support-dialog .support-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px}#print-support-dialog button{background:#e2f0f7;color:#193a50;border:1px solid #8aaaba;border-radius:6px;padding:8px}#print-support-dialog button.accent{background:#078baa;color:white;border-color:#08778b}#print-support-dialog button:disabled{opacity:.5}#print-support-dialog input[type="checkbox"]{width:auto;display:inline;margin-right:7px}#print-support-dialog .editor-actions{background:transparent;display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}#print-support-dialog [hidden]{display:none!important}#print-support-dialog small{display:block;font-size:12px;line-height:1.5}';dialog.append(style);document.body.append(dialog);const $=id=>dialog.querySelector('[data-id="'+id+'"]');
  const savedExportPanel=document.createElement('div');
  savedExportPanel.hidden=true;savedExportPanel.style.marginTop='8px';
- savedExportPanel.innerHTML='<button type="button" class="accent" data-id="export-saved-3mf"></button>'+
+ savedExportPanel.innerHTML='<div class="editor-actions"><button type="button" class="accent" data-id="export-saved-and-preview-3mf" hidden></button>'+
+  '<button type="button" class="accent" data-id="export-saved-3mf"></button></div>'+
   '<label data-id="saved-export-hidden-label" hidden><input type="checkbox" data-id="saved-export-include-hidden" checked><span data-id="saved-export-hidden-text"></span></label>'+
-  '<small data-id="saved-export-pending" hidden>プレビュー中のリブは、作成を確定すると一括出力に加わります。</small>'+
   '<small data-id="saved-export-status" role="status"></small>';
  dialog.querySelector('form').firstElementChild.after(savedExportPanel);
  const savedExportButton=$('export-saved-3mf'),savedExportStatus=$('saved-export-status');
+ const savedAndPreviewButton=$('export-saved-and-preview-3mf');
  const includeHidden=$('saved-export-include-hidden');
  $('roof-note').before($('roofLayers').closest('label'));$('roofSeams').closest('label').after($('roofSectionLength').closest('label'),$('roofSeamWidth').closest('label'));
  const legend=document.createElement('div');legend.dataset.id='roof-legend';legend.style.cssText='font-size:12px;line-height:1.7;margin:8px 0';$('roof-note').after(legend);
@@ -94,7 +95,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const batchAvailable=()=>!editing&&targetCount>1&&$('style').value==='walls'&&$('mode').value==='auto';
  const batching=()=>batchAvailable()&&batchPanel.selected.size>0;
  const currentBatch=()=>[...batchEntries.values()].filter(entry=>entry.result&&batchPanel.selected.has(entry.input.target));
- const batchExportCount=()=>currentBatch().filter(entry=>entry.result.supportPreview?.exportStatus?.ok).length;
+ const batchExportCount=()=>currentBatch().filter(supportPreviewExportable).length;
  const overridesFor=target=>faceOverrides.get(target)||[];
  const comparisonPanel=document.createElement('div');
  comparisonPanel.dataset.id='rib-reinforcement-comparison';
@@ -157,34 +158,47 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;clear();$('apply').disabled=true;return revision;}
  function close(){reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
  const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
+ function newSupportPreviewPackages(){
+  if(editing||batchPending||picking||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length)return [];
+  const entries=batching()?currentBatch():cached?[cached]:[];
+  return entries.filter(supportPreviewExportable).map(({result})=>result.supportPackage);
+ }
  function syncSavedExport(){
   const total=savedExportIds(false).length;
   savedExportPanel.hidden=!total;
   if(!total)return;
   const visible=savedExportIds(true).length,hiddenCount=total-visible;
   const count=includeHidden.checked?total:visible;
+  const previews=count?newSupportPreviewPackages().length:0;
   savedExportButton.disabled=busy||picking||removal.active||!count;
+  savedExportButton.classList.toggle('accent',!previews);
+  savedAndPreviewButton.hidden=!previews;
+  savedAndPreviewButton.disabled=savedExportButton.disabled;
+  if(previews)savedAndPreviewButton.textContent='作成済み＋プレビューを一括3MF出力（'+(count+previews)+'件）';
   $('saved-export-hidden-label').hidden=!hiddenCount;
   $('saved-export-hidden-text').textContent='非表示のリブも含める（'+hiddenCount+'件）';
-  $('saved-export-pending').hidden=!!editing||!(batching()?batchExportCount():cached?.result.supportPreview?.exportStatus?.ok);
   const label='設定済みのリブと本体を一括3MF出力（'+count+'件）';
   if(savedExportButton.textContent!==label)savedExportButton.textContent=label;
  }
  includeHidden.onchange=()=>{savedExportStatus.textContent='';syncSavedExport();};
- savedExportButton.onclick=async()=>{
+ async function exportSavedSelection(includePreview){
   if(busy||picking||removal.active)return;
   const ids=savedExportIds(!includeHidden.checked);
   if(!ids.length)return;
+  const previewPackages=includePreview?newSupportPreviewPackages():[];
+  if(includePreview&&!previewPackages.length)return;
   const snapshot=original,request=revision;
   const current=()=>dialog.open&&request===revision&&getFeatures()===snapshot;
   busy=true;controls();savedExportStatus.textContent='一括3MFを準備しています…';
   try{
-   const saved=await exportSaved(snapshot,ids,current);
+   const saved=await exportSaved(snapshot,ids,{isCurrent:current,previewPackages});
    if(current())savedExportStatus.textContent=saved?'現在の配置で一括3MFを出力しました。':'';
   }catch(error){
    if(current())savedExportStatus.textContent=error.code==='cancelled'?'':'一括3MFを保存できませんでした。'+error.message;
   }finally{if(dialog.open&&request===revision){busy=false;controls();}}
- };
+ }
+ savedAndPreviewButton.onclick=()=>exportSavedSelection(true);
+ savedExportButton.onclick=()=>exportSavedSelection(false);
  function controls(){const walls=$('style').value==='walls',roof=walls&&$('wallRoof').checked;$('roof-removal').hidden=!roof;$('roofSeams').closest('label').hidden=!roof;for(const key of ['roofSectionLength','roofSeamWidth'])$(key).closest('label').hidden=!roof||!$('roofSeams').checked;$('wallRoof').closest('label').hidden=!walls;$('roofLayers').closest('label').hidden=!walls||!$('wallRoof').checked;$('roof-note').hidden=!walls||!$('wallRoof').checked;$('roof-note').textContent='厚さ '+Number((Number($('roofLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mm。本体との上側のすき間は維持し、両端のリブの間だけをつなぎます。';$('wallWindows').closest('label').hidden=!walls;$('windows-note').hidden=!walls;$('wallTies').closest('label').hidden=!walls;$('tieInterval').closest('label').hidden=!walls||!$('wallTies').checked;for(const key of ['edgeMargin','wallPitch','wallThickness','layerHeight'])$(key).closest('label').hidden=!walls;for(const key of ['spacing','footDiameter','postDiameter','tipDiameter','bottomGap','braceDiameter','maxSupports'])$(key).closest('label').hidden=walls;$('braces').closest('label').hidden=walls;$('wall-note').hidden=$('export3mf').hidden=!walls;for(const el of dialog.querySelectorAll('input,select,button'))el.disabled=busy;$('apply').disabled=busy||!cached;$('export3mf').disabled=busy||!cached?.result.supportPackage?.complete;$('face-row').hidden=$('mode').value!=='face';$('braceDiameter').disabled=busy||!$('braces').checked;$('bottomGap').disabled=busy||$('baseMode').value==='bed';faceControls();placementControls(roof);ribControls(walls,roof);presets.sync(busy);failurePanel.hidden=!lastFailure;exportControls();improvementControls(walls);exteriorLabel.hidden=!walls||$('mode').value!=='auto';
   const batch=batching();
   batchPanel.sync({available:batchAvailable(),disabled:busy||picking,entries:batchEntries,calculating:batch&&batchPending,adjustments:batchAdjustments});

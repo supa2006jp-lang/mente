@@ -27,11 +27,10 @@ for(const [i,target] of ['body-a','body-b'].entries()){
  assert.equal(result.analysis.supportExport,undefined);
  features.push(supportHistoryFeature(spec,result));
 }
-const buffer=Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}));
-function checkCombinedFile(bytes){
+function checkCombinedFile(bytes,secondRib='ribs-b'){
  const files=unzipSync(bytes),model=strFromU8(files['3D/3dmodel.model']),config=strFromU8(files['Metadata/model_settings.config']);
  const parts=[...config.matchAll(/subtype="normal_part"><metadata key="name" value="([^"]+)"/g)].map(match=>match[1]);
- assert.deepEqual(parts.sort(),['body-a','body-b','ribs-a','ribs-b']);
+ assert.deepEqual(parts.sort(),['body-a','body-b','ribs-a',secondRib].sort());
  assert.equal(config.match(/subtype="support_blocker"/g)?.length,2);
  assert.equal(model.match(/<item objectid=/g)?.length,1,'one shared print object in one 3MF');
  assert.match(config,/key="layer_height" value="0.3"/);
@@ -58,9 +57,11 @@ try{
  page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
  await page.addInitScript(()=>{
   window.savedSupportRequests=[];
+  window.supportPreviewIds={};
   const send=Worker.prototype.postMessage;
   Worker.prototype.postMessage=function(message,...args){
    if(message.spec?.type==='printSupportSavedExport')window.savedSupportRequests.push(message.spec.ids);
+   if(message.spec?.type==='printSupport'&&message.spec.preview)window.supportPreviewIds[message.spec.target]=message.spec.id;
    return send.call(this,message,...args);
   };
   window.showSaveFilePicker=async()=>{
@@ -70,9 +71,13 @@ try{
  });
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  await page.locator('#canvas-host canvas').waitFor();
- await page.locator('#file').setInputFiles({name:'two-ribs.forma.json',mimeType:'application/json',buffer});
- await page.locator('#project-preview-open').click();
- await page.locator('#project-load-preview').waitFor({state:'hidden'});
+ async function loadProject(history,name){
+  const buffer=Buffer.from(JSON.stringify({format:'forma-cad',version:1,features:history}));
+  await page.locator('#file').setInputFiles({name,mimeType:'application/json',buffer});
+  await page.locator('#project-preview-open').click();
+  await page.locator('#project-load-preview').waitFor({state:'hidden'});
+ }
+ await loadProject(features,'two-ribs.forma.json');
  const choose=page.locator('#export'),picker=page.locator('#print-support-export-choice');
  const selected=picker.locator('option:checked'),exportButton=picker.getByRole('button',{name:'現在の配置で一括3MF出力'});
  async function chooseCombined(){
@@ -135,9 +140,32 @@ try{
  const bytes=await readFile(await directDownload.path());
  checkCombinedFile(bytes);
  assert.equal(await dialog.isVisible(),true);
- if(process.env.FORMA_TEST_3MF)await writeFile(process.env.FORMA_TEST_3MF,bytes);
+ await field('close').click();
+ await dialog.waitFor({state:'hidden'});
+
+ await loadProject(features.slice(0,-1),'saved-rib-and-preview.forma.json');
+ await page.locator('#print-support-tool').click();
+ await field('target').selectOption('body-b');
+ await field('baseMode').selectOption('bed');
+ await page.waitForFunction(()=>document.querySelector('#print-support-dialog [data-id="export-state"]').dataset.state==='ready');
+ assert.match(await direct.textContent(),/（1件）/);
+ const together=field('export-saved-and-preview-3mf');
+ assert.equal(await together.count(),1,'one saved support and a valid preview can be exported together');
+ assert.match(await together.textContent(),/作成済み＋プレビューを一括3MF出力（2件）/);
+ const previewId=await page.evaluate(()=>window.supportPreviewIds['body-b']);
+ assert.ok(previewId);
+ const [togetherDownload]=await Promise.all([page.waitForEvent('download'),together.click()]);
+ assert.match(togetherDownload.suggestedFilename(),/\.3mf$/);
+ assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds,['ribs-a']]);
+ assert.equal(downloads.length,3);
+ assert.equal(await page.locator('#body-count').textContent(),'3','3MF export does not create a body in the project');
+ assert.equal(await page.locator('#feature-count').textContent(),'3');
+ assert.equal(await dialog.isVisible(),true);
+ const combinedBytes=await readFile(await togetherDownload.path());
+ checkCombinedFile(combinedBytes,previewId);
+ if(process.env.FORMA_TEST_3MF)await writeFile(process.env.FORMA_TEST_3MF,combinedBytes);
  assert.deepEqual(errors,[]);
- console.log('PASS both export entries, saved rather than draft geometry, visibility retained after preview, and one 3MF including a hidden saved support');
+ console.log('PASS saved supports from both routes, hidden parts, and one saved plus one preview in a single 3MF without changing the project');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

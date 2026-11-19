@@ -51,7 +51,7 @@ import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
 import {createPrintSupportExportChoice,savedSupportExportIds} from './print-support-export-choice.js';
 let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
-import {supportHistoryFeature} from './print-support-batch.js';
+import {mergeSupportPackages,supportHistoryFeature} from './print-support-batch.js';
 import {savePrintSupport3mf} from './print-support-3mf.js';
 import {printSupportFailureFromDocument} from './print-support-failure.js';
 let printSupportController=null,failureRecovery=null;
@@ -1890,8 +1890,11 @@ async function exportCheckedStl(original,ids){
   if(message)notify(message+'（出力メッシュ検査済み）');
  }catch(error){if(token!==null)stlInspection.error(token,error);throw error;}
 }
-function exportSavedPrintSupports(original,ids,isCurrent=()=>features===original){
- const createPackage=()=>kernelClient.run(original,{type:'printSupportSavedExport',ids},{document:original});
+function exportSavedPrintSupports(original,ids,{isCurrent=()=>features===original,previewPackages=[]}={}){
+ const createPackage=async()=>{
+  const saved=await kernelClient.run(original,{type:'printSupportSavedExport',ids},{document:original});
+  return previewPackages.length?mergeSupportPackages([saved,...previewPackages]):saved;
+ };
  return savePrintSupport3mf(createPackage,download,isCurrent);
 }
 $('export').onclick=async()=>{if(!meshes.size||$('export').disabled||stlExportBusy)return;stlExportBusy=true;partWorkshop?.close();$('export').disabled=true;const original=features;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}

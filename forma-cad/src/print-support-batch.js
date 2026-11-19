@@ -3,15 +3,19 @@ export function supportHistoryFeature(input,result){
  return {kind:'cadop',id:input.id,name:'連結リブサポート',spec:input,...stored};
 }
 
-export function supportBatchPackage(entries){
- const packages=entries.filter(({result})=>result.supportPackage?.complete&&result.supportPreview?.exportStatus?.ok)
-  .map(({result})=>result.supportPackage);
+export const supportPreviewExportable=({result})=>result.supportPackage?.complete&&result.supportPreview?.exportStatus?.ok;
+
+export function mergeSupportPackages(packages){
  if(!packages.length)return null;
  const layerHeight=packages[0].layerHeight;
  if(packages.some(pkg=>pkg.layerHeight!==layerHeight))throw Error('一括出力する積層ピッチを揃えてください');
  const bodies=new Map();
  for(const pkg of packages)for(const body of pkg.bodies)if(!bodies.has(body.id))bodies.set(body.id,body);
  return {complete:true,layerHeight,bodies:[...bodies.values()],blockers:packages.flatMap(pkg=>pkg.blockers)};
+}
+
+export function supportBatchPackage(entries){
+ return mergeSupportPackages(entries.filter(supportPreviewExportable).map(({result})=>result.supportPackage));
 }
 
 export function createSupportBatchPanel({anchor,bodyName,onChange,onRetry,onAdjust}){
