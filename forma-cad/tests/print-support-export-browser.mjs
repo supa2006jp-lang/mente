@@ -5,10 +5,11 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {unzipSync,strFromU8} from 'three/addons/libs/fflate.module.js';
 const root=path.resolve('dist'),server=http.createServer(async(req,res)=>{try{const p=new URL(req.url,'http://localhost').pathname,file=p==='/export-choice.js'?path.resolve('src/print-support-export-choice.js'):path.resolve(root,'.'+(p==='/'?'/index.html':p));if(p!=='/export-choice.js'&&!file.startsWith(root+path.sep))throw Error();const data=await fs.readFile(file);res.writeHead(200,{'Content-Type':{'.js':'text/javascript','.css':'text/css','.html':'text/html','.wasm':'application/wasm'}[path.extname(file)]||'application/octet-stream'});res.end(data);}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+await fs.mkdir('.sites-runtime/support-slicing',{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 try{
  const page=await browser.newPage({viewport:{width:1900,height:1200},acceptDownloads:true}),errors=[],downloads=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));page.on('download',d=>downloads.push(d));page.on('dialog',d=>d.accept(d.defaultValue()));await page.addInitScript(()=>window.showSaveFilePicker=undefined);await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
- const q=id=>page.locator('#print-support-dialog [data-id="'+id+'"]'),c=id=>page.locator('#print-support-export-choice [data-id="'+id+'"]'),doc=JSON.parse(await fs.readFile('.sites-runtime/print-support-walls-fixture.forma.json','utf8'));
+ const q=id=>page.locator('#print-support-dialog [data-id="'+id+'"]'),c=id=>page.locator('#print-support-export-choice [data-id="'+id+'"]'),doc=JSON.parse(await fs.readFile('tests/fixtures/print-support-default-frame.forma.json','utf8'));
  async function load(doc){await page.locator('#file').setInputFiles({name:'export.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(doc))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);}
  async function save(){const event=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await event).path(),'utf8'));}
  async function ready(){await page.waitForFunction(()=>!document.querySelector('#print-support-dialog [data-id=apply]').disabled);}
