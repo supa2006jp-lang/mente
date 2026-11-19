@@ -1,4 +1,4 @@
-import {dimensionValue,validDimensionColor} from './drawing-dimensions.js';
+import {canOverrideDrawingDimensionValue,dimensionValue,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
 import {drawingProjectionNames} from './drawing-view-preferences.js';
 import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
@@ -128,6 +128,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
   if(d.hidden!==undefined&&typeof d.hidden!=='boolean')fail();
+  if(d.displayValue!==undefined&&(!canOverrideDrawingDimensionValue(d)||!validDrawingDimensionDisplayValue(d.displayValue)))fail();
   if(d.manualEndpoints!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||!Array.isArray(d.manualEndpoints)||
    !d.manualEndpoints.length||d.manualEndpoints.length>2||new Set(d.manualEndpoints).size!==d.manualEndpoints.length||
    d.manualEndpoints.some(key=>key!=='a'&&key!=='b')))fail();

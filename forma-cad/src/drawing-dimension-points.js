@@ -24,10 +24,13 @@ function segmentIntersection(a,b){
  return t>=0&&t<=1&&s>=0&&s<=1?[a.a[0]+ux*t,a.a[1]+uy*t]:null;
 }
 
-export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept=()=>true}={}){
+export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept=()=>true,guide}={}){
  const found=[];
  const distance=p=>Math.hypot(point[0]-p[0],point[1]-p[1]);
  let vertex=null,edge=null,vertexDistance=radius,edgeDistance=radius;
+ let crossing=null,crossingDistance=radius;
+ const guideAxes=guide?[0,1].filter(axis=>Math.abs(point[axis]-guide[axis])<=radius)
+  .sort((a,b)=>Math.abs(point[a]-guide[a])-Math.abs(point[b]-guide[b])):[];
  const usable=p=>drawingDimensionPointFits(view,p)&&accept(p);
  const tryVertex=p=>{
   const d=distance(p);
@@ -35,6 +38,12 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
  };
  const tryEdge=(p,d)=>{
   if(d<=edgeDistance&&usable(p)){edge=p;edgeDistance=d;}
+ };
+ const tryCrossing=p=>{
+  const d=distance(p);
+  if(d<=crossingDistance&&usable(p)&&Math.hypot(p[0]-guide[0],p[1]-guide[1])>=1e-5){
+   crossing=p;crossingDistance=d;
+  }
  };
  const sources=[curves(view.visible)];
  if(hidden&&view.hidden?.length)sources.push(curves(view.hidden));
@@ -46,6 +55,14 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
    if(d>radius)continue;
    tryVertex(a);tryVertex(b);tryEdge(projected,d);
    found.push({line,d});
+   const delta=[dx,dy];
+   for(const axis of guideAxes){
+    const t=delta[axis]?(guide[axis]-a[axis])/delta[axis]:NaN;
+    if(!(t>=0&&t<=1))continue;
+    const intersection=[a[0]+dx*t,a[1]+dy*t];
+    intersection[axis]=guide[axis];
+    tryCrossing(intersection);
+   }
   }
   for(const arc of arcs){
    tryVertex(arc.a);tryVertex(arc.b);
@@ -53,9 +70,22 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
    const angle=Math.atan2(point[1]-y,point[0]-x);
    const start=Math.atan2(arc.a[1]-y,arc.a[0]-x),end=Math.atan2(arc.b[1]-y,arc.b[0]-x);
    const along=t=>(((arc.sweep?1:-1)*(t-start))%tau+tau)%tau;
-   if(along(angle)>along(end)+1e-9)continue;
-   const projected=[x+arc.radius*Math.cos(angle),y+arc.radius*Math.sin(angle)];
-   tryEdge(projected,distance(projected));
+   const onArc=t=>along(t)<=along(end)+1e-9;
+   if(onArc(angle)){
+    const projected=[x+arc.radius*Math.cos(angle),y+arc.radius*Math.sin(angle)];
+    tryEdge(projected,distance(projected));
+   }
+   for(const axis of guideAxes){
+    const offset=guide[axis]-arc.center[axis],other=1-axis;
+    if(Math.abs(offset)>arc.radius)continue;
+    const half=Math.sqrt(arc.radius**2-offset**2);
+    for(const side of [-1,1]){
+     const intersection=[...arc.center];
+     intersection[axis]=guide[axis];
+     intersection[other]+=side*half;
+     if(onArc(Math.atan2(intersection[1]-y,intersection[0]-x)))tryCrossing(intersection);
+    }
+   }
   }
  }
  // Only segments close to the cursor can form a usable crossing.
@@ -64,5 +94,11 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
   const crossing=segmentIntersection(nearby[i].line,nearby[j].line);
   if(crossing)tryVertex(crossing);
  }
- return vertex??edge??point;
+ // Keep a point on the drawing edge if the guide cannot reach the edge nearby.
+ if(crossing||vertex||edge)return crossing??vertex??edge;
+ for(const axis of guideAxes){
+  const aligned=[...point];aligned[axis]=guide[axis];
+  if(usable(aligned))return aligned;
+ }
+ return point;
 }

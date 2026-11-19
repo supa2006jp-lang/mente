@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {drawingDimensionPointFits,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
+import {dimensionLabel,dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
 import {readDrawingState} from '../src/drawing-state.js';
@@ -20,6 +21,32 @@ test('dimension point placement snaps to nearby intersections and displayed hidd
  assert.equal(drawingDimensionPointFits(clipped,[10,10.1]),false);
 });
 
+test('guide snapping aligns one coordinate and intersects nearby straight and round edges',()=>{
+ const guide=[6,12];
+ assert.deepEqual(snapDrawingDimensionPoint(view,[19.8,12.3],1,{guide}),[19.8,12]);
+ assert.deepEqual(snapDrawingDimensionPoint(view,[6.2,20.2],1,{guide}),[6,20.2]);
+ assert.deepEqual(snapDrawingDimensionPoint(view,[5.9,12.3],1,{guide}),[6,12.3]);
+ assert.deepEqual(snapDrawingDimensionPoint(view,[10.25,12.35],1,{guide}),[10,12]);
+ assert.deepEqual(snapDrawingDimensionPoint(view,[6.2,8.17],1,{guide,hidden:true}),[6,8]);
+ assert.deepEqual(snapDrawingDimensionPoint(view,[12,8.2],1,{guide:[3,8.5],hidden:true}),[12,8]);
+ assert.deepEqual(snapDrawingDimensionPoint(view,[10.25,12.35],1,{guide,accept:p=>p[1]!==12}),[10,12.35]);
+ const arc={...view,visible:['M 30 15 A 5 5 0 0 1 20 15']};
+ assert.deepEqual(snapDrawingDimensionPoint(arc,[25.4,20.25],1,{guide:[25,10]}),[25,20]);
+});
+
+test('a manual value controls the printed dimension label and preserves the measured distance',()=>{
+ const measured={view:'front',kind:'horizontal',a:[0,0],b:[30.0015,0],at:[15,8],precision:4};
+ assert.equal(dimensionLabel(measured),'30.0015');
+ const corrected={...measured,precision:undefined,displayValue:30};
+ assert.equal(dimensionLabel(corrected),'30');
+ assert.equal(dimensionValue(corrected),30.0015);
+ assert.equal(dimensionLabel({...corrected,tolerance:.1,note:'仕上げ'}),'30 ±0.1 仕上げ');
+ assert.equal(dimensionLabel({...corrected,displayValue:30.1234}),'30.1234');
+ assert.equal(dimensionLabel({...corrected,precision:2}),'30.00');
+ const layout={x:20,y:50,bx:0,by:0,scale:2};
+ assert.deepEqual(drawingDimensionGeometry(corrected,layout),drawingDimensionGeometry(measured,layout));
+});
+
 test('saved manual points and dimension endpoints coexist with older drawing data',()=>{
  const corner={view:'front',kind:'horizontal',a:[0,0],b:[12,-3],at:[6,6],manualEndpoints:['b']};
  const manual={id:'dimension-point-test',view:'front',point:corner.b};
@@ -32,6 +59,11 @@ test('saved manual points and dimension endpoints coexist with older drawing dat
  assert.throws(()=>readDrawingState({...state,dimensionPoints:[manual,manual]}));
  assert.throws(()=>readDrawingState({...state,dimensionPoints:[{...manual,view:'iso'}]}));
  assert.throws(()=>readDrawingState({...state,dimensions:[{...corner,manualEndpoints:['b','b']}]}));
+ const corrected={...state,dimensions:[{...corner,displayValue:12.5}]};
+ assert.deepEqual(readDrawingState(corrected),corrected);
+ for(const bad of [0,-1,NaN,Infinity,'30']){
+  assert.throws(()=>readDrawingState({...state,dimensions:[{...corner,displayValue:bad}]}));
+ }
 });
 
 test('manual endpoints retain their coordinates when the outline is recalculated',()=>{

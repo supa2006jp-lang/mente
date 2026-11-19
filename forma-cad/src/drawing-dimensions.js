@@ -1,6 +1,12 @@
 import {drawingDimensionVisible,drawingPaperPoint} from './drawing-break.js';
 
-const numberLabel=d=>d.precision==null?String(Number(dimensionValue(d).toFixed(3))):dimensionValue(d).toFixed(d.precision);
+export const canOverrideDrawingDimensionValue=d=>!!d&&!d.repeat&&['horizontal','vertical','aligned'].includes(d.kind);
+export const validDrawingDimensionDisplayValue=value=>Number.isFinite(value)&&value>0;
+function numberLabel(d){
+ const value=d.displayValue??dimensionValue(d);
+ if(d.precision!=null)return value.toFixed(d.precision);
+ return d.displayValue===undefined?String(Number(value.toFixed(3))):String(value);
+}
 export const escapeDrawingText=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 export function dimensionLabel(d){
  if(d.review)return '要確認';

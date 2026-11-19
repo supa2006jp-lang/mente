@@ -6,7 +6,7 @@ import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
 import {defaultDrawingCommentColor,drawingCommentFamily,drawingCommentPlacementIssue,hasDrawingCommentFont,loadDrawingCommentFont,minCommentWidth,maxCommentWidth,validCommentWidth} from './drawing-comments.js';
 import {TEXT_FONTS} from './text-fonts.js';
-import {defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionSVG,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor} from './drawing-dimensions.js';
+import {canOverrideDrawingDimensionValue,defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionSVG,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
 import {canSaveDrawingMaterial,createDrawingMaterialsStore,drawingMaterialKey,standardDrawingMaterials} from './drawing-materials.js';
 import {drawingCurves,angleDimension} from './drawing-curves.js';
 import {drawingSignature,readDrawingState} from './drawing-state.js';
@@ -81,6 +81,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<div id="drawing-item-colors" class="drawing-color-controls" hidden role="group" aria-label="選択した寸法の色">'+
    colorInputs('item')+'<button id="drawing-item-colors-reset" type="button">図面の色に戻す</button></div>'+
   '<button id="drawing-dimension-relink" hidden>参照点を選び直す</button>');
+ $('drawing-precision-label').insertAdjacentHTML('afterend',
+  '<label id="drawing-dimension-value-label" hidden>表示寸法値 (mm)<input id="drawing-dimension-value" type="number" min="0" step="any" inputmode="decimal" title="図面に記載する数値を変更します"></label>'+
+  '<small id="drawing-dimension-measured-value" hidden></small>'+
+  '<button id="drawing-dimension-value-reset" type="button" hidden>実測値に戻す</button>');
+ const dimensionValueInput=$('drawing-dimension-value');
  $('drawing-generate').insertAdjacentHTML('afterend','<button id="drawing-front-face" title="CADで平面を1つ選択して三面図を開くと、その面が正面になります">選択した面を正面に</button><button id="drawing-front-reset" hidden>標準の向きに戻す</button><small id="drawing-front-status"></small>');
  const viewportBar=document.createElement('div');viewportBar.className='drawing-controls drawing-viewport-controls';viewportBar.innerHTML='<span>画面表示</span><button id="drawing-zoom-out" aria-label="図面を縮小">−</button><output id="drawing-zoom-percent" aria-live="polite">100%</output><button id="drawing-zoom-in" aria-label="図面を拡大">＋</button><button id="drawing-zoom-fit">用紙全体</button><button id="drawing-expand" aria-pressed="false">作業領域を最大化</button><small>ホイール：拡大・縮小 ／ ホイール押し込み・Space＋ドラッグ：移動</small>';viewportHost.before(viewportBar);
  const scaleRows=document.createElement('details');scaleRows.id='drawing-view-scales';
@@ -514,8 +519,17 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    point?'[data-dimension-point="'+selection.id+'"]':comment?'[data-comment="'+(selection.id==='comment'||!selection.id?'true':selection.id)+'"]':'[data-dimension="'+selection.index+'"]');
   active?.setAttribute('data-edit-selected','true');
   $('drawing-editor-title').tabIndex=-1;
-  $('drawing-editor-title').textContent=point?'手動の寸法点':leader?'矢印付き注記を編集':marker?'中心線・中心マーク':comment?'コメントを編集':d?.review?'寸法の参照先を要確認':'寸法を編集（実測値）';
+  $('drawing-editor-title').textContent=point?'手動の寸法点':leader?'矢印付き注記を編集':marker?'中心線・中心マーク':comment?'コメントを編集':d?.review?'寸法の参照先を要確認':'寸法を編集';
   $('drawing-precision-label').hidden=!d;
+  const editValue=canOverrideDrawingDimensionValue(d)&&!d.review;
+  const measured=editValue?Number(dimensionValue(d).toFixed(6)):null;
+  const overridden=editValue&&d.displayValue!==undefined;
+  $('drawing-dimension-value-label').hidden=!editValue;
+  dimensionValueInput.disabled=busy;
+  dimensionValueInput.value=editValue?d.displayValue??measured:'';
+  $('drawing-dimension-measured-value').hidden=$('drawing-dimension-value-reset').hidden=!overridden;
+  $('drawing-dimension-measured-value').textContent=overridden?'実測 '+measured+' mm':'';
+  $('drawing-dimension-value-reset').disabled=busy;
   $('drawing-font-label').hidden=!d&&!comment;$('drawing-edit-comment').hidden=!comment;
   $('drawing-leader-edit-label').hidden=!leader;
   $('drawing-leader-edit').value=leader?.text??'';
@@ -653,6 +667,23 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   else if(selection?.type==='dimension'&&dimensions[selection.index])changeAnnotationSize($('drawing-font'),dimensions[selection.index]);
  };
  $('drawing-precision').onchange=()=>{if(selection?.type!=='dimension')return;const d=dimensions[selection.index];if($('drawing-precision').value==='auto')delete d.precision;else d.precision=Number($('drawing-precision').value);render();};
+ dimensionValueInput.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();dimensionValueInput.blur();}};
+ dimensionValueInput.onchange=()=>{
+  const d=selection?.type==='dimension'&&dimensions[selection.index];
+  if(busy||!canOverrideDrawingDimensionValue(d)||d.review)return;
+  const {value,valueAsNumber,validity}=dimensionValueInput;
+  if(validity.badInput||value!==''&&!validDrawingDimensionDisplayValue(valueAsNumber)){
+   editor();status('表示寸法値には0より大きい数値を入力してください');return;
+  }
+  if(value===''||valueAsNumber===dimensionValue(d))delete d.displayValue;
+  else d.displayValue=valueAsNumber;
+  render();
+ };
+ $('drawing-dimension-value-reset').onclick=()=>{
+  const d=selection?.type==='dimension'&&dimensions[selection.index];
+  if(!d||busy||d.displayValue===undefined)return;
+  delete d.displayValue;render();
+ };
  $('drawing-dimension-tolerance').onchange=()=>{
   const d=selection?.type==='dimension'&&dimensions[selection.index],input=$('drawing-dimension-tolerance');
   if(!d||busy)return;
@@ -1484,7 +1515,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const v=sheet.layout[name],view=viewData(name),raw=local(name,[p.x,p.y]),radius=nearPaper/v.scale;
    if(!drawingDimensionPointFits(view,raw,snap?radius:0)||drawingPointOmitted(v,raw))continue;
    const point=snap?snapDrawingDimensionPoint(view,raw,radius,{
-    hidden:hiddenViews[name]??$('drawing-hidden').checked,accept:value=>!drawingPointOmitted(v,value)
+    hidden:hiddenViews[name]??$('drawing-hidden').checked,accept:value=>!drawingPointOmitted(v,value),
+    guide:action?.guide?.view===name?action.guide.point:undefined
    }):raw;
    if(drawingDimensionPointFits(view,point)&&point.every(value=>Math.abs(value)<=1e6))return {name,point};
   }
@@ -1493,17 +1525,19 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function placeDimensionPoint(e){
   const existing=e.target.closest('[data-dimension-point]');
   const hit=existing?null:manualPointAt(e);
-  if(!existing&&!hit)throw Error('寸法点を置く図の内側をクリックしてください');
-  const id=existing?.dataset.dimensionPoint??dimensionPoints.find(item=>item.view===hit.name&&
-   Math.hypot(item.point[0]-hit.point[0],item.point[1]-hit.point[1])<1e-5)?.id;
-  if(id){
-   selection={type:'dimensionPoint',id};editor();workspace.reveal($('drawing-editor'));
-   status('寸法点を選択しました。削除する場合は「選択項目を削除」を押してください');return;
+  const selectedPoint=existing?dimensionPoints.find(item=>item.id===existing.dataset.dimensionPoint):
+   hit&&dimensionPoints.find(item=>item.view===hit.name&&Math.hypot(item.point[0]-hit.point[0],item.point[1]-hit.point[1])<1e-5);
+  if(selectedPoint){
+   action.guide=selectedPoint;selection={type:'dimensionPoint',id:selectedPoint.id};
+   render(false);workspace.reveal($('drawing-editor'));
+   status('選んだ点からガイドを表示しています。必要なら「選択項目を削除」で点を消せます');return;
   }
+  if(!hit)throw Error('寸法点を置く図の内側をクリックしてください');
   if(dimensionPoints.length>=maxDrawingDimensionPoints)throw Error('寸法点は'+maxDrawingDimensionPoints+'個までです');
-  dimensionPoints.push({id:'dimension-point-'+crypto.randomUUID(),view:hit.name,point:hit.point});
+  const added={id:'dimension-point-'+crypto.randomUUID(),view:hit.name,point:hit.point};
+  dimensionPoints.push(added);action.guide=added;
   selection=null;render();
-  status('寸法点を追加しました。続けて追加するか、「寸法線を追加」で使用できます');
+  status('縦横のガイドに沿って次の点を置けます。Altを押すと吸着を解除できます');
  }
  function actionClick(e){try{const state=action;if(state.kind==='dimensionPoint'){placeDimensionPoint(e);return;}if(state.kind==='leader'){clickLeader(e);return;}if(state.kind==='holes'){clickHoleTable(e);return;}if(state.kind==='center'){if(markers.length>=200)throw Error('中心表示は200個までです');const hit=nearest(e,'arc');if(!hit)throw Error('円・円弧をクリックしてください');if(!markers.some(m=>m.kind==='center'&&m.view===hit.name&&Math.hypot(m.center[0]-hit.arc.center[0],m.center[1]-hit.arc.center[1])<1e-5))markers.push({id:'marker-'+crypto.randomUUID(),kind:'center',view:hit.name,center:hit.arc.center,radius:hit.arc.radius});cancelPick();return;}
  if(state.kind==='line'){if(markers.length>=200)throw Error('中心表示は200個までです');const hit=nearest(e,'point');if(!hit)throw Error('輪郭の端点・円の中心・手動で置いた点をクリックしてください');if(!state.a){state.a=hit.point;state.view=hit.name;render();status('同じ図の２点目を選択してください');return;}if(hit.name!==state.view)throw Error('同じ図の点を選んでください');if(Math.hypot(hit.point[0]-state.a[0],hit.point[1]-state.a[1])<1e-6)throw Error('別の点を選んでください');markers.push({id:'marker-'+crypto.randomUUID(),kind:'line',view:state.view,a:state.a,b:hit.point});cancelPick();return;}
@@ -1534,10 +1568,30 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const [key,value] of Object.entries({cx,cy,r:1,...attributes}))circle.setAttribute(key,value);
   svg.append(circle);
  }
+ function drawDimensionPointGuides(svg,{view:name,point}){
+  const v=sheet.layout[name],view=v&&viewData(name);
+  if(!view||!drawingDimensionPointFits(view,point)||drawingPointOmitted(v,point))return;
+  const at=map(name,point),center=view.clip&&map(name,view.clip.center);
+  const low=[v.x,v.y],high=[v.x+v.width,v.y+v.height];
+  for(const [axis,direction] of [[0,'vertical'],[1,'horizontal']]){
+   const span=1-axis,a=[...at],b=[...at];
+   a[span]=low[span];b[span]=high[span];
+   if(center){
+    const chord=Math.sqrt(Math.max(0,(view.clip.radius*v.scale)**2-(at[axis]-center[axis])**2));
+    a[span]=center[span]-chord;b[span]=center[span]+chord;
+   }
+   const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+   for(const [key,value] of Object.entries({x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#117b99',
+    'stroke-width':1.25,'stroke-dasharray':'4 4','vector-effect':'non-scaling-stroke',
+    'pointer-events':'none','data-dimension-point-guide':direction}))line.setAttribute(key,value);
+   svg.append(line);
+  }
+ }
  function markPoints(){
   const pointMode=action?.kind==='dimensionPoint';
   if(!pointMode&&action?.kind!=='line'&&(!picking||['radius','diameter','angle'].includes(picking.kind)))return;
   const svg=viewportHost.querySelector('svg');
+  if(pointMode&&action.guide)drawDimensionPointGuides(svg,action.guide);
   for(const name of names()){
    if(picking?.view&&picking.view!==name)continue;
    const view=viewData(name),v=sheet.layout[name];
@@ -1620,7 +1674,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   return best;
  }
- $('drawing-preview').onclick=e=>{if(!sheet||drag||busy)return;if(action){actionClick(e);return;}if(!picking){const note=e.target.closest('[data-leader]');if(note){selection={type:'leader',id:note.dataset.leader};editor();return;}const marker=e.target.closest('[data-marker]');if(marker){selection={type:'marker',id:marker.dataset.marker};editor();return;}const extra=e.target.closest('[data-section],[data-detail]');if(extra){extraTarget=extra.dataset.section||extra.dataset.detail;extraControls();return;}const el=e.target.closest('[data-dimension],[data-comment]');selection=el?.hasAttribute('data-dimension')?{type:'dimension',index:Number(el.dataset.dimension)}:el?{type:'comment',id:el.dataset.comment==='true'?'comment':el.dataset.comment}:null;if(selection?.type==='comment')selectDrawingComment(selection.id);editor();return;}try{if(picking.ready){if(dimensions.length>=500&&picking.replace===undefined)throw Error('寸法は500個まで追加できます');const p=paperPoint(e),at=local(picking.view,p),snapped=$('drawing-snap').checked&&!e.altKey?snapDimension(picking,at,dimensions,sheet.layout[picking.view].scale,picking.replace):{at},d={...picking,at:snapped.at};delete d.ready;delete d.firstLine;delete d.replace;const refreshed=applyDimensionFont(d);if(picking.replace===undefined)dimensions.push(refreshed);else{const old=dimensions[picking.replace];for(const key of ['precision','fontSize','note','tolerance','lineColor','textColor','pinned','alongOffset'])if(old[key]!==undefined)refreshed[key]=old[key];dimensions[picking.replace]=refreshed;selection={type:'dimension',index:picking.replace};}cancelPick();return;}
+ $('drawing-preview').onclick=e=>{if(!sheet||drag||busy)return;if(action){actionClick(e);return;}if(!picking){const note=e.target.closest('[data-leader]');if(note){selection={type:'leader',id:note.dataset.leader};editor();return;}const marker=e.target.closest('[data-marker]');if(marker){selection={type:'marker',id:marker.dataset.marker};editor();return;}const extra=e.target.closest('[data-section],[data-detail]');if(extra){extraTarget=extra.dataset.section||extra.dataset.detail;extraControls();return;}const el=e.target.closest('[data-dimension],[data-comment]');selection=el?.hasAttribute('data-dimension')?{type:'dimension',index:Number(el.dataset.dimension)}:el?{type:'comment',id:el.dataset.comment==='true'?'comment':el.dataset.comment}:null;if(selection?.type==='comment')selectDrawingComment(selection.id);editor();return;}try{if(picking.ready){if(dimensions.length>=500&&picking.replace===undefined)throw Error('寸法は500個まで追加できます');const p=paperPoint(e),at=local(picking.view,p),snapped=$('drawing-snap').checked&&!e.altKey?snapDimension(picking,at,dimensions,sheet.layout[picking.view].scale,picking.replace):{at},d={...picking,at:snapped.at};delete d.ready;delete d.firstLine;delete d.replace;const refreshed=applyDimensionFont(d);if(picking.replace===undefined)dimensions.push(refreshed);else{const old=dimensions[picking.replace];for(const key of ['precision','displayValue','fontSize','note','tolerance','lineColor','textColor','pinned','alongOffset'])if(old[key]!==undefined)refreshed[key]=old[key];dimensions[picking.replace]=refreshed;selection={type:'dimension',index:picking.replace};}cancelPick();return;}
  if(['radius','diameter'].includes(picking.kind)){const hit=nearest(e,'arc');if(!hit)throw Error('円・円弧に近い位置をクリックしてください（楕円は対象外）');picking={...picking,view:hit.name,center:hit.arc.center,radius:hit.arc.radius,ready:true};}
  else if(picking.kind==='angle'){const hit=nearest(e,'line');if(!hit)throw Error('直線に近い位置をクリックしてください');if(!picking.firstLine){picking.view=hit.name;picking.firstLine=hit.line;status('２本目の直線を選択してください');return;}Object.assign(picking,angleDimension(picking.firstLine,hit.line),{ready:true});}
  else{
