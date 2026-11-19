@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import {chromium} from 'playwright';
 import {defaults,validateProject} from '../src/geometry.js';
 import fs from 'node:fs/promises';
@@ -31,6 +32,6 @@ try{
  await page.locator('#features .tree-row').last().locator('button.row-label').click();assert.equal(await page.locator('#cad-flipLidToGrid').isChecked(),false);await page.locator('#cad-flipLidToGrid').check();await preview();await apply();const flipped=await save();assert.equal(flipped.features.at(-1).spec.flipLidToGrid,true);assert.deepEqual(flipped.features.at(-1).outputs[0].vertices,changed.features.at(-1).outputs[0].vertices);const lid=flipped.features.at(-1).outputs[1];assert.ok(Math.abs(Math.min(...lid.vertices.filter((_,i)=>i%3===2)))<1e-5);await fs.writeFile('.sites-runtime/coil-flipped.json',JSON.stringify(flipped));
  await page.locator('#undo').click();assert.equal((await save()).features.at(-1).spec.flipLidToGrid,false);
  await load(flipped);await page.locator('#features .tree-row').last().locator('button.row-label').click();assert.equal(await page.locator('#cad-flipLidToGrid').isChecked(),true);await page.locator('#tools-dialog').evaluate(e=>e.close());
- const stlEvent=page.waitForEvent('download');await page.locator('#export').click();const stl=await fs.readFile(await(await stlEvent).path());assert.equal(stl.length,84+stl.readUInt32LE(80)*50);assert.ok(stl.readUInt32LE(80)>0);assert.deepEqual(errors,[]);
+ const stlEvent=page.waitForEvent('download');await confirmOutput(page);const stl=await fs.readFile(await(await stlEvent).path());assert.equal(stl.length,84+stl.readUInt32LE(80)*50);assert.ok(stl.readUInt32LE(80)>0);assert.deepEqual(errors,[]);
  console.log('PASS command discovery, paired preview, actual adjustment report, open/print poses, 1 cylinder -> 2 bodies, save/load, parameter edit/replay, stable IDs, undo and STL export, dense helix range responsiveness, lid-only grid option and saved state');
 }finally{await browser.close();}

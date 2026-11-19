@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import {binaryStlReport} from './stl-topology.mjs';
 import {defaults} from '../src/geometry.js';
 import {chromium} from 'playwright';
@@ -40,7 +41,7 @@ try{
  await page.locator('#ball-joint-apply').click();await page.waitForFunction(()=>!document.getElementById('ball-joint-dialog').open);
  const saved=await save(),joint=saved.features.at(-1);assert.equal(joint.spec.socketEntryFillet,.3);assert.equal(joint.analysis.socketEntryFillet,.3);assert.equal(joint.spec.ballDiameter,legacy.features.at(-1).spec.ballDiameter);assert.equal(joint.spec.threadPitch,legacy.features.at(-1).spec.threadPitch);
  await page.locator('#bodies [data-body-id="joint-socket"] .body-isolate').click();
- const exported=page.waitForEvent('download');await page.locator('#export').click();const bytes=await fs.readFile(await(await exported).path()),report=binaryStlReport(bytes);
+ const exported=page.waitForEvent('download');await confirmOutput(page);const bytes=await fs.readFile(await(await exported).path()),report=binaryStlReport(bytes);
  for(const k of ['degenerate','boundary','nonmanifold','orientation'])assert.equal(report[k],0,'isolated rounded socket '+k);
  await load(saved.features);await page.locator('#bodies [data-ball-joint-id]').first().click();await ready(.3,'print');assert.equal(await page.locator('#ball-joint-socketEntryFillet').inputValue(),'0.3');
  await page.locator('#ball-joint-cancel').click();assert.deepEqual(errors,[]);

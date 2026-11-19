@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import {binaryStlReport} from './stl-topology.mjs';
 import {chromium} from 'playwright';
 import http from 'node:http';
@@ -37,7 +38,7 @@ try{
  await page.locator('#ball-joint-apply').click();await page.waitForFunction(()=>!document.getElementById('ball-joint-dialog').open);
  await page.locator('#bodies [data-body-id="c"] .body-isolate').click();
  assert.deepEqual(JSON.parse(await page.locator('#canvas-host').getAttribute('data-isolated-bodies')),['c']);
- const event=page.waitForEvent('download');await page.locator('#export').click();const file=await event,bytes=await fs.readFile(await file.path()),report=binaryStlReport(bytes);
+ const event=page.waitForEvent('download');await confirmOutput(page);const file=await event,bytes=await fs.readFile(await file.path()),report=binaryStlReport(bytes);
  for(const k of ['degenerate','boundary','nonmanifold','orientation'])assert.equal(report[k],0,'isolated ball STL '+k);
  assert.ok(report.volume>1000);assert.match(file.suggestedFilename(),/\.stl$/i);
  await fs.mkdir('.sites-runtime',{recursive:true});await fs.writeFile('.sites-runtime/ball-only-closed.stl',bytes);

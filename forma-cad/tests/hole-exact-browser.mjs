@@ -26,16 +26,23 @@ const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use
 try{
  const context=await browser.newContext({viewport:{width:1700,height:1100},acceptDownloads:true}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.defaultValue()));
  await page.addInitScript(()=>{window.holeJobs=[];const send=Worker.prototype.postMessage;Worker.prototype.postMessage=function(payload,...args){if(payload.spec?.type==='extrusionBatch'&&payload.spec.features[0]?.hole){window.holeJobs.push(payload.spec);if(window.holeResponse==='error'){setTimeout(()=>this.onmessage?.({data:{id:payload.id,error:'穴あけテストで失敗'}}),10);return;}if(window.holeResponse==='hold'){window.releaseHole=()=>send.call(this,payload,...args);return;}}return send.call(this,payload,...args);};});
- await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('canvas').waitFor();
+ await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+prefix);await page.locator('#canvas-host canvas').waitFor();
 
  const host=page.locator('#canvas-host');
  async function load(features){await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'hole-exact.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});await page.locator('#project-preview-open').click();await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();await page.waitForTimeout(100);}
- async function screen(point){const r=await page.locator('canvas').boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),c=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);c.position.fromArray(s);c.quaternion.fromArray(s,3);c.zoom=s[7];c.updateProjectionMatrix();c.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(c);return [r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2];}
+ async function screen(point){const r=await page.locator('#canvas-host canvas').boundingBox(),s=JSON.parse(await host.getAttribute('data-camera-state')),clip=JSON.parse(await host.getAttribute('data-camera-clip')),c=new THREE.OrthographicCamera(-100*r.width/r.height,100*r.width/r.height,100,-100,...clip);c.position.fromArray(s);c.quaternion.fromArray(s,3);c.zoom=s[7];c.updateProjectionMatrix();c.updateMatrixWorld(true);const p=new THREE.Vector3(...point).project(c);return [r.x+(p.x+1)*r.width/2,r.y+(1-p.y)*r.height/2];}
  async function save(){const promise=page.waitForEvent('download');await page.locator('#save').click();return JSON.parse(await fs.readFile(await(await promise).path(),'utf8'));}
 
  const box={...defaults,id:'b',name:'body',kind:'extrusion',width:60,height:60,depth:20,x:30,y:30,taperAngle:-10};
  async function drill(point,{diameter=40,depth=8.86,through=false}={}){
-  await page.locator('#cut-tool').click();await page.mouse.click(...await screen(point));assert.ok(await page.locator('#hole-apply').isEnabled());
+  await page.locator('#cut-tool').click();
+  await page.locator('#hole-workflow[data-step="0"]').waitFor();
+  const target=await screen(point);
+  await page.mouse.move(...target);
+  await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.workflowHover==='face');
+  await page.mouse.click(...target);
+  await page.locator('#hole-workflow[data-step="3"]').waitFor();
+  assert.ok(await page.locator('#hole-apply').isEnabled());
   await page.locator('#hole-diameter').fill(String(diameter));await page.locator('#hole-through').setChecked(through);
   if(!through)await page.locator('#hole-depth').fill(String(depth));
   await page.locator('#hole-apply').click();
@@ -79,8 +86,12 @@ try{
  await page.locator('#hole-through').uncheck();await page.locator('#hole-depth').fill('8.86');
  await page.locator('#hole-apply').click();await page.waitForFunction(()=>document.getElementById('hole-error').textContent.includes('穴あけテストで失敗'));
  assert.deepEqual((await save()).features,[box]);assert.ok(await page.locator('#hole-apply').isEnabled());
+ const actions=page.locator('#cad-failure-actions');
+ await actions.getByRole('button',{name:'入力条件のまま調整'}).click();
+ assert.equal(await page.locator('#hole-diameter').evaluate(input=>input===document.activeElement),true);
+ assert.equal(await page.locator('#hole-depth').inputValue(),'8.86');
  await page.evaluate(()=>window.holeResponse='hold');
- await page.locator('#hole-apply').click();await page.waitForFunction(()=>!!window.releaseHole);
+ await actions.getByRole('button',{name:'現在の設定で再プレビュー'}).click();await page.waitForFunction(()=>!!window.releaseHole);
  assert.equal(await page.locator('#hole-apply').isEnabled(),false);assert.equal(await page.locator('#hole-diameter').isEnabled(),false);
  await page.locator('#hole-cancel').click();await page.evaluate(()=>window.releaseHole());await page.waitForTimeout(500);
  assert.deepEqual((await save()).features,[box],'Cancelled result must never change model');

@@ -78,12 +78,16 @@ try{
   await page.locator('#project-load-preview').waitFor({state:'hidden'});
  }
  await loadProject(features,'two-ribs.forma.json');
- const choose=page.locator('#export'),picker=page.locator('#print-support-export-choice');
- const selected=picker.locator('option:checked'),exportButton=picker.getByRole('button',{name:'現在の配置で一括3MF出力'});
+ const choose=page.locator('#export'),picker=page.locator('#export-dialog');
+ const format=page.locator('#export-format'),selected=page.locator('#export-target option:checked'),exportButton=page.locator('#export-confirm');
  async function chooseCombined(){
   await choose.click();
   await picker.waitFor();
-  assert.equal(await selected.textContent(),'表示中のリブサポートをまとめる（2件）');
+  await format.selectOption('support3mf');
+  assert.equal(await selected.textContent(),'表示中のリブをまとめる（2件）');
+  const contents=await page.locator('#export-contents li').allTextContents();
+  assert.equal(contents.length,5);
+  assert.ok(contents.some(row=>row.includes('body-b')));
  }
  await chooseCombined();
  await exportButton.click();
@@ -126,14 +130,17 @@ try{
  await dialog.waitFor({state:'hidden'});
  await choose.click();
  await picker.waitFor();
- assert.equal(await picker.locator('option').count(),1,'closing the preview does not show a hidden mesh again');
- await picker.getByRole('button',{name:'キャンセル'}).click();
+ await format.selectOption('stl');
+ assert.equal((await page.locator('#export-contents li').allTextContents()).length,3,'closing the preview does not show a hidden mesh again');
+ await picker.getByRole('button',{name:'閉じる'}).click();
  await page.locator('#print-support-tool').click();
  await direct.waitFor();
  assert.equal(await includeHidden.isChecked(),true);
  assert.match(await direct.textContent(),/（2件）/);
  await field('layerHeight').fill('0.24');
- const [directDownload]=await Promise.all([page.waitForEvent('download'),direct.click()]);
+ await direct.click();
+ assert.equal(await format.inputValue(),'support3mf');
+ const [directDownload]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
  assert.match(directDownload.suggestedFilename(),/\.3mf$/);
  assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds]);
  assert.equal(downloads.length,2);
@@ -154,7 +161,9 @@ try{
  assert.match(await together.textContent(),/作成済み＋プレビューを一括3MF出力（2件）/);
  const previewId=await page.evaluate(()=>window.supportPreviewIds['body-b']);
  assert.ok(previewId);
- const [togetherDownload]=await Promise.all([page.waitForEvent('download'),together.click()]);
+ await together.click();
+ assert.match(await page.locator('#export-contents').textContent(),/body-a.*body-b.*プレビュー中のリブ/);
+ const [togetherDownload]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
  assert.match(togetherDownload.suggestedFilename(),/\.3mf$/);
  assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds,['ribs-a']]);
  assert.equal(downloads.length,3);

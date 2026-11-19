@@ -3,7 +3,7 @@ import {Vector3} from 'three';
 import {MODEL_PRECISION} from './model-precision.js';
 const bounds=shape=>{const box=shape.boundingBox;try{return box.bounds;}finally{box.delete();}};
 const boxDistance=(a,b)=>Math.hypot(...[0,1,2].map(i=>Math.max(0,a[0][i]-b[1][i],b[0][i]-a[1][i])));
-function closest(a,b){
+export function closestCadPoints(a,b){
  const query=new (R.getOC().BRepExtrema_DistShapeShape)();
  try{query.LoadS1(a.wrapped);query.LoadS2(b.wrapped);query.Perform();if(!query.IsDone())throw Error('最短距離を計算できません');const distance=query.Value();let points=null;if(query.NbSolution()>0){const p=query.PointOnShape1(1),q=query.PointOnShape2(1);try{points=[[p.X(),p.Y(),p.Z()],[q.X(),q.Y(),q.Z()]];}finally{p.delete();q.delete();}}return {distance,points};}finally{query.delete();}
 }
@@ -63,7 +63,7 @@ function measurePair(pair,boxes,{preview=false,exactCommon=false}={}){
  try{
   if(exactCommon&&overlap)common=pair.a.intersect(pair.b);
   if(common)volume=Math.abs(R.measureVolume(common));
-  if(volume<=MODEL_PRECISION.minVolume)hit=closest(pair.a,pair.b);
+  if(volume<=MODEL_PRECISION.minVolume)hit=closestCadPoints(pair.a,pair.b);
   if(!exactCommon&&hit?.distance<=MODEL_PRECISION.contact&&overlap){
    common=pair.a.intersect(pair.b);volume=Math.abs(R.measureVolume(common));
   }

@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import {binaryStlReport} from './stl-topology.mjs';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
@@ -36,7 +37,7 @@ try{
  for(const bent of [false,true]){
   const project=JSON.parse(await fs.readFile('.sites-runtime/stl-joint-project-'+bent+'.json','utf8'));await load(project.features);
   const rawCount=project.features.at(-1).outputs.reduce((n,o)=>n+o.triangles.length/3,0);
-  const event=page.waitForEvent('download');await page.locator('#export').click();const downloaded=await event;
+  const event=page.waitForEvent('download');await confirmOutput(page);const downloaded=await event;
   const bytes=await fs.readFile(await downloaded.path()),report=binaryStlReport(bytes);
   for(const k of ['degenerate','boundary','nonmanifold','orientation'])assert.equal(report[k],0,k+' after browser export');
   assert.equal(report.triangles,rawCount-1);assert.match(downloaded.suggestedFilename(),/\.stl$/i);

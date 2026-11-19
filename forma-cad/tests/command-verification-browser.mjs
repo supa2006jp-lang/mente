@@ -19,9 +19,16 @@ try{
  const base={...defaults,id:'base',kind:'extrusion',name:'base',width:20,height:20,depth:10},tool={...base,id:'tool',name:'tool',width:4,height:4,x:40};
  await load([base,tool]);const untouched=(await save()).features;await cut();await page.locator('#cad-apply').click();
  await page.waitForFunction(()=>document.getElementById('cad-error').textContent.includes('重なっていません'));
- assert.match(await page.locator('#cad-failure-evidence').innerText(),/隙間.*最短距離/);assert.match(await page.locator('#cad-failure-suggestion').innerText(),/内側まで届く/);assert.deepEqual((await save()).features,untouched);await page.screenshot({path:out+'/measured-gap.png'});await page.locator('#cad-cancel').click();
+ assert.match(await page.locator('#cad-failure-evidence').innerText(),/隙間.*最短距離/);assert.match(await page.locator('#cad-failure-suggestion').innerText(),/内側まで届く/);
+ await page.locator('[data-failure-location=separated-tool]').click();
+ await page.getByRole('button',{name:'入力条件のまま調整'}).click();
+ assert.equal(await page.locator('#cad-other').evaluate(input=>input===document.activeElement),true);
+ assert.equal(await page.locator('#cad-other').inputValue(),'tool');
+ assert.deepEqual((await save()).features,untouched);await page.screenshot({path:out+'/measured-gap.png'});await page.locator('#cad-cancel').click();
  await load([base,{...tool,x:0}]);const before=(await save()).features;await cut();
  await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.machiningPreview==='join'&&window.__verificationPreview?.outputs[0]?.shapeMetrics);
+ await page.locator('#machining-workflow[data-step="3"]').waitFor();
+ assert.match(await page.locator('#machining-workflow').innerText(),/base.*tool/);
  await page.evaluate(()=>{window.__verificationPreview.outputs[0].shapeMetrics.volume*=.5;});
  await page.locator('#cad-apply').click();await page.waitForFunction(()=>document.getElementById('cad-error').textContent.includes('プレビューと確定結果が一致しない'));
  assert.match(await page.locator('#cad-failure-evidence').innerText(),/体積.*プレビュー/);assert.equal(await page.locator('#body-count').innerText(),'2');assert.deepEqual((await save()).features,before,'rejected result preserves the full original document');await page.screenshot({path:out+'/mismatch-rejected.png'});

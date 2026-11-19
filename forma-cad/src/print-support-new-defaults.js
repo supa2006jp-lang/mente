@@ -13,6 +13,7 @@ export const printSupportNewDefaults=Object.freeze({
   "bottomInterfaceSpacing": 0.2,
   "bottomContactInset": 0,
   "edgeMargin": 0.1,
+  "sideGap": 0.5,
   "bottomSeams": false,
   "bottomSectionLength": 25,
   "bottomSeamWidth": 0.6,

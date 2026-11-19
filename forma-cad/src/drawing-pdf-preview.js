@@ -2,7 +2,7 @@ import {drawingViewport} from './drawing-viewport.js';
 import {drawingPrintSVG} from './drawing-print-palette.js';
 import {loadDrawingCommentFont} from './drawing-comments.js';
 
-export function installDrawingPDFPreview({download,onIssue}){
+export function installDrawingPDFPreview({download,onIssue,onEdit}){
  const dialog=document.createElement('dialog');
  dialog.id='drawing-pdf-preview';
  dialog.innerHTML='<div class="drawing-heading"><h2>PDFの印刷プレビュー</h2><button id="drawing-pdf-preview-close" type="button" aria-label="閉じる">×</button></div>'+
@@ -10,7 +10,8 @@ export function installDrawingPDFPreview({download,onIssue}){
   '<label>ページ<select id="drawing-pdf-preview-page"></select></label><button id="drawing-pdf-preview-next" type="button">次のページ</button>'+
   '<button id="drawing-pdf-preview-minus" type="button" aria-label="縮小">−</button><output id="drawing-pdf-preview-percent">100%</output>'+
   '<button id="drawing-pdf-preview-plus" type="button" aria-label="拡大">＋</button><button id="drawing-pdf-preview-fit" type="button">用紙全体</button>'+
-  '<button id="drawing-pdf-preview-expand" type="button">作業領域を最大化</button></div>'+
+  '<button id="drawing-pdf-preview-expand" type="button">作業領域を最大化</button>'+
+  '<button id="drawing-pdf-preview-edit" type="button" hidden>このページを編集</button></div>'+
   '<details id="drawing-pdf-preview-check"><summary id="drawing-pdf-preview-check-summary"></summary><div id="drawing-pdf-preview-issues"></div></details>'+
   '<div id="drawing-pdf-preview-host"></div><div class="drawing-actions"><span id="drawing-pdf-preview-status" role="status"></span>'+
   '<button id="drawing-pdf-preview-save" type="button">この内容でPDF保存</button></div>';
@@ -31,6 +32,7 @@ export function installDrawingPDFPreview({download,onIssue}){
  q('prev').onclick=()=>{if(index>0){index--;show();}};
  q('next').onclick=()=>{if(index<pages.length-1){index++;show();}};
  q('page').onchange=()=>{index=Number(q('page').value);show();};
+ q('edit').onclick=()=>{if(!saving){dialog.close();onEdit(index);}};
  q('close').onclick=()=>{if(!saving)dialog.close();};
  dialog.addEventListener('cancel',event=>{if(saving)event.preventDefault();});
  dialog.addEventListener('close',()=>{revision++;viewport.cancel();pages=[];q('host').replaceChildren();q('issues').replaceChildren();});
@@ -69,6 +71,7 @@ export function installDrawingPDFPreview({download,onIssue}){
   async open(next,nextPalette,issues=[]){
    const token=++revision;
    pages=next;palette=nextPalette;index=0;showIssues(issues);
+   q('edit').hidden=pages.length<2||!onEdit;
    q('page').replaceChildren(...pages.map((page,i)=>new Option((i+1)+' / '+pages.length,String(i))));
    dialog.showModal();show();
    try{

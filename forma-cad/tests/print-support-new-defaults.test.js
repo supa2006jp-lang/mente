@@ -1,5 +1,11 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 import {printSupportNewDefaults,printSupportNewDefaultName} from '../src/print-support-new-defaults.js';import {decodePrintSupportPresets,validatePrintSupportPreset} from '../src/print-support-presets.js';import {printSupportDefaults,validatePrintSupport} from '../src/print-support.js';
 const uploaded=JSON.parse(fs.readFileSync(new URL('./fixtures/print-support-default-1026.json',import.meta.url),'utf8')).presets[0];
-test('new support defaults exactly match every setting in the supplied preset',()=>{assert.equal(printSupportNewDefaultName,uploaded.name);assert.deepEqual(printSupportNewDefaults,uploaded.values);assert.deepEqual(validatePrintSupportPreset(printSupportNewDefaults),uploaded.values);assert.deepEqual(decodePrintSupportPresets(fs.readFileSync(new URL('./fixtures/print-support-default-1026.json',import.meta.url),'utf8'))[0].values,uploaded.values);});
+test('new supports retain every supplied preset value and use 0.5 mm lateral clearance',()=>{
+ assert.equal(printSupportNewDefaultName,uploaded.name);
+ assert.deepEqual(printSupportNewDefaults,{...uploaded.values,sideGap:.5});
+ assert.deepEqual(validatePrintSupportPreset(printSupportNewDefaults),printSupportNewDefaults);
+ const [legacy]=decodePrintSupportPresets(fs.readFileSync(new URL('./fixtures/print-support-default-1026.json',import.meta.url),'utf8'));
+ assert.deepEqual(legacy.values,{...uploaded.values,sideGap:0});
+});
 test('new defaults do not alter legacy replay fallback settings',()=>{const old=validatePrintSupport({type:'printSupport',target:'old'});assert.equal(old.style,'posts');assert.equal(old.contactLines,false);assert.equal(old.wallBottomSkin,false);assert.equal(old.bottomSkinLayers,2);assert.equal(old.topContactRim,false);assert.equal(old.topContactRimWidth,.6);assert.equal(old.bottomContactInset,0);assert.equal(old.wallPitch,4);assert.equal(old.wallDirection,'auto');assert.equal(printSupportDefaults.edgeMargin,.5);const latest=validatePrintSupport({...printSupportDefaults,...printSupportNewDefaults,type:'printSupport',target:'new'});assert.equal(latest.wallPitch,10);assert.equal(latest.edgeMargin,.1);assert.equal(latest.bottomSkinLayers,1);assert.equal(latest.wallDirection,'x');});

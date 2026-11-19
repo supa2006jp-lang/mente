@@ -43,6 +43,7 @@ try{
  const field=id=>page.locator('#drawing-'+id);
  const preview=field('pdf-preview'),print=field('pdf-preview-host'),editor=field('preview');
  const geometry=(host,view)=>host.locator(`[data-view="${view}"]>g[transform]`).getAttribute('transform');
+ const commentX=host=>host.locator('[data-comment=true] text').first().getAttribute('x');
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  await page.locator('#canvas-host canvas').waitFor();
 
@@ -65,7 +66,7 @@ try{
  ]),['drawing-pdf-layout','drawing-pdf-placement-label']);
  const pagesNote=field('pdf-pages-note');
  assert(await pagesNote.isVisible());
- assert.match(await pagesNote.textContent(),/複数ページ.*全体を1枚.*PDFをプレビュー/);
+ assert.match(await pagesNote.textContent(),/2 ページ.*編集するページ/);
  await field('pdf-layout').selectOption('');
  assert(await pagesNote.isHidden());
  assert(await assignments.isHidden());
@@ -79,6 +80,9 @@ try{
  assert(await pagesNote.isVisible());
  await field('pdf-layout').selectOption('manual');
  await field('pdf').click();
+ assert.equal(await page.locator('#export-format').inputValue(),'pdf');
+ assert.match(await page.locator('#export-contents').textContent(),/1 ページ.*2 ページ/);
+ await page.locator('#export-confirm').click();
  await preview.waitFor();
  assert.match(await field('pdf-preview-check-summary').textContent(),/寸法の重なり 2 件.*参照先を要確認 1 件/);
  assert.equal(await geometry(print,'top'),await geometry(editor,'top'));
@@ -122,6 +126,38 @@ try{
  assert.equal(await geometry(print,'section-a'),await geometry(editor,'section-a'));
  assert.equal(await print.locator('[data-sheet-scale]').textContent(),'SCALE 1:1 / mm');
  assert.equal(await print.locator('[data-comment=true]').textContent(),'切断位置を確認');
+ await field('pdf-preview-edit').click();
+ assert.equal(await field('page-edit').inputValue(),'1');
+ assert.equal(await editor.locator('[data-view=front]').count(),0);
+ assert.match(await pagesNote.textContent(),/2 ページ目を編集中/);
+ const beforeSection=await geometry(editor,'section-a');
+ const beforeComment=await commentX(editor);
+ const drag=async(locator,dx,dy)=>{
+  const box=await locator.boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
+  await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:4});await page.mouse.up();
+ };
+ await drag(editor.locator('[data-view=section-a] > rect[fill=transparent]'),-26,6);
+ await drag(editor.locator('[data-comment=true] text').first(),-20,17);
+ const sectionAt=await geometry(editor,'section-a');
+ const commentAt=await commentX(editor);
+ assert.notEqual(sectionAt,beforeSection);
+ assert.notEqual(commentAt,beforeComment);
+ await field('undo').click();
+ assert.equal(await commentX(editor),beforeComment);
+ await field('redo').click();
+ await field('page-edit').selectOption('0');
+ assert.equal(await editor.locator('[data-view=section-a]').count(),0);
+ const dimension=editor.locator('[data-dimension] text').first();
+ const dimensionAnchor=async locator=>locator.evaluate(el=>[el.getAttribute('x'),el.getAttribute('y'),el.getAttribute('transform')]);
+ const beforeDimension=await dimensionAnchor(dimension);
+ await drag(dimension,13,16);
+ const afterDimension=await dimensionAnchor(dimension);
+ assert.notDeepEqual(afterDimension,beforeDimension);
+ await field('pdf-preview-open').click();
+ assert.deepEqual(await dimensionAnchor(print.locator('[data-dimension] text').first()),afterDimension);
+ await field('pdf-preview-next').click();
+ assert.equal(await geometry(print,'section-a'),sectionAt);
+ assert.equal(await commentX(print),commentAt);
  const [pdf]=await Promise.all([page.waitForEvent('download'),field('pdf-preview-save').click()]);
  const bytes=await fs.readFile(await pdf.path());
  assert.equal(bytes.subarray(0,5).toString(),'%PDF-');
@@ -138,6 +174,13 @@ try{
  const overalls=file.drawing.dimensions.filter(d=>d.overall&&!d.hidden);
  assert.equal(overalls.length,3);
  assert.equal(file.drawing.options.uniqueOverallDimensions,true);
+ assert.ok(file.drawing.options.pdfPositions['section-a']);
+ assert.ok(file.drawing.options.pdfPositions.comment);
+ assert.ok(file.drawing.dimensions.some(d=>d.pdfPlacement));
+ await page.locator('#export').click();
+ await page.locator('#export-format').selectOption('pdf');
+ await page.locator('#export-confirm').click();
+ await field('page-edit').waitFor();
  assert.deepEqual(errors,[]);
- console.log('PASS PDF placement, warning navigation, overflow, scale captions, export and manufacturing dimensions');
+ console.log('PASS on-page PDF editing, placement, warning navigation, overflow, export and manufacturing dimensions');
 }finally{await browser?.close();server.close();}

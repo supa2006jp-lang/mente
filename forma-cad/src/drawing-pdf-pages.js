@@ -16,8 +16,9 @@ export function drawingPDFHasMultiplePages(views,{pdfLayout,pageAssignments,hole
  return pdfLayout==='multi'&&auxiliaryPDFItems(views,holeTable).length>0;
 }
 
-function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet){
+function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
  const keep=options.pdfPlacement!=='auto';
+ const overrides=options.pdfPositions??{};
  const source=keep?(editorSheet??drawingSheet(data,scale,hidden,dimensions,comment,options)):null;
  const positions=source?Object.fromEntries([
   ...Object.entries(source.layout).map(([id,view])=>[id,[view.x,view.y]]),
@@ -39,21 +40,33 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
   if(source){
    const noteIds=new Set(notes.map(note=>note.id));
    if(text.trim())noteIds.add('comment');
-   pages.push({scale,dimensions:pageDimensions,dimensionIndices,comment:text,options:{...pageOptions,positions,
-    pageSize:[source.width,source.height],pageNotes:source.notes.filter(note=>noteIds.has(note.id))}});
+   const pageNotes=source.notes.filter(note=>noteIds.has(note.id)).map(note=>{
+    const at=overrides[note.id];
+    return at?{...note,x:at[0],y:at[1]}:note;
+   });
+   pages.push({scale,dimensions:pageDimensions,dimensionIndices,comment:text,options:{...pageOptions,positions:{...positions,...overrides},
+    pageSize:[source.width,source.height],pageNotes}});
    return;
   }
   pageOptions.layout='compact';
-  const result=views.length||text.trim()||notes.length||table?
-   optimizeDrawingLayout(data,{scale,dimensions:pageDimensions,comment:text,options:pageOptions}):
-   {scale,dimensions:[],positions:{},paper:options.paper==='auto'?'A4':options.paper};
+  const key=layouts&&JSON.stringify([views,table,text,notes.map(note=>note.id)]);
+  let result=layouts?.get(key);
+  if(!result){
+   result=views.length||text.trim()||notes.length||table?
+    optimizeDrawingLayout(data,{scale,dimensions:pageDimensions,comment:text,options:pageOptions}):
+    {scale,dimensions:[],positions:{},paper:options.paper==='auto'?'A4':options.paper};
+   layouts?.set(key,result);
+  }
   pages.push({scale:result.scale,dimensions:result.dimensions,dimensionIndices,comment:text,
-   options:{...pageOptions,paper:result.paper,positions:result.positions}});
+   options:{...pageOptions,paper:result.paper,positions:{...result.positions,...overrides}}});
  }
 
  function render(){
   return pages.map((page,index)=>({
-   ...drawingSheet(data,page.scale,hidden,page.dimensions,page.comment,{...page.options,pageNumber:index+1,pageCount:pages.length}),
+   ...drawingSheet(data,page.scale,hidden,page.dimensions.map((d,i)=>{
+    const placed=dimensions[page.dimensionIndices[i]].pdfPlacement;
+    return placed?{...d,at:placed.at,alongOffset:placed.alongOffset}:d;
+   }),page.comment,{...page.options,pageNumber:index+1,pageCount:pages.length}),
    dimensionIndices:page.dimensionIndices,
   }));
  }
@@ -61,9 +74,9 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
  return {names,comments,add,render};
 }
 
-export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet){
+export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
  const assignment=options.pageAssignments??{pageCount:2,views:{},comments:{}};
- const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet);
+ const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
  const pageOf=(kind,id)=>Math.min(assignment.pageCount,assignment[kind]?.[id]??(
   kind==='views'&&isAuxiliaryView(id)?2:1));
  for(let page=1;page<=assignment.pageCount;page++){
@@ -77,9 +90,9 @@ export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,opt
  return render();
 }
 
-export function drawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet){
- if(options.pdfLayout==='manual')return assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet);
- const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet);
+export function drawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
+ if(options.pdfLayout==='manual')return assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
+ const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
  const overview=names.filter(name=>!isAuxiliaryView(name));
  add(overview,false,comment,comments);
  function fitAuxiliary(items){

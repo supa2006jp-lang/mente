@@ -1,3 +1,4 @@
+import {openOutput} from './output-browser-helpers.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -51,7 +52,8 @@ try{
  await dialog.locator('input[type=color]').fill('#228822');await dialog.locator('[type=submit]').click();
  assert.equal(await colorButton.textContent(),'色');
  await colorButton.click();await dialog.locator('[data-reset]').click();assert.equal(await colorButton.textContent(),'2色');
- const zip=unzipSync(await download('#export-color-3mf')),model=strFromU8(zip['3D/3dmodel.model']);
+ await openOutput(page,'#export-color-3mf');
+ const zip=unzipSync(await download('#export-confirm')),model=strFromU8(zip['3D/3dmodel.model']);
  assert.match(model,/<components><component objectid="2"\/><component objectid="3"\/><\/components>/);
  assert.deepEqual(errors,[]);
  console.log('PASS UI join keeps both colors, undo/redo, save/reopen and grouped volume 3MF');

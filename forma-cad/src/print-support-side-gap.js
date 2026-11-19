@@ -1,0 +1,102 @@
+import * as R from 'replicad';
+
+const tolerance=1e-6;
+function bounds(shape){
+ const box=shape.boundingBox;
+ try{return box.bounds;}finally{box.delete();}
+}
+const intersects=(a,b,margin=0)=>a[0].every((low,i)=>{
+ const pad=i<2?margin:0;
+ return low-pad<b[1][i]-tolerance&&a[1][i]+pad>b[0][i]+tolerance;
+});
+
+function planeGuard(face,gap){
+ const normal=face.normalAt();
+ try{
+  const [x,y]=normal.toTuple(),horizontal=Math.hypot(x,y);
+  if(horizontal<tolerance)return null;
+  const displacement=new R.Vector([gap*x/horizontal,gap*y/horizontal,0]);
+  try{return R.basicFaceExtrusion(face,displacement);}finally{displacement.delete();}
+ }finally{normal.delete();}
+}
+
+function cylinderGuard(face,[low,high],gap){
+ const owned=[],hold=item=>{owned.push(item);return item;};
+ try{
+  const surface=hold(face.surface),cylinder=hold(surface.wrapped.Cylinder());
+  const position=hold(cylinder.Position()),origin=hold(position.Location()),z=hold(position.Direction());
+  if(Math.abs(z.Z())<1-tolerance)return null;
+  const radius=cylinder.Radius(),height=high[2]-low[2],outer=radius+gap,inner=Math.max(0,radius-gap);
+  const {uMin:from,uMax:to}=face.UVBounds;
+  if(to-from>=2*Math.PI-tolerance){
+   const outside=R.makeCylinder(outer,height,[origin.X(),origin.Y(),low[2]]);
+   if(inner<tolerance)return outside;
+   hold(outside);
+   return outside.cut(hold(R.makeCylinder(inner,height,[origin.X(),origin.Y(),low[2]])));
+  }
+  if(to-from<tolerance)return null;
+  const x=hold(position.XDirection()),y=hold(position.YDirection());
+  const at=(r,u)=>[origin.X()+r*(x.X()*Math.cos(u)+y.X()*Math.sin(u)),
+   origin.Y()+r*(x.Y()*Math.cos(u)+y.Y()*Math.sin(u))];
+  const arc=(drawing,r,a,b)=>{
+   const mid=(a+b)/2;
+   drawing.threePointsArcTo(at(r,mid),at(r,(a+mid)/2)).threePointsArcTo(at(r,b),at(r,(mid+b)/2));
+  };
+  const profile=R.draw(at(outer,from));
+  arc(profile,outer,from,to);
+  profile.lineTo(at(inner,to));
+  if(inner>=tolerance)arc(profile,inner,to,from);
+  return profile.close().sketchOnPlane('XY',low[2]).extrude(height);
+ }finally{owned.reverse().forEach(item=>item.delete());}
+}
+
+// Extrude the clearance horizontally so a landing can still touch its floor.
+export function createSupportSideGap(bodies,scope,gap){
+ const tools=[];
+ const dispose=()=>tools.forEach(({shape})=>shape.delete());
+ if(!gap)return {cuts:()=>false,trim:shape=>shape,dispose};
+ try{
+  for(const body of bodies.values()){
+   if(!intersects(bounds(body),scope,gap))continue;
+   const faces=body.faces;
+   try{
+    for(const face of faces){
+     const box=bounds(face);
+     if(!intersects(box,scope,gap))continue;
+     const shape=face.geomType==='PLANE'?planeGuard(face,gap):
+      face.geomType==='CYLINDRE'?cylinderGuard(face,box,gap):null;
+     if(shape)tools.push({shape,box:bounds(shape)});
+    }
+   }finally{faces.forEach(face=>face.delete());}
+   const edges=body.edges;
+   try{
+    for(const edge of edges){
+     if(edge.geomType!=='LINE')continue;
+     const box=bounds(edge);
+     const height=box[1][2]-box[0][2];
+     if(height<tolerance||box[1][0]-box[0][0]>tolerance||box[1][1]-box[0][1]>tolerance||!intersects(box,scope,gap))continue;
+     const [x,y,z]=box[0];
+     const shape=R.makeCylinder(gap,height,[x,y,z]);
+     tools.push({shape,box:bounds(shape)});
+    }
+   }finally{edges.forEach(edge=>edge.delete());}
+  }
+ }catch(error){dispose();throw error;}
+ return {
+  trim(shape,own){
+   const box=bounds(shape);
+   let trimmed=shape;
+   for(const tool of tools)if(intersects(tool.box,box))trimmed=own(trimmed.cut(tool.shape));
+   return trimmed;
+  },
+  cuts(shape){
+   const box=bounds(shape);
+   return tools.some(tool=>{
+    if(!intersects(tool.box,box))return false;
+    const common=shape.intersect(tool.shape);
+    try{return Math.abs(R.measureVolume(common))>tolerance;}finally{common.delete();}
+   });
+  },
+  dispose,
+ };
+}

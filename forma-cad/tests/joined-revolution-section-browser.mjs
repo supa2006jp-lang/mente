@@ -1,3 +1,4 @@
+import {openOutput} from './output-browser-helpers.mjs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -18,7 +19,7 @@ async function split(keep){await page.locator('#section-toggle').click();await p
 try{
  await page.addInitScript(()=>{window.showSaveFilePicker=undefined;});await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');await page.locator('#canvas-host canvas').waitFor();await load();
  const original=await save(),positive=await split('positive');assert.equal(positive.features.at(-1).outputs.length,1);assert.equal(positive.features.at(-1).spec.offset,spec.offset);assert.equal(positive.features.at(-1).spec.target,spec.target);assert.deepEqual(positive.features.slice(0,original.features.length),original.features);
- const bytes=await download(page.locator('#export')),stl=binaryStlReport(bytes);for(const key of ['boundary','nonmanifold','orientation','degenerate'])assert.equal(stl[key],0,key);await fs.writeFile(out+'/positive.stl',bytes);await fs.writeFile(out+'/positive.forma.json',JSON.stringify(positive));await page.screenshot({path:out+'/positive.png'});
+ const bytes=await download(await openOutput(page)),stl=binaryStlReport(bytes);for(const key of ['boundary','nonmanifold','orientation','degenerate'])assert.equal(stl[key],0,key);await fs.writeFile(out+'/positive.stl',bytes);await fs.writeFile(out+'/positive.forma.json',JSON.stringify(positive));await page.screenshot({path:out+'/positive.png'});
  await page.locator('#undo').click();assert.deepEqual((await save()).features,original.features);await page.locator('#redo').click();assert.deepEqual((await save()).features.at(-1).spec,positive.features.at(-1).spec);await load(positive);assert.deepEqual((await save()).features.at(-1).spec,positive.features.at(-1).spec);
  await load();const both=await split('both');assert.equal(both.features.at(-1).outputs.length,2);assert.equal(await page.locator('#body-count').textContent(),'2');await load(both);assert.equal(await page.locator('#body-count').textContent(),'2');assert.deepEqual((await save()).features.at(-1).outputs,both.features.at(-1).outputs);await fs.writeFile(out+'/both.forma.json',JSON.stringify(both));await page.screenshot({path:out+'/both.png'});
  assert.deepEqual(errors,[]);const proof={pass:true,inputTarget:spec.target,originalFailurePosition:spec.offset,originalFailureMode:true,bothSides:true,closedStl:stl,sourceHistoryUnchanged:true,undoRedo:true,saveReload:true,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));

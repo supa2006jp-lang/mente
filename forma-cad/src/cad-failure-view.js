@@ -2,16 +2,21 @@ import {findMachiningValues,trialDimension} from './machining-value-trials.js';
 import * as THREE from 'three';
 import {moveMatrix} from './fillet-grid-reference.js';
 export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,onChoose,onFeature,onTrace,getTrialContext,getRetryContext,fitModelToolBox}){
- const panel=document.createElement('section');panel.id='cad-failure-panel';panel.className='workspace-panel';panel.hidden=true;panel.innerHTML='<strong>加工できなかった箇所</strong><p id="cad-failure-message" role="status"></p><div id="cad-failure-evidence"></div><p id="cad-failure-suggestion"></p><p id="cad-failure-location" class="hint"></p><div id="cad-failure-actions" class="workspace-actions"></div><button type="button" id="cad-failure-clear">表示を消す</button>';
- host.parentElement.append(panel);let overlay=null,original=null,trial=null;
+ const panel=document.createElement('section');panel.id='cad-failure-panel';panel.className='workspace-panel';panel.hidden=true;panel.innerHTML='<strong>加工できなかった箇所</strong><p id="cad-failure-message" role="status"></p><div id="cad-failure-actions" class="workspace-actions"></div><div id="cad-failure-evidence"></div><p id="cad-failure-suggestion"></p><p id="cad-failure-location" class="hint"></p><button type="button" id="cad-failure-clear">表示を消す</button>';
+ host.parentElement.append(panel);let overlay=null,original=null,trial=null,activeType=null;
  const q=name=>panel.querySelector('#cad-failure-'+name);
- function clear(){trial?.abort();trial=null;if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}panel.hidden=true;delete host.dataset.failedBodies;}
+ function clear(type){if(typeof type==='string'&&type!==activeType)return;activeType=null;trial?.abort();trial=null;if(overlay){overlay.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});overlay.removeFromParent();overlay=null;}panel.hidden=true;delete host.dataset.failedBodies;}
  function action(text,handler){const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=handler;q('actions').append(button);}
+ const vector=point=>new THREE.Vector3(...point);
+ const hasPoint=point=>Array.isArray(point)&&point.length===3&&point.every(Number.isFinite);
+ const pointsBox=points=>new THREE.Box3().setFromPoints(points.map(vector));
+ function fit(box){if(!box.isEmpty()&&original===getFeatures())fitModelToolBox?.(box.clone().expandByScalar(2));}
  function show(error,spec,features){
   if(error.code==='no-unextruded-area'){clear();return;}
   if(error.code==='cancelled')return;clear();original=getFeatures();let operation=spec?.type==='preview'?spec.operation:spec;
   if(operation?.type==='extrusionBatch')operation={type:'extrusion',feature:operation.features?.[0],target:operation.features?.[0]?.target};
   if(operation?.type==='replay'&&error.featureId)operation=features.find(feature=>feature.id===error.featureId)?.spec||operation;
+  const type=activeType=operation?.type==='hole'?'hole':error.failedOperation||operation?.type;
   const diagnostics=error.diagnostics,ids=[...new Set(diagnostics?.bodyIds?.length?diagnostics.bodyIds:[operation?.target,...(operation?.targets||[]),operation?.other,...(operation?.others||[]),operation?.feature?.target,operation?.feature?.region?.bodyId,operation?.sourceBody].filter(Boolean))].filter(id=>meshes.has(id));
   overlay=new THREE.Group();
   if(diagnostics?.edges?.length){
@@ -21,9 +26,22 @@ export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,
    for(const id of ids){const helper=new THREE.Box3Helper(new THREE.Box3().setFromObject(meshes.get(id)),0xef4438);helper.material.depthTest=false;helper.renderOrder=45;overlay.add(helper);}
    q('location').textContent=ids.length?'赤枠：確認が必要なボディ。局所的な原因は特定できていません。':'';
   }
-  const issues=diagnostics?.issues||[];q('evidence').replaceChildren();
+  const issues=diagnostics?.issues||[];q('evidence').replaceChildren();let measured=false;
   for(const issue of issues.slice(0,6)){const line=document.createElement('p');line.className='hint';line.textContent=issue.message+(Number.isFinite(issue.distance)?' ／ 最短距離 '+Number(issue.distance.toPrecision(6))+' mm':'')+(Number.isFinite(issue.expected)&&Number.isFinite(issue.actual)?'（プレビュー '+Number(issue.expected.toPrecision(7))+' → 確定 '+Number(issue.actual.toPrecision(7))+(issue.code==='volume'?' mm³':'')+'）':'');q('evidence').append(line);
-   if(issue.bounds?.length===2&&issue.bounds.every(p=>p.length===3&&p.every(Number.isFinite))){const helper=new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...issue.bounds[0]),new THREE.Vector3(...issue.bounds[1])),0xef4438);helper.material.depthTest=false;helper.renderOrder=46;overlay.add(helper);}
+   let box=null;
+   if(issue.points?.length===2&&issue.points.every(hasPoint)){
+    measured=true;box=pointsBox(issue.points);const positions=issue.points.map(vector);
+    const segment=new THREE.Line(new THREE.BufferGeometry().setFromPoints(positions),new THREE.LineBasicMaterial({color:0xee4433,depthTest:false}));
+    const dots=new THREE.Points(new THREE.BufferGeometry().setFromPoints(positions),new THREE.PointsMaterial({color:0xee4433,size:8,sizeAttenuation:false,depthTest:false}));
+    segment.renderOrder=dots.renderOrder=47;overlay.add(segment,dots);
+   }else if(issue.bounds?.length===2&&issue.bounds.every(hasPoint)){
+    box=pointsBox(issue.bounds);
+    const helper=new THREE.Box3Helper(box,0xef4438);helper.material.depthTest=false;helper.renderOrder=46;overlay.add(helper);
+   }
+   if(box&&fitModelToolBox){
+    const button=document.createElement('button');button.type='button';button.dataset.failureLocation=issue.code;
+    button.textContent=issue.points?'このすき間を拡大':'この範囲を拡大';button.onclick=()=>fit(box);q('evidence').append(button);
+   }
   }
   q('suggestion').textContent=diagnostics?.suggestion||'';q('suggestion').hidden=!diagnostics?.suggestion;
   if(issues.some(issue=>issue.bounds))q('location').textContent=(diagnostics.kind==='preview-mismatch'?'赤枠：照合で不一致が確認された形状の範囲。':diagnostics.certainty==='inspection'?'赤枠：整合性検査に通らなかった形状の範囲。':'赤枠：今回の加工対象の範囲。')+'原因となる辺を特定した表示ではありません。';
@@ -36,8 +54,14 @@ export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,
     q('location').textContent+=' 橙の点は指定した開口面です。';
    }
   }
+  if(measured)q('location').textContent='赤い線は、CADが最短距離を測った2点を結んでいます。';
+  if(type==='hole'&&hasPoint(operation.point)){
+   const position=vector(operation.point);
+   const marker=new THREE.Points(new THREE.BufferGeometry().setFromPoints([position]),new THREE.PointsMaterial({color:0xff9a38,size:12,sizeAttenuation:false,depthTest:false}));
+   marker.renderOrder=46;overlay.add(marker);q('location').textContent+=' 橙の点は穴の中心です。';
+  }
   scene.add(overlay);host.dataset.failedBodies=JSON.stringify(ids);q('message').textContent=error.message;q('actions').replaceChildren();
-  const type=error.failedOperation||operation?.type,input=document.querySelector(type==='fillet'?'#fillet-history-dialog[open] #fillet-history-radius, #tools-dialog[open] #cad-radius':type==='shell'?'#tools-dialog[open] #cad-thickness':type==='chamfer'?'#tools-dialog[open] #cad-distance':'#extrude-distance:not([hidden]) #viewport-depth');
+  const input=document.querySelector(type==='fillet'?'#fillet-history-dialog[open] #fillet-history-radius, #tools-dialog[open] #cad-radius':type==='shell'?'#tools-dialog[open] #cad-thickness':type==='chamfer'?'#tools-dialog[open] #cad-distance':'#extrude-distance:not([hidden]) #viewport-depth');
   const retry=spec?.type!=='replay'&&getRetryContext?.(type);
   if(retry){
    action('入力条件のまま調整',()=>{if(retry.current())retry.focus();});
@@ -47,7 +71,7 @@ export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,
   if(located.length&&fitModelToolBox)action('問題箇所を拡大',()=>{
    const box=new THREE.Box3();
    for(const item of located)box.union(item.box??new THREE.Box3().setFromObject(item));
-   if(!box.isEmpty())fitModelToolBox(box.expandByScalar(2));
+   fit(box);
   });
   const sameFeature=!error.featureId||spec?.type!=='replay'||error.featureId===document.querySelector('#fillet-history-dialog[open]')?.dataset.featureId;
   if(!issues.length&&sameFeature&&input&&Number.isFinite(Number(input.value))&&Number(input.value)!==0)action(['fillet','shell','chamfer'].includes(type)?'寸法を半分にしてプレビュー':'押し出しを1 mm延長してプレビュー',()=>{const value=Number(input.value);input.value=String(['fillet','shell','chamfer'].includes(type)?value/2:value+Math.sign(value));input.dispatchEvent(new Event('input',{bubbles:true}));});
@@ -88,11 +112,17 @@ export function createCadFailureView({scene,host,meshes,getFeatures,getBodyName,
    q('actions').append(retry,result);
   }
   for(const id of ids){
-   action('対象ボディを選択して拡大',()=>onChoose(id));
+   action(getBodyName(id)+' を拡大',()=>onChoose(id));
    if(onTrace)action('形状異常を履歴で探す'+(ids.length>1?' ／ '+getBodyName(id):''),()=>{clear();onTrace({target:id});});
   }
   if(error.featureId)action('失敗した工程を開く',()=>onFeature(error.featureId));
-  const dialog=document.querySelector('#fillet-history-dialog[open],#tools-dialog[open]');if(dialog){panel.style.cssText='position:static;width:auto;max-height:200px;margin:10px 0;box-shadow:none';const actions=dialog.querySelector('.editor-actions');actions?actions.before(panel):dialog.append(panel);dialog.addEventListener('close',clear,{once:true});}else{host.parentElement.append(panel);panel.style.cssText='';}
+  const container=document.querySelector(type==='hole'?'#hole-panel:not([hidden])':'#fillet-history-dialog[open],#tools-dialog[open]');
+  if(container){
+   panel.style.cssText='position:relative;width:auto;max-height:none;overflow:visible;margin:10px 0;box-shadow:none;grid-column:1/-1';
+   const anchor=container.querySelector('#cad-fields,#hole-diameter')?.closest('#cad-fields,label')??container.querySelector('.editor-actions');
+   if(anchor)anchor.before(panel);else container.append(panel);
+   if(container instanceof HTMLDialogElement)container.addEventListener('close',clear,{once:true});
+  }else{host.parentElement.append(panel);panel.style.cssText='';}
   panel.hidden=false;
  }
  q('clear').onclick=clear;

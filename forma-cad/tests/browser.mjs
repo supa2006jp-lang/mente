@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import {chromium} from 'playwright';import fs from 'node:fs/promises';import assert from 'node:assert/strict';import {defaults} from '../src/geometry.js';
 const browser=await chromium.launch({channel:'msedge',headless:true});try{
 const page=await browser.newPage({viewport:{width:1550,height:1100},acceptDownloads:true});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());await page.goto('http://127.0.0.1:5188');await page.waitForFunction(()=>document.getElementById('status').textContent.includes('閉じた'));
@@ -8,7 +9,7 @@ async function click(u,v){const b=await page.locator('canvas').boundingBox(),sca
 const sketch=(id,extra)=>({...defaults,id,name:id,kind:'sketch',...extra});
 // Nested profiles: ring and disk can be selected separately; the hole remains.
 await load([sketch('outer',{width:80,height:60}),sketch('inner',{profile:'circle',diameter:20})]);await viewPlane();assert.equal(await page.locator('#region-count').textContent(),'2');await click(25,0);await page.locator('#solid-tool').click();await page.locator('#depth').fill('10');await page.locator('#apply').click();let data=await save();assert.equal(data.features.at(-1).region.holes.length,1);
-const dl=page.waitForEvent('download');await page.locator('#export').click();const bytes=await fs.readFile(await(await dl).path());assert.equal(bytes.length,84+bytes.readUInt32LE(80)*50);
+const dl=page.waitForEvent('download');await confirmOutput(page);const bytes=await fs.readFile(await(await dl).path());assert.equal(bytes.length,84+bytes.readUInt32LE(80)*50);
 // Old projects still open and retain their editable numeric dimensions.
 await page.locator('#sample').click();assert.equal(await page.locator('#body-count').textContent(),'1');await page.locator('#wall').fill('4');await page.locator('#apply').click();assert.equal((await save()).features[1].wall,4);
 // Cut tool before region selection keeps the requested operation.

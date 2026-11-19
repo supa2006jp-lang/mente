@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import fs from 'node:fs/promises';import http from 'node:http';import path from 'node:path';import assert from 'node:assert/strict';import {chromium} from 'playwright';import * as THREE from 'three';
 import {defaults} from '../src/geometry.js';
 import {binaryStlReport} from './stl-topology.mjs';
@@ -23,7 +24,7 @@ try{
  await load([box]);await page.locator('[data-view=front]').click();await clickWorld([0,-20,22]);await open();await ready();await $('scope').selectOption('selected');const one=await ready();assert(one.holeCount<first.holeCount);await $('cancel').click();
  const cylinder={...defaults,id:'c',name:'円柱',kind:'extrusion',profile:'circle',diameter:44,depth:44};
  await load([cylinder]);await page.locator('[data-view=iso]').click();await open();const round=await ready();assert.equal(round.kind,'cylinder');await page.screenshot({path:out+'/cylinder-preview.png'});await $('apply').click();await $('dialog').waitFor({state:'hidden'});assert.equal((await save()).features[1].analysis.honeycomb.kind,'cylinder');
- const [stlDownload]=await Promise.all([page.waitForEvent('download'),page.locator('#export').click()]);const stl=binaryStlReport(await fs.readFile(await stlDownload.path()));for(const key of ['degenerate','boundary','nonmanifold','orientation'])assert.equal(stl[key],0,key);assert(stl.volume>0);
+ const [stlDownload]=await Promise.all([page.waitForEvent('download'),confirmOutput(page)]);const stl=binaryStlReport(await fs.readFile(await stlDownload.path()));for(const key of ['degenerate','boundary','nonmanifold','orientation'])assert.equal(stl[key],0,key);assert(stl.volume>0);
  // The advanced command remains available when the toolbar hides optional tools.
  await page.locator('#advanced-tools').click();await page.locator('#cad-command').selectOption('honeycomb');await $('dialog').waitFor({state:'visible'});await $('cell').focus();await page.keyboard.press('Escape');await $('dialog').waitFor({state:'hidden'});assert.equal(await host.getAttribute('data-honeycomb-preview'),null);
  assert.deepEqual(errors,[]);const proof={pass:true,build:requests.find(u=>u.includes('/app.js?v='))?.split('?v=')[1],syntheticFixturesOnly:true,boxPreview:true,cylinderPreview:true,previewDoesNotCommit:true,invalidSettingsNoCommit:true,cancelRestores:true,apply:true,undoRedo:true,historyEditing:true,saveReload:true,selectedSide:true,advancedMenu:true,escapeCancels:true,stlExport:true,stl,errors};await fs.writeFile(out+'/proof.json',JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));

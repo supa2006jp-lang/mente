@@ -98,6 +98,11 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    !validMap(assignment.views,new Set([...viewNames,'iso']))||!validMap(assignment.comments,new Set(['comment',...commentIds]))||
    assignment.holeTable!==undefined&&!validPage(assignment.holeTable))fail();
  }
+ if(o.pdfPositions!==undefined){
+  const allowed=new Set([...viewNames,'iso','comment','holeTable',...commentIds]);
+  if(!o.pdfPositions||typeof o.pdfPositions!=='object'||Array.isArray(o.pdfPositions)||
+   Object.entries(o.pdfPositions).some(([id,at])=>!allowed.has(id)||!point(at)))fail();
+ }
  if(o.leaders!==undefined){
   if(!Array.isArray(o.leaders)||o.leaders.length>maxDrawingLeaders)fail();
   const leaderIds=new Set();
@@ -125,6 +130,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(![...drawingProjectionNames,'iso','comment','holeTable',...ids,...commentIds].includes(key)||!point(p))fail();
  for(const d of s.dimensions){if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();if(!viewNames.has(d.view)||!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();if(['diameter','radius'].includes(d.kind)){if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();}else if(!point(d.a)||!point(d.b))fail();if(d.kind==='angle'&&!point(d.vertex))fail();}
  for(const d of s.dimensions){
+  if(d.pdfPlacement!==undefined&&(!d.pdfPlacement||!point(d.pdfPlacement.at)||
+   d.pdfPlacement.alongOffset!==undefined&&(!Number.isFinite(d.pdfPlacement.alongOffset)||Math.abs(d.pdfPlacement.alongOffset)>1e6)))fail();
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
   if(d.hidden!==undefined&&typeof d.hidden!=='boolean')fail();

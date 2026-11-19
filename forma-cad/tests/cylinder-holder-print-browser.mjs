@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import * as THREE from 'three';
 import {defaults} from '../src/geometry.js';
 import {chromium} from 'playwright';
@@ -42,7 +43,7 @@ const cylinder={...defaults,id:'cylinder',kind:'extrusion',name:'円柱',profile
  await page.locator('#cylinder-hinge-printMargin').fill('0');await ready();a=await analysis();assert.equal(a.layout.fits,true);assert.equal(a.angle,90);assert.ok(a.layout.angle>0);assert.ok(Math.abs(a.printBounds.min[0]+a.printBounds.max[0])<1e-6);await page.locator('#cylinder-hinge-plate-info').scrollIntoViewIfNeeded();await page.screenshot({path:'.sites-runtime/cylinder-pair-arranged.png'});
  await page.locator('#cylinder-hinge-apply').click();await page.waitForFunction(()=>!document.getElementById('cylinder-hinge-dialog').open);
  const saved=await save();assert.equal(saved.features.at(-1).spec.printArrange,true);assert.equal(saved.features.at(-1).spec.printMargin,0);
- const download=page.waitForEvent('download');await page.locator('#export').click();const exported=stlBounds(await fs.readFile(await(await download).path()));for(const axis of [0,1])assert.ok(exported.min[axis]>=-90-1e-4&&exported.max[axis]<=90+1e-4);assert.ok(Math.abs(exported.min[2])<1e-6);assert.equal(exported.count,saved.features.at(-1).outputs.reduce((sum,o)=>sum+o.triangles.length/3,0),'STL contains two arranged components, no preview plate');
+ const download=page.waitForEvent('download');await confirmOutput(page);const exported=stlBounds(await fs.readFile(await(await download).path()));for(const axis of [0,1])assert.ok(exported.min[axis]>=-90-1e-4&&exported.max[axis]<=90+1e-4);assert.ok(Math.abs(exported.min[2])<1e-6);assert.equal(exported.count,saved.features.at(-1).outputs.reduce((sum,o)=>sum+o.triangles.length/3,0),'STL contains two arranged components, no preview plate');
  await load(saved.features);await page.locator('[data-cylinder-hinge-id]').first().click();await ready();assert.ok(await page.locator('#cylinder-hinge-printArrange').isChecked());assert.equal(await page.locator('#cylinder-hinge-printMargin').inputValue(),'0');
  await page.locator('#cylinder-hinge-pose').selectOption('closed');await ready();assert.ok(await page.locator('#cylinder-hinge-printArrange').isDisabled());assert.equal((await analysis()).layout,null);
  await page.locator('#cylinder-hinge-fitHolder').check();await page.locator('#cylinder-hinge-holderDiameter').fill('84');await page.locator('#cylinder-hinge-holderGap').fill('0.3');await page.locator('#cylinder-hinge-lipInset').fill('1.4');await page.locator('#cylinder-hinge-lipHeight').fill('3');await ready();

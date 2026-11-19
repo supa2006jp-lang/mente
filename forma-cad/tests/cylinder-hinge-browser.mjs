@@ -1,3 +1,4 @@
+import {confirmOutput} from './output-browser-helpers.mjs';
 import * as THREE from 'three';
 import {defaults} from '../src/geometry.js';
 import {chromium} from 'playwright';
@@ -43,7 +44,7 @@ const cylinder={...defaults,id:'cylinder',kind:'extrusion',name:'円柱',profile
  await page.locator('#cylinder-hinge-radialGap').fill('0.1');assert.ok(await page.locator('#cylinder-hinge-apply').isDisabled());await page.locator('#cylinder-hinge-radialGap').fill('0.5');await ready();
  await page.locator('#cylinder-hinge-pose').selectOption('print');await ready();await page.locator('#cylinder-hinge-apply').scrollIntoViewIfNeeded();await page.screenshot({path:'.sites-runtime/cylinder-hinge-print.png'});
  await page.locator('#cylinder-hinge-apply').click();await page.waitForFunction(()=>!document.getElementById('cylinder-hinge-dialog').open);
- const saved=await save();const stlDownload=page.waitForEvent('download');await page.locator('#export').click();const stl=await fs.readFile(await(await stlDownload).path());const triangleCount=saved.features.at(-1).outputs.reduce((sum,o)=>sum+o.triangles.length/3,0);assert.equal(stl.readUInt32LE(80),triangleCount);assert.equal(stl.length,84+triangleCount*50,'single STL contains the captive assembly in its shared placement');assert.equal(saved.features.at(-1).spec.radialGap,.5);assert.equal(saved.features.at(-1).outputs.length,2);
+ const saved=await save();const stlDownload=page.waitForEvent('download');await confirmOutput(page);const stl=await fs.readFile(await(await stlDownload).path());const triangleCount=saved.features.at(-1).outputs.reduce((sum,o)=>sum+o.triangles.length/3,0);assert.equal(stl.readUInt32LE(80),triangleCount);assert.equal(stl.length,84+triangleCount*50,'single STL contains the captive assembly in its shared placement');assert.equal(saved.features.at(-1).spec.radialGap,.5);assert.equal(saved.features.at(-1).outputs.length,2);
  await page.locator('#undo').click();assert.equal((await save()).features.length,1);await page.locator('#redo').click();assert.equal((await save()).features.at(-1).spec.radialGap,.5);
  await load(saved.features);await page.locator('[data-cylinder-hinge-id]').first().click();await ready();assert.equal(await page.locator('#cylinder-hinge-radialGap').inputValue(),'0.5');await page.locator('#cylinder-hinge-lidThickness').fill('3');await close();assert.equal((await save()).features.at(-1).spec.lidThickness,4.8);
  await page.locator('[data-cylinder-hinge-id]').first().click();await ready();await page.locator('#cylinder-hinge-lidThickness').fill('3');await ready();await page.locator('#cylinder-hinge-apply').click();await page.waitForFunction(()=>!document.getElementById('cylinder-hinge-dialog').open);assert.equal((await save()).features.at(-1).spec.lidThickness,3);

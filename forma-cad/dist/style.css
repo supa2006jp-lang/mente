@@ -811,3 +811,26 @@ button.form-control-point.invalid { background:#bc2634; }
 #drawing-alignment-items label{white-space:nowrap}
 #drawing-page-items label{display:inline-flex;align-items:center;gap:6px}
 #drawing-page-count{width:65px}
+
+#export-dialog{width:min(490px,calc(100vw - 32px));padding:22px}
+#export-dialog h2{margin:0 0 16px}
+#export-dialog h3{font-size:1rem;margin:18px 0 6px}
+#export-dialog label[hidden]{display:none}
+#export-contents{margin:0;padding:0;list-style:none;max-height:38vh;overflow:auto;border:1px solid var(--border);border-radius:6px}
+#export-contents:empty{display:none}
+#export-contents li{padding:8px 12px;overflow-wrap:anywhere}
+#export-contents li+li{border-top:1px solid var(--border)}
+#export-contents small{display:block;color:inherit;opacity:.78;margin-top:2px}
+#export-detail:empty{display:none}
+#export-detail{line-height:1.5}
+.export-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:14px}
+#drawing-page-edit-label{font-weight:600}
+#drawing-page-edit-label[hidden],#drawing-page-reset[hidden],#drawing-pdf-preview-edit[hidden]{display:none}
+#drawing-page-edit{margin:0}
+.cad-workflow{padding:8px 10px;margin-bottom:9px;border:1px solid #7092a4;border-radius:6px;color:inherit}
+#extrusion-workflow{margin:12px 12px 0}
+.cad-workflow ol{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;padding:0;margin:0;list-style:none}
+.cad-workflow li{padding:4px 2px;border-bottom:2px solid #8295a5;font-size:.78rem;text-align:center}
+.cad-workflow li[aria-current=step]{color:#073146;background:#9bdfeb;border-color:#23a9c1;font-weight:700}
+.cad-workflow p{margin:8px 0 0;font-size:.86rem;line-height:1.5}
+#hole-panel{max-height:calc(100% - 126px);overflow:auto}
