@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import {findPanelSpace} from './panel-placement.js';
+import {createSketchExtrudeProjection,placeSketchExtrudeShortcut} from './sketch-extrude-placement.js';
 
 // The shortcut only projects the selection; opening it uses the normal extrusion command.
 export function createFaceExtrudeShortcut(options){
  const {host,canvas,camera,getSelection,getSelections,onExtrude,onUnextruded,onOffset,onDragStart,onDragMove,onDragEnd,id='face-extrude-shortcut'}=options;
+ const projectSketch=options.projectSketch??createSketchExtrudeProjection(camera,options.getSketchObjects);
  if(getSelections){
   let selections=[];const shortcuts=[];
   return {cancel(){for(const shortcut of shortcuts)shortcut.cancel();},update(){
    selections=getSelections();
-   while(shortcuts.length<selections.length){const index=shortcuts.length;shortcuts.push(createFaceExtrudeShortcut({...options,getSelections:null,getSelection:()=>selections[index]||null,id:index?'face-extrude-shortcut-'+(index+1):'face-extrude-shortcut'}));}
+   while(shortcuts.length<selections.length){const index=shortcuts.length;shortcuts.push(createFaceExtrudeShortcut({...options,projectSketch,getSelections:null,getSelection:()=>selections[index]||null,id:index?'face-extrude-shortcut-'+(index+1):'face-extrude-shortcut'}));}
    const occupied=[];for(const shortcut of shortcuts)shortcut.update(occupied);
   }};
  }
@@ -63,6 +65,7 @@ export function createFaceExtrudeShortcut(options){
  function cancel(){if(gesture)finish({pointerId:gesture.id,type:'pointercancel'});}
  window.addEventListener('blur',cancel);
  const projected=new THREE.Vector3();
+ let sketchPlacement=null;
  return {cancel,update(occupied=[]){
   // Keep the captured element alive until release. The normal extrusion arrow
   // supplies the visible feedback while the shortcut itself stays transparent.
@@ -70,22 +73,54 @@ export function createFaceExtrudeShortcut(options){
   const selection=getSelection();
   if(gesture&&selection!==gesture.selection)cancel();
   if(!selection){hide();return;}
-  const paired=!!remaining&&(!!selection.sketchRegion||!!selection.sketchRegions?.length);
-  if(remaining)remaining.hidden=!paired;if(offset)offset.hidden=false;
+  const regions=selection.sketchRegion?[selection.sketchRegion]:selection.sketchRegions??[];
+  const paired=!!remaining&&regions.length>0;
   projected.fromArray(selection.point).project(camera);
-  if(!Number.isFinite(projected.x)||projected.z< -1||projected.z>1||Math.abs(projected.x)>1||Math.abs(projected.y)>1){hide();return;}
+  if(!Number.isFinite(projected.x)||!Number.isFinite(projected.y)||projected.z< -1||projected.z>1||
+   !regions.length&&(Math.abs(projected.x)>1||Math.abs(projected.y)>1)){hide();return;}
   const rect=canvas.getBoundingClientRect(),parent=host.parentElement.getBoundingClientRect();
-  const x=(projected.x+1)*rect.width/2,y=(1-projected.y)*rect.height/2,size=34,width=size+(paired?84:0)+(offset?70:0);
-  // Keep it close to the picked point, inside the canvas and clear of floating controls.
-  const obstacles=[...host.parentElement.querySelectorAll('#measurement,#selection-candidates,.view-cube,#reference-plane-control,#snap-controls')].filter(node=>!node.hidden&&node.getClientRects().length).map(node=>node.getBoundingClientRect()).concat(occupied);
-  const spots=[[x+22,y-size-16],[x-width-22,y-size-16],[x+22,y+16],[x-width-22,y+16]].map(([left,top])=>({left:Math.max(5,Math.min(left,rect.width-width-5)),top:Math.max(5,Math.min(top,rect.height-size-5))}));
-  let spot=spots.find(({left,top})=>!obstacles.some(r=>rect.left+left<r.right+4&&rect.left+left+width>r.left-4&&rect.top+top<r.bottom+4&&rect.top+top+size>r.top-4));
-  if(!spot)spot=findPanelSpace({width:rect.width,height:rect.height,panelWidth:width,panelHeight:size,anchor:{x,y},margin:5,gap:4,obstacles:obstacles.map(r=>({left:r.left-rect.left,top:r.top-rect.top,right:r.right-rect.left,bottom:r.bottom-rect.top}))});if(spot&&spot.x!=null)spot={left:spot.x,top:spot.y};
-  if(!spot||rect.width<width+10||rect.height<size+10){hide();return;}
-  button.style.left=rect.left-parent.left+spot.left+'px';button.style.top=rect.top-parent.top+spot.top+'px';
-  if(paired){remaining.style.left=rect.left-parent.left+spot.left+40+'px';remaining.style.top=button.style.top;}
-  if(offset){offset.style.left=rect.left-parent.left+spot.left+40+(paired?84:0)+'px';offset.style.top=button.style.top;}
+  const x=(projected.x+1)*rect.width/2,y=(1-projected.y)*rect.height/2,size=34,gap=6;
+  const buttons=[[button,size],...(paired?[[remaining,78]]:[]),...(offset?[[offset,64]]:[])];
+  const rowWidth=buttons.reduce((sum,[,width])=>sum+width+gap,-gap);
+  const stackWidth=Math.max(...buttons.map(([,width])=>width)),stackHeight=buttons.length*(size+gap)-gap;
+  const controls=[...host.parentElement.querySelectorAll('#measurement,#selection-candidates,.view-cube,#reference-plane-control,#snap-controls')];
+  if(regions.length)controls.push(...host.parentElement.querySelectorAll('#sketch-banner,.navigation'),document.getElementById('sketch-constraint-quick'));
+  const obstacles=controls.filter(node=>node&&!node.hidden&&node.getClientRects().length).map(node=>node.getBoundingClientRect())
+   .concat(occupied).map(r=>({left:r.left-rect.left,top:r.top-rect.top,right:r.right-rect.left,bottom:r.bottom-rect.top}));
+  const space={width:rect.width,height:rect.height,panelWidth:rowWidth,panelHeight:size,anchor:{x,y},obstacles};
+  let spot,stacked=false;
+  if(regions.length){
+   const projection=projectSketch(rect.width,rect.height);
+   const obstacleKey=obstacles.map(r=>[r.left,r.top,r.right,r.bottom].join(',')).join('/');
+   if(sketchPlacement?.selection!==selection||sketchPlacement.projection!==projection||sketchPlacement.obstacleKey!==obstacleKey){
+    const input={...space,outlines:regions.map(projection.outline),strokes:projection.strokes};
+    spot=placeSketchExtrudeShortcut(input);
+    if(!spot&&buttons.length>1){
+     spot=placeSketchExtrudeShortcut({...input,panelWidth:stackWidth,panelHeight:stackHeight});
+     stacked=!!spot;
+    }
+    sketchPlacement={selection,projection,obstacleKey,spot,stacked};
+   }else ({spot,stacked}=sketchPlacement);
+  }else{
+   const spots=[[x+22,y-size-16],[x-rowWidth-22,y-size-16],[x+22,y+16],[x-rowWidth-22,y+16]]
+    .map(([x,y])=>({x:Math.max(5,Math.min(x,rect.width-rowWidth-5)),y:Math.max(5,Math.min(y,rect.height-size-5))}));
+   if(rect.width>=rowWidth+10&&rect.height>=size+10){
+    spot=spots.find(({x,y})=>!obstacles.some(r=>x<r.right+4&&x+rowWidth>r.left-4&&y<r.bottom+4&&y+size>r.top-4))
+     ??findPanelSpace({...space,margin:5,gap:4});
+   }
+  }
+  if(!spot){hide();return;}
+  const left=rect.left-parent.left+spot.x,top=rect.top-parent.top+spot.y;
+  let step=0;
+  for(const [element,width] of buttons){
+   element.style.left=(left+(stacked?(stackWidth-width)/2:step))+'px';
+   element.style.top=(top+(stacked?step:0))+'px';
+   step+=(stacked?size:width)+gap;
+  }
+  if(remaining)remaining.hidden=!paired;if(offset)offset.hidden=false;
   const label=selection.label||(selection.count>1?'選択した'+selection.count+'面をまとめて押し出す':'選択した面を押し出す');
-  button.title=label+' — クリックで開始／ドラッグで距離を調整';button.setAttribute('aria-label',label);button.dataset.count=String(selection.count);if(selection.sketchRegion)button.dataset.regionId=selection.sketchRegion.id;else delete button.dataset.regionId;button.hidden=false;occupied.push({left:rect.left+spot.left,top:rect.top+spot.top,right:rect.left+spot.left+width,bottom:rect.top+spot.top+size});
+  button.title=label+' — クリックで開始／ドラッグで距離を調整';button.setAttribute('aria-label',label);button.dataset.count=String(selection.count);if(selection.sketchRegion)button.dataset.regionId=selection.sketchRegion.id;else delete button.dataset.regionId;button.hidden=false;
+  occupied.push({left:rect.left+spot.x,top:rect.top+spot.y,
+   right:rect.left+spot.x+(stacked?stackWidth:rowWidth),bottom:rect.top+spot.y+(stacked?stackHeight:size)});
  }};
 }

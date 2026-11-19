@@ -29,7 +29,8 @@ try{
  async function selectFace(point,add=false){if(add)await page.keyboard.down('Control');await page.mouse.click(...await screen(point));if(add)await page.keyboard.up('Control');await page.waitForTimeout(150);}
  await load(boxes);await page.locator('#selection-mode').selectOption('face');const jobs=await page.evaluate(()=>window.shortcutJobs.length);
  await selectFace([-22,2,10]);await shortcut.waitFor();assert.equal(await shortcut.getAttribute('data-count'),'1');
- const point=await screen([-22,2,10]),icon=await shortcut.boundingBox();assert.ok(Math.hypot(icon.x+17-point[0],icon.y+17-point[1])<100,'icon stays near the selected point');
+ const point=await screen([-22,2,10]),icon=await shortcut.boundingBox(),os=await page.locator('#face-extrude-shortcut-offset').boundingBox();
+ assert.ok(Math.hypot((icon.x+os.x+os.width)/2-point[0],icon.y+icon.height/2-point[1])<100,'the button group stays near the selected point');
  assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'selecting and displaying shortcut runs no CAD operation');
  await page.screenshot({path:'.sites-runtime/face-extrude-shortcut-preview.png'});
  const before=JSON.parse(await host.getAttribute('data-camera-state'));await shortcut.click();await panel.waitFor();await shortcut.waitFor({state:'hidden'});

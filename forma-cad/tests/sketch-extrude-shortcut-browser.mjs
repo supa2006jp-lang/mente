@@ -5,6 +5,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {defaults,rebuild,volume} from '../src/geometry.js';
+import {planeCoordinates,regionContains,sketchPoints} from '../src/regions.js';
+import {worldPoint} from '../src/frames.js';
 
 const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
 const server=http.createServer(async(req,res)=>{try{const pathname=new URL(req.url,'http://localhost').pathname,file=path.resolve(root,'.'+(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep))throw Error();const body=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(body);}catch{res.writeHead(404);res.end();}});
@@ -17,6 +19,7 @@ try{
  await fs.mkdir('.sites-runtime',{recursive:true});
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  const host=page.locator('#canvas-host'),canvas=page.locator('#canvas-host canvas'),shortcut=page.locator('#face-extrude-shortcut'),panel=page.locator('#extrude-distance'),picker=page.locator('#selection-candidates');
+ await canvas.waitFor();
  const boxes=[{...defaults,id:'a',kind:'extrusion',name:'左の箱',x:-24,width:20,height:20,depth:10},{...defaults,id:'b',kind:'extrusion',name:'右の箱',x:24,width:20,height:20,depth:10}];
  async function load(features,view='top'){
   await page.keyboard.press('Escape');await page.locator('#file').setInputFiles({name:'shortcut.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
@@ -28,6 +31,31 @@ try{
  async function confirm(){await panel.locator('button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});}
  function checkSolid(features,id,expectedVolume,maxZ){const bodies=rebuild(features);try{const g=bodies.get(id).geometry;g.computeBoundingBox();assert.ok(Math.abs(volume(g)-expectedVolume)<.05);assert.ok(Math.abs(g.boundingBox.max.z-maxZ)<.001);}finally{for(const body of bodies.values())body.geometry.dispose();}}
  async function selectFace(point,add=false){if(add)await page.keyboard.down('Control');await page.mouse.click(...await screen(point));if(add)await page.keyboard.up('Control');await page.waitForTimeout(150);}
+ async function checkOutlineClearance(feature,otherLines=[]){
+  const visible=page.locator('.face-extrude-shortcut:not([hidden]),.face-unextruded-shortcut:not([hidden]),.face-offset-shortcut:not([hidden])');
+  await page.waitForFunction(()=>document.querySelectorAll('.face-extrude-shortcut:not([hidden]),.face-unextruded-shortcut:not([hidden]),.face-offset-shortcut:not([hidden])').length===3);
+  const rect=await visible.evaluateAll(elements=>{
+   const boxes=elements.map(element=>element.getBoundingClientRect());
+   return {left:Math.min(...boxes.map(b=>b.left)),top:Math.min(...boxes.map(b=>b.top)),right:Math.max(...boxes.map(b=>b.right)),bottom:Math.max(...boxes.map(b=>b.bottom))};
+  });
+  const project=feature=>Promise.all(sketchPoints(feature).map(point=>screen(worldPoint({...feature,offset:planeCoordinates(feature).offset},point).toArray())));
+  const projected=await project(feature),center=[(rect.left+rect.right)/2,(rect.top+rect.bottom)/2];
+  assert(!regionContains({outer:projected,holes:[]},center),'the shortcuts are outside the sketch');
+  function gap(points){
+   let nearest=Infinity;
+   for(let i=1;i<points.length;i++){
+    const a=points[i-1],b=points[i],steps=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/2));
+    for(let j=0;j<=steps;j++){
+     const x=a[0]+(b[0]-a[0])*j/steps,y=a[1]+(b[1]-a[1])*j/steps;
+     nearest=Math.min(nearest,Math.hypot(Math.max(rect.left-x,0,x-rect.right),Math.max(rect.top-y,0,y-rect.bottom)));
+    }
+   }
+   return nearest;
+  }
+  assert(gap(projected)>=5,'space stays between the outline and the shortcuts');
+  for(const other of otherLines)assert(gap(await project(other))>=4,'neighboring sketch lines also stay clear');
+  return gap(projected);
+ }
 
  await load([]);await page.locator('#new-rect').click();await selectFace([-20,-10,0]);assert.equal(await shortcut.isVisible(),false,'an unfinished rectangle is not extrudable');await selectFace([20,10,0]);await shortcut.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),true,'rectangle tool remains active');assert.match(await shortcut.getAttribute('aria-label'),/閉じたスケッチ/);
  // Cross the buttons with a stroke inside the same layer that draws sketch constraints.
@@ -44,7 +72,8 @@ try{
   finally{svg.remove();layer.hidden=wasHidden;}
  },shortcutIds);
  assert.deepEqual(hits,shortcutIds,'all extrusion buttons stay in front of intersecting sketch lines');
- const before=await save();assert.equal(before.features.length,1);const jobs=await page.evaluate(()=>window.shortcutJobs.length);await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'showing a closed sketch shortcut does not run CAD');await page.screenshot({path:'.sites-runtime/sketch-extrude-shortcut-preview.png'});
+ const before=await save();assert.equal(before.features.length,1);assert((await checkOutlineClearance(before.features[0]))<25);
+ const jobs=await page.evaluate(()=>window.shortcutJobs.length);await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'showing a closed sketch shortcut does not run CAD');await page.screenshot({path:'.sites-runtime/sketch-extrude-shortcut-preview.png'});
  // Starting the next rectangle must not destroy the already completed one.
  await selectFace([40,30,0]);await shortcut.waitFor();const view=JSON.parse(await host.getAttribute('data-camera-state'));await shortcut.click();await panel.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),false);const afterView=JSON.parse(await host.getAttribute('data-camera-state'));assert.ok(afterView.slice(3).every((v,i)=>Math.abs(v-view[i+3])<1e-6));assert.equal(await page.locator('#body-count').textContent(),'0');await page.locator('#viewport-depth').fill('5');await ready();await confirm();let data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,1);assert.equal(data.features.find(f=>f.kind==='sketch').id,before.features[0].id);checkSolid(data.features,data.features.at(-1).id,4000,5);await page.keyboard.press('Control+z');assert.equal(await page.locator('#body-count').textContent(),'0');await page.keyboard.press('Control+y');assert.equal(await page.locator('#body-count').textContent(),'1');
  // Every closed frame keeps its own shortcut and an older frame remains directly extrudable.
@@ -64,5 +93,15 @@ try{
  await selectFace(corners[0]);await shortcut.waitFor();data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,4);await shortcut.click();await panel.waitFor();await page.locator('#viewport-extrude-cancel').click();assert.equal((await save()).features.filter(f=>f.kind==='sketch').length,4);
  // A closed region from another sketch must not masquerade as a newly closed frame.
  await load([{...defaults,id:'old',kind:'sketch',name:'別のスケッチ',width:20,height:20,groupId:'old',groupNumber:1}]);await page.locator('#new-line').click();await selectFace([40,30,0]);await selectFace([60,30,0]);await page.waitForTimeout(100);assert.equal(await shortcut.isVisible(),false);
+ const hexagon={...defaults,id:'hexagon',name:'六角形',kind:'sketch',profile:'polyline',closed:true,groupId:'contour',groupNumber:1,
+  points:[[0,-26],[24,-13],[24,13],[0,26],[-24,13],[-24,-13]]};
+ const neighbor={...hexagon,id:'neighbor',name:'隣の線',groupId:'neighbor',groupNumber:2,closed:false,points:[[26,-24],[26,24]]};
+ await load([hexagon,neighbor]);await page.locator('#selection-mode').selectOption('auto');
+ await selectFace([18,0,0]);await shortcut.waitFor();await checkOutlineClearance(hexagon,[neighbor]);
+ const zoom=await host.getAttribute('data-camera-state');
+ await page.mouse.move(...await screen([18,0,0]));await page.mouse.wheel(0,-150);
+ await page.waitForFunction(previous=>document.getElementById('canvas-host').dataset.cameraState!==previous,zoom);
+ await page.waitForTimeout(220);await checkOutlineClearance(hexagon,[neighbor]);
+ await page.locator('[data-view=iso]').click();await page.waitForTimeout(250);await checkOutlineClearance(hexagon,[neighbor]);
  assert.deepEqual(errors,[]);const proof={allClosedRegionsHaveIcons:true,earlierFrameIconRetained:true,threeIndependentIcons:true,iconsDoNotOverlap:true,olderIconExtrudesItsRegion:true,secondaryIconExtrudesItsRegion:true,allSketchesPreserved:true,noMultipleIconCadJobs:true,rectangleDuringDrawing:true,unfinishedRectangleHidden:true,partialNextRectangleIgnored:true,preserveCompletedSketches:true,lineChainClosed:true,openChainHidden:true,otherSessionExcluded:true,noSelectionCadJobs:true,preserveView:true,actualExtrusion:true,cancelPreservesSketches:true,undoRedo:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/sketch-extrude-shortcut-browser-proof.json',JSON.stringify(proof,null,2));await context.close();
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

@@ -5672,6 +5672,7 @@ offsetExtrusionDialog=createOffsetExtrusionDialog({getFeatures:()=>features,noti
  scheduleAutoCut();syncFields();$('status').textContent='OS距離 '+fmt(distance)+' mm の輪郭で押し出します。重なるソリッドがあれば自動で切り取ります';return true;
 }});
 faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,onOffset:shortcut=>offsetExtrusionDialog.open(shortcut),onUnextruded:shortcut=>backgroundUI(()=>openUnextrudedShortcut(shortcut)),
+ getSketchObjects:()=>sketchGroup.visible?sketchGroup.children:[],
  onDragStart:(event,owner,start,selection)=>openFaceExtrusionShortcut(selection)&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
  onDragMove:moveExtrusionDrag,onDragEnd:endExtrusionDrag
 });
