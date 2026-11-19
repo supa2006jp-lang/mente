@@ -62,6 +62,7 @@ export function drawingPointOmitted(view,point){
  return !!cut&&point[cut.direction]>cut.start&&point[cut.direction]<cut.end;
 }
 export function drawingDimensionVisible(d,view){
+ if(d.hidden)return false;
  const cut=view.break;
  if(!cut)return true;
  const axis=cut.direction;

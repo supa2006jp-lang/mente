@@ -6,7 +6,7 @@ export function dimensionLabel(d){
  if(d.review)return '要確認';
  const value=numberLabel(d);
  const nominal=d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
-  (d.kind==='diameter'?(d.count>1?d.count+'×':'')+'Ø':d.kind==='radius'?'R':'')+value+(d.kind==='angle'?'°':'');
+  (['diameter','radius'].includes(d.kind)?(d.count>1?d.count+'×':'')+(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
  const tolerance=d.tolerance===undefined?'':' ±'+d.tolerance+(d.kind==='angle'?'°':'');
  return nominal+tolerance+(d.note?' '+d.note:'');
 }

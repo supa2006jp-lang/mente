@@ -44,6 +44,18 @@ try{
  page.on('pageerror',error=>errors.push(error.message));
  page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
  const field=id=>page.locator('#drawing-'+id);
+ async function savePDF(){
+  const download=page.waitForEvent('download');
+  await field('pdf').click();
+  const needsReview=await field('pdf-preview').isVisible();
+  if(needsReview){
+   assert.match(await field('pdf-preview-check-summary').textContent(),/出力前チェック/);
+   await field('pdf-preview-save').click();
+  }
+  const bytes=await fs.readFile(await(await download).path());
+  if(needsReview)await field('pdf-preview-close').click();
+  return bytes;
+ }
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  await page.locator('#canvas-host canvas').waitFor();
  async function open(name,document){
@@ -138,8 +150,7 @@ try{
  assert(!(await field('pdf').isDisabled()));
  const svgDownload=page.waitForEvent('download');await field('svg').click();
  assert.match(await fs.readFile(await(await svgDownload).path(),'utf8'),/>LOWER LEFT NOTE<\/text>/);
- const pdfDownload=page.waitForEvent('download');await field('pdf').click();
- assert.equal((await fs.readFile(await(await pdfDownload).path())).subarray(0,5).toString(),'%PDF-');
+ assert.equal((await savePDF()).subarray(0,5).toString(),'%PDF-');
  await field('close').click();
  const download=page.waitForEvent('download');
  await page.locator('#save').click();
@@ -203,8 +214,7 @@ try{
  assert.equal(await field('comment-size').inputValue(),'5');
  assert.equal(await field('dimension-font').inputValue(),'4.2');
  assert.equal(await input.inputValue(),'SUS304');
- const printDownload=page.waitForEvent('download');await field('pdf').click();
- const printPDF=await fs.readFile(await(await printDownload).path(),'latin1');
+ const printPDF=(await savePDF()).toString('latin1');
  assert([...printPDF.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) rg/g)].some(([,r,g,b])=>
   Math.abs(+r-208/255)<.01&&Math.abs(+g-225/255)<.01&&Math.abs(+b-242/255)<.01));
  await field('dimension-auto').click();
@@ -257,6 +267,7 @@ try{
  assert.equal(await preview.locator('[data-comment="'+addedId+'"]').textContent(),'SECOND NOTE');
  assert.match(await preview.locator('[data-view=top]>text').textContent(),/SCALE 2:1/);
  await field('pdf-layout').selectOption('multi');
+ await field('pdf-placement').selectOption('auto');
  await field('pdf-preview-open').click();
  const printPreview=page.locator('#drawing-pdf-preview'),printPage=page.locator('#drawing-pdf-preview-page');
  await printPreview.waitFor();

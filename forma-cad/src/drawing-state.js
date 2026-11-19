@@ -16,6 +16,9 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  const o=s.options;if(!o||!['auto','A4','A3'].includes(o.paper)||!['landscape','portrait'].includes(o.orientation)||typeof o.frame!=='boolean')fail();if(o.viewPriority!==undefined&&!['balanced','front'].includes(o.viewPriority)||o.isoMode!==undefined&&!['full','small','hidden'].includes(o.isoMode))fail();if(o.layout!==undefined&&!['projection','compact'].includes(o.layout))fail();for(const key of ['name','material','date'])if(typeof o[key]!=='string'||o[key].length>100)fail();
  if(o.revision!==undefined&&(typeof o.revision!=='string'||o.revision.length>20))fail();
  if(o.projectionLocked!==undefined&&typeof o.projectionLocked!=='boolean')fail();
+ if(o.autoDimensionTypes!==undefined&&(!Array.isArray(o.autoDimensionTypes)||o.autoDimensionTypes.length>autoDimensionKeys.length||new Set(o.autoDimensionTypes).size!==o.autoDimensionTypes.length||o.autoDimensionTypes.some(key=>!autoDimensionKeys.includes(key))))fail();
+ if(o.groupRepeatedDimensions!==undefined&&typeof o.groupRepeatedDimensions!=='boolean')fail();
+ if(o.uniqueOverallDimensions!==undefined&&typeof o.uniqueOverallDimensions!=='boolean')fail();
  if(o.viewSelection!==undefined&&(!Array.isArray(o.viewSelection)||o.viewSelection.length>drawingProjectionNames.length||
   new Set(o.viewSelection).size!==o.viewSelection.length||o.viewSelection.some(view=>!drawingProjectionNames.includes(view))||
   !o.viewSelection.length&&o.isoMode==='hidden'))fail();
@@ -29,6 +32,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.breakAxis!==undefined&&!['longest','x','y','z'].includes(o.breakAxis))fail();
  if(o.breakPercent!==undefined&&(!Number.isInteger(o.breakPercent)||o.breakPercent<20||o.breakPercent>90))fail();
  if(o.pdfLayout!==undefined&&!['multi','manual'].includes(o.pdfLayout))fail();
+ if(o.pdfPlacement!==undefined&&!['keep','auto'].includes(o.pdfPlacement))fail();
  if(o.printPalette!==undefined&&!validDrawingPrintPalette(o.printPalette))fail();
  const comments=o.comments===undefined?[]:o.comments;
  if(!Array.isArray(comments)||comments.length>16)fail();
@@ -113,13 +117,14 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  for(const d of s.dimensions){
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
+  if(d.hidden!==undefined&&typeof d.hidden!=='boolean')fail();
   if(d.alongOffset!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||
    !Number.isFinite(d.alongOffset)||Math.abs(d.alongOffset)>1e6))fail();
   if(d.arcPoint!==undefined&&(d.kind!=='radius'||!point(d.arcPoint)))fail();
   if(d.tolerance!==undefined&&(!Number.isFinite(d.tolerance)||d.tolerance<0||d.tolerance>1e6))fail();
   if(d.note!==undefined&&(typeof d.note!=='string'||d.note.length>60||/[\u0000-\u001f]/.test(d.note)))fail();
   if(['lineColor','textColor'].some(key=>d[key]!==undefined&&!validDimensionColor(d[key])))fail();
-  if(d.count!=null||d.centers!=null){if(d.kind!=='diameter'||!Number.isInteger(d.count)||d.count<2||d.count>200||!Array.isArray(d.centers)||d.centers.length!==d.count||d.centers.some(p=>!point(p)))fail();const ids=new Set(d.centers.map(p=>p.map(n=>Number(n.toFixed(5))).join(',')));if(ids.size!==d.count||!d.centers.some(p=>Math.hypot(p[0]-d.center[0],p[1]-d.center[1])<1e-5))fail();}
+  if(d.count!=null||d.centers!=null){if(!['diameter','radius'].includes(d.kind)||!Number.isInteger(d.count)||d.count<2||d.count>200||!Array.isArray(d.centers)||d.centers.length!==d.count||d.centers.some(p=>!point(p)))fail();const ids=new Set(d.centers.map(p=>p.map(n=>Number(n.toFixed(5))).join(',')));if(ids.size!==d.count||!d.centers.some(p=>Math.hypot(p[0]-d.center[0],p[1]-d.center[1])<1e-5))fail();}
   if(d.repeat!=null){const r=d.repeat;if(!['horizontal','vertical','aligned'].includes(d.kind)||!r||!Number.isInteger(r.count)||r.count<2||r.count>199||!Number.isFinite(r.pitch)||r.pitch<=0||Math.abs(dimensionValue(d)-r.count*r.pitch)>1e-5*Math.max(1,dimensionValue(d)))fail();}
  }
  return s;

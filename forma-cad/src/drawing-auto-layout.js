@@ -1,4 +1,4 @@
-import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections} from './drawing-view-preferences.js';
+import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {drawingCommentEntries,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
@@ -30,11 +30,12 @@ export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,pr
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
  return {...structuredClone(d),at,...(d.alongOffset===undefined?{}:{alongOffset:d.alongOffset*old/next})};});}
 export function decoratedDrawingViews(frames,scale,dimensions,options){const boxes={},layout={};
+ const {mixed}=drawingScaleSummary(Object.values(frames).map(frame=>scale*frame.factor));
  for(const [key,f] of Object.entries(frames)){
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
   const view={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
   layout[key]=view;
-  const title=drawingViewTitle(key,view,scale,options).bounds;
+  const title=drawingViewTitle(key,view,options,mixed).bounds;
   boxes[key]={x:-.5,y:title.y,width:Math.max(width+1,title.x+title.width+1),height:height-title.y+.5};
  }
  const include=(key,b,pad=1)=>{const a=boxes[key];if(!a)return;const x=Math.min(a.x,b.x-pad),y=Math.min(a.y,b.y-pad);a.width=Math.max(a.x+a.width,b.x+b.width+pad)-x;a.height=Math.max(a.y+a.height,b.y+b.height+pad)-y;a.x=x;a.y=y;},point=drawingPaperPoint,points=(key,ps,pad=1)=>{include(key,{x:Math.min(...ps.map(p=>p[0])),y:Math.min(...ps.map(p=>p[1])),width:Math.max(...ps.map(p=>p[0]))-Math.min(...ps.map(p=>p[0])),height:Math.max(...ps.map(p=>p[1]))-Math.min(...ps.map(p=>p[1]))},pad);};

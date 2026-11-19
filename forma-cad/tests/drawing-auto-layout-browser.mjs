@@ -397,7 +397,7 @@ try{
  await viewCheck('right').uncheck();await viewCheck('front').uncheck();
  await drawing('auto-layout').click();
  await drawing('dimension-auto').click();
- assert((await values()).includes('R5'));
+ assert((await values()).includes('4×R5'));
  await drawing('dimension-clear').click();
  await drawing('hole-start').click();
  await drawing('expand').click();

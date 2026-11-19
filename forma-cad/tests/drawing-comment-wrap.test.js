@@ -88,7 +88,7 @@ test('auto-layout and multipage PDF use the free space on each page',()=>{
   assert.equal(drawingCommentPlacementIssue(note,s),null);
  }
  assert.ok(s.notes[1].width<25);
- const pages=drawingPDFPages(part,1,true,[],content,{...settings,pdfLayout:'manual',
+ const pages=drawingPDFPages(part,1,true,[],content,{...settings,pdfLayout:'manual',pdfPlacement:'auto',
   pageAssignments:{pageCount:2,views:{},comments:{comment:2,'comment-extra':1}}});
  assert.equal(pages[1].note.lines.join(''),content);
  assert.ok(pages[1].note.lines.length<=s.note.lines.length);

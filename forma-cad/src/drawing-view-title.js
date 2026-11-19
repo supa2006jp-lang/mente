@@ -1,9 +1,10 @@
 import {escapeDrawingText} from './drawing-dimensions.js';
+import {drawingPaperPoint,drawingPointOmitted} from './drawing-break.js';
 import {drawingProjections,drawingScaleLabel} from './drawing-view-preferences.js';
 
 const fontSize=3.1,accentOffset=3.15,height=5.8,border=.24;
 
-export function drawingViewTitle(name,view,scale,options){
+export function drawingViewTitle(name,view,options,showScale){
  const section=(options.sections||[]).findIndex(item=>item.id===name);
  const detail=(options.details||[]).findIndex(item=>item.id===name);
  let label=drawingProjections[name]?.label??'ISOMETRIC';
@@ -11,13 +12,21 @@ export function drawingViewTitle(name,view,scale,options){
   const letter=String.fromCharCode(65+section);
   label='断面 '+letter+'–'+letter;
  }else if(detail>=0){
-  label='詳細 D'+(detail+1)+' / '+drawingScaleLabel(view.scale);
+  label='詳細 D'+(detail+1);
  }
  if(view.break)label+=' / 省略表示';
- if(detail<0&&(options.viewScales?.[name]!==undefined||Math.abs(view.scale-scale)>1e-10))label+=' / SCALE '+drawingScaleLabel(view.scale);
- const x=view.x+1.3,y=view.y-8.1;
+ if(showScale)label+=(detail>=0?' / ':' / SCALE ')+drawingScaleLabel(view.scale);
+ const x=view.x+1.3;
  const textWidth=[...label].reduce((width,char)=>width+(/\s/.test(char)?.35:char.codePointAt(0)>255?1:/[MW]/.test(char)?.95:.72)*fontSize,0);
  const width=accentOffset+textWidth+1.7;
+ const overSectionLetter=(options.sections??[]).some(cut=>{
+  if(cut.view!==name||cut.orientation!=='vertical')return false;
+  const point=[cut.coordinate,view.by];
+  if(drawingPointOmitted(view,point))return false;
+  const [cutX]=drawingPaperPoint(view,point);
+  return cutX+5.5>x&&cutX+2<x+width;
+ });
+ const y=view.y-(overSectionLetter?14.5:8.1);
  return {label,x,y,width,height,bounds:{x:x-border/2,y:y-border/2,width:width+border,height:height+border}};
 }
 

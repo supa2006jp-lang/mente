@@ -1,11 +1,12 @@
 import {circles,viewPoints,insideView,withDetails,snapDimension} from './drawing-annotations.js';
 import {drawingPDFPages} from './drawing-pdf-pages.js';
 import {installDrawingPDFPreview} from './drawing-pdf-preview.js';
+import {drawingPDFIssues,drawingSheetOverflow} from './drawing-sheet-check.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
 import {defaultDrawingCommentColor,drawingCommentFamily,drawingCommentPlacementIssue,hasDrawingCommentFont,loadDrawingCommentFont,minCommentWidth,maxCommentWidth,validCommentWidth} from './drawing-comments.js';
 import {TEXT_FONTS} from './text-fonts.js';
-import {defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor} from './drawing-dimensions.js';
+import {defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionSVG,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor} from './drawing-dimensions.js';
 import {canSaveDrawingMaterial,createDrawingMaterialsStore,drawingMaterialKey,standardDrawingMaterials} from './drawing-materials.js';
 import {drawingCurves,angleDimension} from './drawing-curves.js';
 import {drawingSignature,readDrawingState} from './drawing-state.js';
@@ -23,10 +24,12 @@ import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPoint
 import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {drawingHoleCandidates,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {followSectionEdit} from './drawing-section-references.js';
-import {autoDimensionKeys,autoDimensionTypes,autoDrawingDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
+import {autoDimensionKeys,autoDimensionTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from './drawing-dimension-references.js';
+import {groupDrawingDimensions} from './drawing-dimension-groups.js';
+import {installDrawingDimensionList} from './drawing-dimension-list.js';
 const scales=[2,1,.5,.2,.1,.05,.02,.01];
 const sameTargets=(left,right)=>left.length===right.length&&left.every(id=>right.includes(id));
 const standardDimensionFont=3.2;
@@ -34,7 +37,7 @@ const colorFields=[['lineColor','line','寸法線の色'],['textColor','text','�
 const colorInputs=(scope)=>colorFields.map(([,id,label])=>'<label>'+label+
  '<input type="color" id="drawing-'+scope+'-'+id+'-color"></label>').join('');
 export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=()=>null,download,onChange=()=>{}}){
- const pdfPreview=installDrawingPDFPreview({download:exportDrawingPDF});
+ const pdfPreview=installDrawingPDFPreview({download:exportDrawingPDF,onIssue:focusPDFIssue});
  const worker=new KernelClient(),dialog=document.createElement('dialog');dialog.id='drawing-dialog';dialog.innerHTML=`<div class="drawing-heading"><h2>三面図</h2><button type="button" id="drawing-close" aria-label="閉じる">×</button></div>
  <div class="drawing-controls"><label>対象<select id="drawing-target"><option value="visible">表示中の全ボディ</option><option value="selected">選択したボディ</option></select></label><label>縮尺<select id="drawing-scale">${scales.map(s=>'<option value="'+s+'"'+(s===1?' selected':'')+'>'+(s>=1?s+':1':'1:'+1/s)+'</option>').join('')}</select></label><label><input type="checkbox" id="drawing-hidden" checked>隠れ線（共通）</label><button id="drawing-generate">三面図を再計算</button></div>
  <div class="drawing-controls drawing-paper-controls"><label>用紙<select id="drawing-paper-size"><option value="auto">自動サイズ</option><option value="A4" selected>A4</option><option value="A3">A3</option></select></label><label>向き<select id="drawing-orientation"><option value="landscape">横</option><option value="portrait">縦</option></select></label><label><input id="drawing-frame" type="checkbox" checked>図枠</label><button id="drawing-fit">用紙に収める</button><button id="drawing-auto-layout" title="各図の上下・左右の位置関係を自由に組み替え、寸法や図枠を含めて大きく配置します">大きく自動配置</button><button id="drawing-arrange">配置をリセット</button><label><input id="drawing-projection-lock" type="checkbox">第三角法の配置をロック</label><label><input id="drawing-layout-mode" type="checkbox" checked title="寸法は斜めにもドラッグできます。Shiftを押すと寸法線に沿ったずれを抑えます。">配置をドラッグ</label></div>
@@ -58,6 +61,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  dialog.querySelector('.drawing-view-options').insertAdjacentHTML('afterend','<details id="drawing-hidden-views"><summary>ビュー別の隠れ線</summary><div class="drawing-controls"></div></details>');
  $('drawing-pdf').insertAdjacentHTML('beforebegin','<button id="drawing-pdf-preview-open" type="button">PDFをプレビュー</button>');
  $('drawing-pdf').insertAdjacentHTML('beforebegin','<label class="drawing-pdf-layout">印刷配色<select id="drawing-print-palette">'+drawingPrintPalettes.map(([id,label])=>'<option value="'+id+'">'+label+'</option>').join('')+'</select></label><label class="drawing-pdf-layout">PDFのページ構成<select id="drawing-pdf-layout"><option value="">1ページ</option><option value="multi">全体図と補助図を分ける</option><option value="manual">ページを指定</option></select></label>');
+ $('drawing-pdf').insertAdjacentHTML('beforebegin','<label id="drawing-pdf-placement-label" hidden>PDFの配置<select id="drawing-pdf-placement"><option value="keep">編集した配置と縮尺を保持</option><option value="auto">ページごとに自動配置</option></select></label>');
  $('drawing-view-priority').closest('.drawing-controls').insertAdjacentHTML('afterend',
   '<div class="drawing-controls"><label>長さの省略表示<select id="drawing-break-axis" title="正投影図の中央を省略します。俯瞰図は全体を表示します。">'+
   '<option value="">なし</option><option value="longest">自動（最長軸）</option><option value="x">X方向</option><option value="y">Y方向</option><option value="z">Z方向</option>'+
@@ -85,7 +89,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<button type="button" id="drawing-alignment-clear">選択を解除</button></div><small>図やコメントをCtrl＋クリックして複数選択できます。</small>';
  scaleRows.after(alignmentPanel);
  const pagePanel=document.createElement('details');pagePanel.id='drawing-page-assignments';
- pagePanel.innerHTML='<summary>PDFのページ割り当て</summary><label>ページ数<input id="drawing-page-count" type="number" min="1" max="32" step="1" value="2"></label><div id="drawing-page-items" class="drawing-controls"></div><small>指定したページごとに用紙へ自動配置します。PDFプレビューで確認できます。</small>';
+ pagePanel.innerHTML='<summary>PDFのページ割り当て</summary><label>ページ数<input id="drawing-page-count" type="number" min="1" max="32" step="1" value="2"></label><div id="drawing-page-items" class="drawing-controls"></div><small>各項目の掲載ページを指定します。配置と縮尺はPDFプレビューで確認できます。</small>';
  alignmentPanel.after(pagePanel);
  const overflowList=document.createElement('div');overflowList.id='drawing-overflow-list';
  viewportBar.querySelector('small').insertAdjacentHTML('beforebegin',
@@ -107,6 +111,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-undo').closest('.drawing-controls').classList.add('drawing-history-controls');
  $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" title="外形・円形部の直径・中心位置をまとめて追加します">寸法を自動入力</button>');
  $('drawing-dimension-auto').insertAdjacentHTML('afterend','<button id="drawing-dimension-arrange" title="既存の寸法を重なりにくい位置へ移動します">寸法を自動配置</button>');
+ $('drawing-dimension-arrange').insertAdjacentHTML('afterend','<button type="button" id="drawing-dimension-group" title="同じ図・実寸法・書式のRや穴径を数量付きの表記にまとめます">同じR・穴径をまとめる</button>');
  $('drawing-dimension-arrange').insertAdjacentHTML('afterend',
   '<button id="drawing-hole-start" title="図で基準点をクリックし、表に載せる円を選びます">穴位置表を作成</button>'+
   '<button id="drawing-hole-all" hidden>候補をすべて選択</button><button id="drawing-hole-add" hidden>穴位置表を確定</button>'+
@@ -123,17 +128,20 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   drawingProjectionNames.map(view=>'<fieldset data-auto-dimension-view="'+view+'"><legend>'+drawingProjections[view].label+'</legend>'+
    autoDimensionKeys.map(key=>'<label><input type="checkbox" value="'+key+'">'+autoDimensionTypes[key]+'</label>').join('')+
   '</fieldset>').join('')+'</details></div>');
+ $('drawing-auto-dimension-views').before(Object.assign(document.createElement('div'),{id:'drawing-auto-dimension-types',className:'drawing-controls',innerHTML:'<strong>自動入力する種類</strong>'+[['outline','外形寸法'],['diameter','円・穴径'],['radius','R寸法'],['spacing','中心位置・間隔']].map(([key,label])=>'<label><input type="checkbox" data-auto-type="'+key+'" checked>'+label+'</label>').join('')+'<label><input type="checkbox" id="drawing-auto-group" checked>同じR・穴径をまとめる</label><small>これから自動追加する寸法に適用します。図ごとの設定は「ビュー別の自動寸法」から変更できます。</small>'}));
+ $('drawing-auto-group').closest('label').insertAdjacentHTML('afterend','<label><input type="checkbox" id="drawing-auto-unique-overall">外形寸法を幅・奥行き・高さに各1つ</label>');
  const viewport=drawingViewport({dialog,host:viewportHost,minus:$('drawing-zoom-out'),plus:$('drawing-zoom-in'),fit:$('drawing-zoom-fit'),percent:$('drawing-zoom-percent'),expand:$('drawing-expand'),canNavigate:()=>!drag&&!busy});
  const isoCheck=$('drawing-view-iso'),isoModeInput=$('drawing-iso-mode');
  const viewChecks=[...dialog.querySelectorAll('.drawing-view-options input:not(#drawing-view-iso)')];
  let viewSelection=[...defaultDrawingViews],lastVisibleIsoMode='full';
- let frontFace=null,frontFrame,autoDimensionViews={},dimensionFontSize=standardDimensionFont;
+ let frontFace=null,frontFrame,autoDimensionViews={},autoDimensionTypesEnabled=[...autoDimensionKeys],groupRepeatedDimensions=true,dimensionList,dimensionFontSize=standardDimensionFont;
+ let uniqueOverallDimensions=false;
  let hiddenViews={},dimensionReferences={},dimensionColors={};
  let commentColor=defaultDrawingCommentColor,commentFont='',requestedCommentFonts='';
  const defaultBreakPercent=70;
  let breakAxis='',breakPercent=defaultBreakPercent,breakRange,holeTable;
  let projectionLocked=true;
- let leaders=[],pdfLayout='',pdfExporting=false,printPalette='screen';
+ let leaders=[],pdfLayout='',pdfPlacement='keep',pdfExporting=false,printPalette='screen';
  let mainComment='',comments=[],commentWidths={},activeComment='comment',viewScales={};
  let inspectedHole=null;
  let pageAssignments={pageCount:2,views:{},comments:{}},selectedPlacements=new Set();
@@ -151,6 +159,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   persist();
  };
  const applyDimensionFont=d=>dimensionFontSize===standardDimensionFont?d:{...d,fontSize:dimensionFontSize};
+ const typeInputs=[...$('drawing-auto-dimension-types').querySelectorAll('[data-auto-type]')],typeKeys=key=>key==='outline'?['horizontal','vertical']:[key];
+ for(const input of typeInputs)input.onchange=()=>{const keys=typeKeys(input.dataset.autoType);autoDimensionTypesEnabled=autoDimensionKeys.filter(key=>keys.includes(key)?input.checked:autoDimensionTypesEnabled.includes(key));persist();};
+ $('drawing-auto-group').onchange=()=>{groupRepeatedDimensions=$('drawing-auto-group').checked;persist();};
+ $('drawing-auto-unique-overall').onchange=()=>{uniqueOverallDimensions=$('drawing-auto-unique-overall').checked;persist();};
  function setViewSelection(views){viewSelection=[...views];for(const input of viewChecks)input.checked=views.includes(input.value);}
  function setIsoMode(mode){
   isoModeInput.value=mode;
@@ -162,6 +174,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   ...(layoutKind==='projection'?{projectionLocked}:{}),
   ...(frontFrame?{frontFrame}:{}),
   ...(Object.keys(autoDimensionViews).length?{autoDimensionViews}:{}),
+  ...(autoDimensionTypesEnabled.length===autoDimensionKeys.length?{}:{autoDimensionTypes:autoDimensionTypesEnabled}),
+  ...(groupRepeatedDimensions?{}:{groupRepeatedDimensions:false}),
+  ...(uniqueOverallDimensions?{uniqueOverallDimensions:true}:{}),
   ...(dimensionFontSize===standardDimensionFont?{}:{dimensionFontSize}),
   ...(Object.keys(hiddenViews).length?{hiddenViews}:{}),
   ...(Object.keys(dimensionReferences).length?{dimensionReferences}:{}),
@@ -175,6 +190,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   ...(holeTable?{holeTable}:{}),
   ...(leaders.length?{leaders}:{}),
   ...(pdfLayout?{pdfLayout}:{}),
+  ...(pdfPlacement==='auto'?{pdfPlacement}:{}),
   ...(printPalette==='screen'?{}:{printPalette}),
   ...(comments.length?{comments}:{}),
   ...(Object.keys(viewScales).length?{viewScales}:{}),
@@ -207,7 +223,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(token===revision){worker.reset();busy=false;$('drawing-generate').disabled=false;controls();}
   }
  }
- const presets=installDrawingPresets($('drawing-layout-help'),{read:()=>({...options(),...backgrounds,dimensionFontSize,commentSize,commentFont,commentColor,dimensionColors,printPalette,hidden:$('drawing-hidden').checked}),apply:applyPreset,canUse:()=>!!data&&!busy});
+ const presets=installDrawingPresets($('drawing-layout-help'),{read:()=>({...options(),...backgrounds,dimensionFontSize,commentSize,commentFont,commentColor,dimensionColors,printPalette,uniqueOverallDimensions,hidden:$('drawing-hidden').checked}),apply:applyPreset,canUse:()=>!!data&&!busy});
  async function applyPreset(values){
   if(!data||busy)throw Error('図面の計算が終わってから呼び出してください');
   const old=options(),scale=Number($('drawing-scale').value),next={...old,...values};
@@ -220,6 +236,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    for(const [id,key]of [['paper-size','paper'],['orientation','orientation'],['view-priority','viewPriority']])$('drawing-'+id).value=key==='paper'?result.paper:values[key];
    setIsoMode(values.isoMode);
    dimensionFontSize=values.dimensionFontSize??dimensionFontSize;
+   uniqueOverallDimensions=values.uniqueOverallDimensions??uniqueOverallDimensions;
    commentSize=values.commentSize??commentSize;commentFont=values.commentFont??commentFont;
    commentColor=values.commentColor??commentColor;dimensionColors=values.dimensionColors??dimensionColors;
    for(const key of Object.keys(backgroundControls))if(values[key]!==undefined)backgrounds[key]=values[key].toLowerCase();
@@ -469,8 +486,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   svg.append(grip);
  }
  function editor(){
+  for(const node of viewportHost.querySelectorAll('[data-hidden-dimension-preview]'))node.remove();
   drawCommentWidthHandle();
   for(const el of viewportHost.querySelectorAll('[data-edit-selected]'))el.removeAttribute('data-edit-selected');
+  dimensionList?.highlight();
   const marker=selection?.type==='marker',comment=selection?.type==='comment';
   $('drawing-comment-width-label').hidden=$('drawing-comment-width-auto').hidden=!comment;
   const wrapWidth=comment?commentWidths[selection.id]:undefined;
@@ -561,6 +580,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   pdfLayout=$('drawing-pdf-layout').value;
   if(pdfLayout==='manual')pagePanel.open=true;
   render();
+ };
+ $('drawing-pdf-placement').onchange=()=>{
+  if(!sheet||busy)return;
+  pdfPlacement=$('drawing-pdf-placement').value;
+  persist();
  };
  async function changeBackground(key,color){
   if(!sheet||busy||!validDimensionColor(color))return;
@@ -678,6 +702,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-leader-input-label').hidden=action?.kind!=='leader';
   $('drawing-pdf-layout').disabled=!ready;
   $('drawing-pdf-layout').value=pdfLayout;
+  $('drawing-pdf-placement-label').hidden=!pdfLayout;
+  $('drawing-pdf-placement').disabled=!ready;
+  $('drawing-pdf-placement').value=pdfPlacement;
   $('drawing-print-palette').value=printPalette;$('drawing-print-palette').disabled=!ready;
   $('drawing-pdf').disabled=blockPDFExport();
   $('drawing-pdf-preview-open').disabled=blockPDFExport();
@@ -740,6 +767,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const id of ['drawing-view-priority','drawing-iso-mode','drawing-fit','drawing-arrange','drawing-auto-layout'])$(id).disabled=!ready;
   for(const id of ['drawing-dimension-overall','drawing-section-add'])$(id).disabled=!ready||!viewSelection.length;
   $('drawing-dimension-auto').disabled=!editable;
+  for(const input of typeInputs){input.checked=typeKeys(input.dataset.autoType).every(key=>autoDimensionTypesEnabled.includes(key));input.disabled=!ready;}
+  $('drawing-auto-group').checked=groupRepeatedDimensions;$('drawing-auto-group').disabled=!ready;
+  $('drawing-auto-unique-overall').checked=uniqueOverallDimensions;$('drawing-auto-unique-overall').disabled=!ready;
+  $('drawing-dimension-group').disabled=!editable||!dimensions.some(d=>!d.review&&['radius','diameter'].includes(d.kind));
+  dimensionList?.sync();
   for(const id of ['drawing-dimension-add','drawing-center-add','drawing-center-line','drawing-centers-all','drawing-detail-add'])$(id).disabled=!editable;
   $('drawing-target').disabled=busy;
   $('drawing-target').querySelector('[value="selected"]').disabled=!selected.length;
@@ -984,24 +1016,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  function renderOverflow(){
   const svg=viewportHost.querySelector('svg');
-  const nodes=svg.querySelectorAll('[data-view],[data-dimension],[data-comment],[data-marker],[data-section],[data-detail],[data-hole-table],[data-hole-labels],[data-leader]');
+  const issues=drawingSheetOverflow(svg,sheet);
   const adjusting=$('drawing-layout-mode').checked;
-  let titleBlockOverlap=false,count=0;
+  let titleBlockOverlap=false;
   // Updating the toolbar above the paper during a gesture shifts its screen origin.
   const list=drag?.moved?null:document.createDocumentFragment();
-  for(const el of nodes){
+  for(const {element:el,box,reason} of issues){
    const {view,dimension,comment,marker,section,detail,holeTable:table,holeLabels,leader}=el.dataset;
-   const v=sheet.layout[view];
-   let box;
-   if(v){
-    const title=sheet.viewTitles[view],x=Math.min(v.x,title.x),y=Math.min(v.y,title.y);
-    box={x,y,width:Math.max(v.x+v.width,title.x+title.width)-x,height:Math.max(v.y+v.height,title.y+title.height)-y};
-   }else box=el.getBBox();
-   const issue=comment?drawingCommentPlacementIssue(box,sheet):
-    box.x<4.99||box.y<16.99||box.x+box.width>sheet.width-4.99||box.y+box.height>sheet.contentBottom+.01?'paper':null;
-   if(!issue)continue;
-   count++;
-   const overlapsTitleBlock=issue==='titleBlock';
+   const overlapsTitleBlock=reason==='titleBlock';
    titleBlockOverlap||=overlapsTitleBlock;
    const name=view?el.querySelector(':scope > text').textContent:dimension!==undefined?'寸法 '+(Number(dimension)+1):
     comment?'コメント':leader?'矢印付き注記':table?'穴位置表':holeLabels?'穴の番号・基準点':marker?'中心表示 '+(markers.findIndex(m=>m.id===marker)+1):
@@ -1028,10 +1050,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    outline.onclick=e=>{e.stopPropagation();adjust();};
    svg.append(outline);
   }
-  overflow=count>0;
+  overflow=issues.length>0;
   if(list&&overflow){
    const label=document.createElement('strong');
-   label.textContent=(titleBlockOverlap?'配置を確認 ':'はみ出し ')+count+' 件';list.prepend(label);
+   label.textContent=(titleBlockOverlap?'配置を確認 ':'はみ出し ')+issues.length+' 件';list.prepend(label);
   }
   if(list){overflowList.replaceChildren(list);overflowList.hidden=!overflow;}
   return titleBlockOverlap;
@@ -1322,8 +1344,24 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function blockPDFExport(){
   return !sheet||busy||pdfExporting||(!['multi','manual'].includes(pdfLayout)&&overflow)||Object.keys(data?.sectionErrors||{}).length>0;
  }
- function pdfPages(){
-  return ['multi','manual'].includes(pdfLayout)?drawingPDFPages(data,Number($('drawing-scale').value),$('drawing-hidden').checked,dimensions,mainComment,options()):[sheet];
+ function preparePDF(){
+  const pages=pdfLayout?drawingPDFPages(data,Number($('drawing-scale').value),$('drawing-hidden').checked,dimensions,mainComment,options(),sheet):[sheet];
+  return {pages,issues:drawingPDFIssues(pages,{checkBounds:!!pdfLayout})};
+ }
+ function focusPDFIssue(issue){
+  if(!sheet||busy)return;
+  if(issue.dimension!==undefined){
+   const d=dimensions[issue.dimension],placement=d&&dimensionPlacement(d,sheet);
+   if(!placement)return;
+   workspace.reveal($('drawing-editor'));
+   focusDrawingConflict(issue.dimension,placement.box);
+   status(issue.label);
+  }else if(issue.hole){
+   const row=viewportHost.querySelector('[data-hole-row="'+issue.hole+'"]');
+   if(!row){status('穴位置表のあるビューを表示して参照先を選び直してください');return;}
+   workspace.reveal($('drawing-hole-row'));
+   inspectHole(row);viewport.focus(sheet.holeBox);
+  }
  }
  async function exportDrawingPDF(pages,palette){
   await Promise.all([...new Set(pages.flatMap(page=>(page.notes??[page.note]).filter(Boolean).map(note=>note.font)))].map(loadDrawingCommentFont));
@@ -1340,13 +1378,20 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  $('drawing-pdf-preview-open').onclick=async()=>{
   if(blockPDFExport())return;
-  try{await pdfPreview.open(pdfPages(),printPalette);}
+  try{
+   const {pages,issues}=preparePDF();
+   await pdfPreview.open(pages,printPalette,issues);
+  }
   catch(error){status('プレビューに失敗しました。'+error.message);}
  };
  $('drawing-pdf').onclick=async()=>{
   if(blockPDFExport())return;
   pdfExporting=true;$('drawing-pdf').disabled=true;
-  try{await exportDrawingPDF(pdfPages(),printPalette);}
+  try{
+   const {pages,issues}=preparePDF();
+   if(issues.length)await pdfPreview.open(pages,printPalette,issues);
+   else await exportDrawingPDF(pages,printPalette);
+  }
   catch(error){status('PDF保存に失敗しました：'+error.message);}
   finally{pdfExporting=false;$('drawing-pdf').disabled=blockPDFExport();}
  };
@@ -1415,7 +1460,26 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-dimension-add').onclick=()=>startDimension($('drawing-dimension-kind').value);
  $('drawing-dimension-cancel').onclick=cancelPick;dialog.addEventListener('cancel',e=>{if(drag){e.preventDefault();finishPaperDrag(false);}else if(picking||action){e.preventDefault();cancelPick();}else if(inspectedHole){e.preventDefault();inspectedHole=null;syncInspectedHole();}});$('drawing-dimension-undo').onclick=()=>{dimensions.pop();selection=null;cancelPick();};$('drawing-dimension-clear').onclick=()=>{dimensions=[];selection=null;cancelPick();};
  $('drawing-dimension-overall').onclick=()=>{if(!data||!sheet||busy)return;for(const d of overallDrawingDimensions(data,Number($('drawing-scale').value),sheet,{uniqueAxes:true}))if(dimensions.length<500&&!dimensions.some(e=>!e.review&&e.overall===d.overall))dimensions.push(applyDimensionFont(d));cancelPick();};
- $('drawing-dimension-auto').onclick=()=>{if(!data||!sheet||busy)return;picking=null;action=null;selection=null;const result=autoDrawingDimensions(data,Number($('drawing-scale').value),dimensions,sheet,{views:autoDimensionViews,fontSize:dimensionFontSize===standardDimensionFont?undefined:dimensionFontSize,details});dimensions.push(...result.dimensions);if(layoutKind==='compact')applyAutomaticLayout();else render(true,{reflowDimensions:true});if(!overflow)status(result.dimensions.length?'寸法を '+result.dimensions.length+' 個、自動追加しました。外形・円形部の下書きです。クリックで編集・削除、元に戻すで一括取消できます。'+(result.skipped?' 小さい円形部・過密な部分は省略しました。':'')+(result.layoutWarnings?' '+result.layoutWarnings+' 個の寸法は配置の調整が必要です。「用紙に収める」や用紙サイズの変更後に自動配置できます。':''):'追加できる寸法はありません。既存の寸法は重複させません。');};
+ $('drawing-dimension-auto').onclick=()=>{
+  if(!data||!sheet||busy)return;
+  picking=null;action=null;selection=null;
+  const unique=uniqueOverallDimensions&&typeKeys('outline').some(key=>autoDimensionTypesEnabled.includes(key));
+  const current=unique?hideDuplicateOverallDimensions(dimensions,sheet):{dimensions,hidden:0};
+  const result=autoDrawingDimensions(data,Number($('drawing-scale').value),current.dimensions,sheet,{
+   views:autoDimensionViews,types:autoDimensionTypesEnabled,groupRepeated:groupRepeatedDimensions,uniqueAxes:unique,
+   fontSize:dimensionFontSize===standardDimensionFont?undefined:dimensionFontSize,details});
+  dimensions=[...current.dimensions,...result.dimensions];
+  if(layoutKind==='compact')applyAutomaticLayout();else render(true,{reflowDimensions:true});
+  if(overflow)return;
+  const messages=[];
+  if(result.dimensions.length)messages.push('寸法を '+result.dimensions.length+' 個、自動追加しました。');
+  if(current.hidden)messages.push('重複する自動外形寸法を '+current.hidden+' 個、非表示にしました。');
+  if(!messages.length)messages.push('追加できる寸法はありません。');
+  if(result.skipped)messages.push('小さい円形部・過密な部分は省略しました。');
+  if(result.layoutWarnings)messages.push(result.layoutWarnings+' 個の寸法は配置の調整が必要です。');
+  status(messages.join(' '));
+ };
+ $('drawing-dimension-group').onclick=()=>{if(!sheet||busy)return;const grouped=groupDrawingDimensions(dimensions),removed=dimensions.length-grouped.length;if(!removed){status('まとめられる同じR・穴径はありません。同じ図・実寸法・書式の寸法だけをまとめます');return;}dimensions=grouped;selection=null;picking=null;action=null;render(true,{reflowDimensions:true});status('同じR・穴径をまとめ、寸法表示を '+removed+' 件減らしました。元に戻すで取り消せます');};
  $('drawing-dimension-arrange').onclick=()=>{if(!data||!sheet||busy||!dimensions.length)return;picking=null;action=null;selection=null;const layout=arrangeDrawingDimensions(dimensions,sheet);dimensions=layout.dimensions;render();if(!overflow)status('寸法を自動配置しました。元に戻すで配置を戻せます。'+(layout.unresolved.length?' '+layout.unresolved.length+' 個は重なりを解消できませんでした。縮尺・用紙サイズを調整してください。':''));};
  function nearest(e,kind){const matrix=$('drawing-preview').querySelector('svg').getScreenCTM(),screen=(name,p)=>{const q=map(name,p);return new DOMPoint(...q).matrixTransform(matrix);};let best=null,distance=12;const test=(name,point,item)=>{if(!insideView(viewData(name),point)||drawingPointOmitted(sheet.layout[name],point))return;const q=screen(name,point),dist=Math.hypot(q.x-e.clientX,q.y-e.clientY);if(dist<distance){best={name,point,...item};distance=dist;}};
  for(const name of names()){if(picking?.view&&picking.view!==name)continue;if(kind==='point'){for(const point of viewPoints(viewData(name)))test(name,point,{});continue;}const curves=drawingCurves(viewData(name).visible);if(kind==='line'){for(const line of curves.lines){const a=screen(name,line.a),b=screen(name,line.b),dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((e.clientX-a.x)*dx+(e.clientY-a.y)*dy)/(dx*dx+dy*dy||1)));test(name,[line.a[0]+t*(line.b[0]-line.a[0]),line.a[1]+t*(line.b[1]-line.a[1])],{line});}}else for(const arc of curves.arcs){const start=Math.atan2(arc.a[1]-arc.center[1],arc.a[0]-arc.center[0]),end=Math.atan2(arc.b[1]-arc.center[1],arc.b[0]-arc.center[0]);let delta=end-start;if(arc.sweep){while(delta<=0)delta+=2*Math.PI;}else while(delta>=0)delta-=2*Math.PI;for(let i=0;i<=160;i++){const t=start+delta*i/160;test(name,[arc.center[0]+arc.radius*Math.cos(t),arc.center[1]+arc.radius*Math.sin(t)],{arc});}}}return best;}
@@ -1649,8 +1713,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   finishPaperDrag(type==='pointerup');
  });
  function restore(s){
+  autoDimensionTypesEnabled=[...(s?.options.autoDimensionTypes??autoDimensionKeys)];groupRepeatedDimensions=s?.options.groupRepeatedDimensions??true;dimensionList?.clear();
+  uniqueOverallDimensions=s?.options.uniqueOverallDimensions??false;pdfPlacement=s?.options.pdfPlacement??'keep';
   commentWidths=structuredClone(s?.options.commentWidths??{});inspectedHole=null;
   backgrounds=Object.fromEntries(Object.keys(backgroundControls).map(key=>[key,s?.options[key]?.toLowerCase()??'#ffffff']));leaders=structuredClone(s?.options.leaders||[]);pdfLayout=s?.options.pdfLayout??'';printPalette=s?.options.printPalette??'screen';pageAssignments=structuredClone(s?.options.pageAssignments??{pageCount:2,views:{},comments:{}});selectedPlacements.clear();holeTable=s?.options.holeTable?structuredClone(s.options.holeTable):undefined;breakRange=s?.options.breakRange?.slice();breakAxis=s?.options.breakAxis??'';breakPercent=s?.options.breakPercent??defaultBreakPercent;commentColor=s?.options.commentColor??defaultDrawingCommentColor;commentFont=s?.options.commentFont??'';dimensionColors=structuredClone(s?.options.dimensionColors||{});hiddenViews=structuredClone(s?.options.hiddenViews||{});dimensionReferences=structuredClone(s?.options.dimensionReferences||{});frontFrame=s?.options.frontFrame;autoDimensionViews=structuredClone(s?.options.autoDimensionViews||{});dimensionFontSize=s?.options.dimensionFontSize??standardDimensionFont;setViewSelection(s?.options.viewSelection??defaultDrawingViews);$('drawing-view-priority').value=s?.options.viewPriority??'balanced';setIsoMode(s?.options.isoMode??'full');sections=structuredClone(s?.options.sections||[]);details=structuredClone(s?.options.details||[]);markers=structuredClone(s?.options.markers||[]);action=null;comments=structuredClone(s?.options.comments||[]);activeComment='comment';mainComment=s?.comment||'';viewScales=structuredClone(s?.options.viewScales||{});commentSize=s?.options.commentSize??3.5;dimensions=structuredClone(s?.dimensions||[]);positions=structuredClone(s?.options.positions||{});layoutKind=s?.options.layout??'projection';projectionLocked=s?.options.projectionLocked??!drawingProjectionNames.some(name=>positions[name]);setScale(s?.scale||1);$('drawing-hidden').checked=s?.hidden??true;$('drawing-comment').value=s?.comment||'';for(const key of ['paper','orientation','name','revision','material','date']){const id={paper:'paper-size'}[key]||key;$('drawing-'+id).value=s?.options[key]??({paper:'A4',orientation:'landscape',date:new Date().toLocaleDateString('sv-SE')}[key]||'');}$('drawing-frame').checked=s?.options.frame??true;}
+ dimensionList=installDrawingDimensionList(viewportBar,{
+  read:()=>({dimensions,colors:dimensionColors,ready:!!data&&!!sheet&&!busy}),notify:status,
+  onChange(next,{reflow=false}={}){if(!sheet||busy)return;dimensions=next;selection=null;picking=null;action=null;render(true,{reflowDimensions:reflow});},
+  onFocus(index){if(!sheet||busy)return;const d=dimensions[index];if(!d)return;picking=null;action=null;selection={type:'dimension',index};editor();
+   const view=sheet.layout[d.view],placement=view&&dimensionPlacement({...d,hidden:false},sheet);
+   if(placement){viewport.focus(placement.box);viewportHost.scrollIntoView({block:'nearest'});if(d.hidden){const svg=viewportHost.querySelector('svg');svg.insertAdjacentHTML('beforeend','<g data-hidden-dimension-preview="true" pointer-events="none" opacity=".55">'+dimensionSVG({...d,hidden:false},view,view.scale,index,dimensionColors)+'</g>');svg.querySelector('[data-hidden-dimension-preview] [data-dimension]')?.setAttribute('data-edit-selected','true');}}
+   status(d.hidden?'非表示の寸法 '+(index+1)+' を薄く仮表示しています。SVG・PDFには出ません':placement?'寸法 '+(index+1)+'（'+dimensionLabel(d)+'）を選択しました':'この寸法のビューを表示すると図中で確認できます');}
+ });
  const workspace=installDrawingWorkspace(dialog);
  viewportHost.addEventListener('click',()=>{
   if(selection&&!action&&!picking)workspace.reveal($('drawing-editor'));

@@ -8,7 +8,8 @@ export function validateDrawingPreset(value){
  for(const key of ['frame','hidden']){if(typeof value?.[key]!=='boolean')throw Error('図面の表示設定が不正です');out[key]=value[key];}
  const validSize=size=>Number.isFinite(size)&&size>=1.5&&size<=10;
  const optional={dimensionFontSize:validSize,commentSize:validSize,commentFont:id=>id===''||hasDrawingCommentFont(id),
-  commentColor:validDimensionColor,paperBackground:validDimensionColor,viewBackground:validDimensionColor,printPalette:validDrawingPrintPalette};
+  commentColor:validDimensionColor,paperBackground:validDimensionColor,viewBackground:validDimensionColor,printPalette:validDrawingPrintPalette,
+  uniqueOverallDimensions:value=>typeof value==='boolean'};
  for(const [key,valid] of Object.entries(optional)){
   if(value[key]===undefined)continue;
   if(!valid(value[key]))throw Error('図面の書式が不正です：'+key);
@@ -22,7 +23,7 @@ export function validateDrawingPreset(value){
  }
  return out;
 }
-export const drawingBuiltInPresets=[{id:'manufacturing',name:'加工用（三面を共通縮尺）',values:{paper:'A4',orientation:'landscape',viewPriority:'balanced',isoMode:'hidden',frame:true,hidden:true}},{id:'presentation',name:'説明用（正面大・俯瞰小）',values:{paper:'A4',orientation:'landscape',viewPriority:'front',isoMode:'small',frame:true,hidden:false}}];
+export const drawingBuiltInPresets=[{id:'manufacturing',name:'加工用（三面を共通縮尺）',values:{paper:'A4',orientation:'landscape',viewPriority:'balanced',isoMode:'hidden',frame:true,hidden:true,uniqueOverallDimensions:true}},{id:'presentation',name:'説明用（正面大・俯瞰小）',values:{paper:'A4',orientation:'landscape',viewPriority:'front',isoMode:'small',frame:true,hidden:false,uniqueOverallDimensions:false}}];
 function validateRows(rows){if(!Array.isArray(rows)||rows.length>30)throw Error('図面プリセットは30件までです');const names=new Set();return rows.map(row=>{const name=row?.name;if(typeof name!=='string'||name!==name.trim()||!name||name.length>60||names.has(name))throw Error('プリセット名が不正または重複しています');names.add(name);return {name,values:validateDrawingPreset(row.values)};});}
 export function createDrawingPresetStore({storage=()=>globalThis.localStorage}={}){return {load(){const raw=storage().getItem(drawingPresetKey);if(!raw)return [];if(raw.length>65536)throw Error('保存済みの設定が大きすぎます');let doc;try{doc=JSON.parse(raw);}catch{throw Error('保存済み設定を読み込めません');}if(doc?.version!==1)throw Error('未対応のプリセット形式です');return validateRows(doc.presets);},write(rows){const valid=validateRows(rows);storage().setItem(drawingPresetKey,JSON.stringify({version:1,presets:valid}));return valid;}};}
 export function installDrawingPresets(anchor,{read,apply,canUse,store=createDrawingPresetStore()}){

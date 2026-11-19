@@ -1,4 +1,4 @@
-import {alignThirdAngleViews,isThirdAngleLayout,drawingProjectionNames,drawingViewFactor,drawingViewVisible} from './drawing-view-preferences.js';
+import {alignThirdAngleViews,isThirdAngleLayout,drawingProjectionNames,drawingViewFactor,drawingViewVisible,drawingScaleSummary} from './drawing-view-preferences.js';
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
 import {decoratedDrawingViews,drawingViewFrames} from './drawing-auto-layout.js';
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries,drawingCommentLayout,drawingCommentMargin} from './drawing-comments.js';
@@ -120,7 +120,8 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const columnWidth=Math.max(...['top','front','bottom'].map(key=>sizeOf(key,'width')));
  const upperHeight=Math.max(sizeOf('top','height'),sizeOf('iso','height'));
  const middleHeight=Math.max(...['left','front','right','back'].map(key=>sizeOf(key,'height')));
- const left=20,top=27,mainX=left+(frames.left?sizeOf('left','width')+20:0);
+ const top=options.sections?.some(cut=>cut.orientation==='vertical'&&frames[cut.view])?32:27;
+ const left=20,mainX=left+(frames.left?sizeOf('left','width')+20:0);
  const rightX=mainX+columnWidth+(columnWidth?20:0),frontY=top+upperHeight+(upperHeight?24:0);
  const projectionPositions={
   top:[mainX,top],front:[mainX,frontY],right:[rightX,frontY],left:[left,frontY],
@@ -136,22 +137,24 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const bottomEdge=Math.max(top,...Object.values(layout).map(v=>v.y+v.height));
  const paperSize=options.paper==='A4'?[297,210]:options.paper==='A3'?[420,297]:null;
  let width=Math.max(297,rightEdge+10),height=Math.max(210,bottomEdge+36)+(options.frame?24:0);
- if(paperSize)[width,height]=options.orientation==='portrait'?[paperSize[1],paperSize[0]]:paperSize;
+ if(options.pageSize)[width,height]=options.pageSize;
+ else if(paperSize)[width,height]=options.orientation==='portrait'?[paperSize[1],paperSize[0]]:paperSize;
+ const fixedPaper=!!(options.pageSize||paperSize);
  if(Math.max(width,height)>5000)throw Error('図面が大きすぎます。縮尺を小さくしてください');
  let extraX=20,extraY=bottomEdge+30,rowHeight=0;const extraNames=Object.keys(data.views).filter(k=>k!=='iso'&&!drawingProjectionNames.includes(k)&&drawingViewVisible(k,options));
  for(const key of extraNames){const view=data.views[key],b=view.viewBox,s=scale*frames[key].factor,vw=b[2]*s,vh=b[3]*s;if(extraX>20&&extraX+vw>width-15){extraX=20;extraY+=rowHeight+25;rowHeight=0;}layout[key]={x:extraX,y:extraY,bx:b[0],by:b[1],width:vw,height:vh,scale:s};extraX+=vw+25;rowHeight=Math.max(rowHeight,vh);}
- if(options.paper==='auto'||!options.paper){height=Math.max(height,extraNames.length?extraY+rowHeight+(options.frame?42:20):0);width=Math.max(width,...extraNames.map(k=>layout[k].x+layout[k].width+20));}
+ if(!fixedPaper){height=Math.max(height,extraNames.length?extraY+rowHeight+(options.frame?42:20):0);width=Math.max(width,...extraNames.map(k=>layout[k].x+layout[k].width+20));}
  for(const [key,p] of Object.entries(positions))if(layout[key]){layout[key].x=p[0];layout[key].y=p[1];}
- if(options.projectionLocked&&options.layout!=='compact')alignThirdAngleViews(layout,positions.front??projectionPositions.front);
+ if(!options.pageSize&&options.projectionLocked&&options.layout!=='compact')alignThirdAngleViews(layout,positions.front??projectionPositions.front);
  const tableSize=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:layout);
  const holeBox=tableSize?{...tableSize,x:positions.holeTable?.[0]??Math.max(rightEdge+12,width-tableSize.width-12),y:positions.holeTable?.[1]??24}:null;
- if(holeBox&&options.paper==='auto'){
+ if(holeBox&&!fixedPaper){
   width=Math.max(width,holeBox.x+holeBox.width+8);
   height=Math.max(height,holeBox.y+holeBox.height+(options.frame?40:18));
  }
- const notes=placeSheetComments(comment,options,{layout,holeBox,width,height,fixedPaper:!!paperSize,frames,scale,dimensions});
+ const notes=options.pageNotes??placeSheetComments(comment,options,{layout,holeBox,width,height,fixedPaper,frames,scale,dimensions});
  const note=notes.find(note=>note.id==='comment')??null;
- if(!paperSize){
+ if(!fixedPaper){
   width=Math.max(width,...notes.map(note=>note.x+Math.max(note.width,note.wrapWidth??0)+15));
   height=Math.max(height,...notes.map(note=>note.y+note.height+(options.frame?44:20)));
  }
@@ -160,7 +163,8 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const leaders=options.leaders||[],leaderGeometry=leaders.map(note=>[note.view,drawingLeaderLayout(note,layout[note.view])]);
  const leaderLabels=leaderGeometry.map(([,geometry])=>geometry?.label).filter(Boolean);
  const viewBoxes={};
- const titles=Object.fromEntries(Object.entries(layout).map(([name,view])=>[name,drawingViewTitle(name,view,scale,options)]));
+ const scaleSummary=drawingScaleSummary(Object.values(layout).map(view=>view.scale));
+ const titles=Object.fromEntries(Object.entries(layout).map(([name,view])=>[name,drawingViewTitle(name,view,options,scaleSummary.mixed)]));
  const viewTitles=Object.fromEntries(Object.entries(titles).map(([name,title])=>[name,title.bounds]));
  if(viewColor){
   for(const [name,{x,y,width,height}] of Object.entries(layout))viewBoxes[name]=[{x,y,width,height},viewTitles[name]];
@@ -185,7 +189,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
   return '<g data-view="'+name+'">'+drawingViewTitleSVG(titles[name])+'<g transform="translate('+x+' '+y+') scale('+s+') translate('+(-bx)+' '+(-by)+')" fill="none" stroke-linejoin="round" stroke-linecap="round">'+body+'</g>'+
    (layoutView.break?viewBreakMarks(layoutView):'')+'</g>';
  };
- const ratio=scale>=1?Number(scale.toFixed(4))+':1':'1:'+Number((1/scale).toFixed(4)),text=(x,y,t,size=3.5,attrs='')=>'<text x="'+x+'" y="'+y+'" font-size="'+size+'" '+attrs+'>'+esc(t)+'</text>';
+ const text=(x,y,t,size=3.5,attrs='')=>'<text x="'+x+'" y="'+y+'" font-size="'+size+'" '+attrs+'>'+esc(t)+'</text>';
  const commentSVG=notes.map(note=>{
   const color=validDimensionColor(note.color)?note.color:defaultDrawingCommentColor;
   return '<g data-comment="'+(note.id==='comment'?'true':note.id)+'" fill="'+color+'" font-family="'+esc(drawingCommentFamily(note.font))+'">'+
@@ -203,6 +207,8 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const baseViews=[...drawingProjectionNames,'iso'].filter(key=>layout[key]).map(view).join('');
  const extraViews=extraNames.map(view).join('');
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor)).join(''):'';
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,options.layout==='compact'?'FORMA CAD / AUTO LAYOUT':(!isThirdAngleLayout(layout)||layout.front&&drawingViewFactor('front',options)!==1)?'FORMA CAD / VIEW LAYOUT':'FORMA CAD / THIRD ANGLE',4.5)+text(width-15,12,options.pageViews?.length===0?'mm':'SCALE '+ratio+' / mm',3.5,'text-anchor="end"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
+ const thirdAngle=drawingProjectionNames.some(name=>layout[name])&&isThirdAngleLayout(layout)&&(!layout.front||drawingViewFactor('front',options)===1);
+ const sheetTitle='FORMA CAD / '+(options.layout==='compact'?'AUTO LAYOUT':thirdAngle?'THIRD ANGLE':'VIEW LAYOUT');
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,sheetTitle,4.5)+text(width-15,12,scaleSummary.header,3.5,'text-anchor="end" data-sheet-scale="true"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
 }
