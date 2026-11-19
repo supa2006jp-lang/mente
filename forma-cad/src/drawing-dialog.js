@@ -35,6 +35,14 @@ import {installDrawingDimensionList} from './drawing-dimension-list.js';
 const scales=[2,1,.5,.2,.1,.05,.02,.01];
 const sameTargets=(left,right)=>left.length===right.length&&left.every(id=>right.includes(id));
 const standardDimensionFont=3.2;
+const dimensionPickTargets={
+ horizontal:'同じ図で横の距離を測る左右の寸法点をクリックします。',
+ vertical:'同じ図で縦の距離を測る上下の寸法点をクリックします。',
+ aligned:'同じ図で長さを測る両端の寸法点をクリックします。',
+ diameter:'直径を測る円・円弧の線をクリックします。',
+ radius:'半径を測る円・円弧の線をクリックします。',
+ angle:'同じ図で角度をつくる２本の直線をクリックします。',
+};
 const colorFields=[['lineColor','line','寸法線の色'],['textColor','text','数字・注記の色']];
 const colorInputs=(scope)=>colorFields.map(([,id,label])=>'<label>'+label+
  '<input type="color" id="drawing-'+scope+'-'+id+'-color"></label>').join('');
@@ -47,12 +55,17 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  <div class="drawing-controls"><label>図の優先<select id="drawing-view-priority"><option value="balanced">共通縮尺</option><option value="front">正面図を優先（1.4倍）</option></select></label><label>俯瞰図<select id="drawing-iso-mode"><option value="full">通常</option><option value="small">小さく（半分）</option><option value="hidden">非表示</option></select></label><small>異なる縮尺は各図に表示します。</small></div>
  <div class="drawing-controls"><label>部品名<input id="drawing-name" maxlength="80"></label><label>改訂番号<input id="drawing-revision" maxlength="20" size="8" placeholder="例 02"></label><label>材質<input id="drawing-material" maxlength="80" placeholder="手入力"></label><select id="drawing-material-preset" aria-label="材質の候補"><option value="" disabled>候補から選択</option>${standardDrawingMaterials.map(([group,items])=>'<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>').join('')}<optgroup id="drawing-material-saved" label="登録した材質" hidden></optgroup></select><span class="drawing-material-actions"><button type="button" id="drawing-material-save" aria-label="入力した材質を候補に登録">登録</button><button type="button" id="drawing-material-remove" aria-label="登録した材質を候補から削除" hidden>削除</button></span><label>作成日<input id="drawing-date" type="date"></label><small id="drawing-material-status" role="status"></small></div>
  <p id="drawing-layout-help">通常配置は第三角法です。「大きく自動配置」は図の位置関係を自由に組み替え、共通縮尺で用紙を広く使います。寸法・コメント・配置は保存されます。</p>
- <div class="drawing-controls"><label>寸法<select id="drawing-dimension-kind"><option value="horizontal">水平（横の距離）</option><option value="vertical">垂直（縦の距離）</option><option value="aligned">２点間（直線距離）</option><option value="diameter">直径 Ø</option><option value="radius">半径 R</option><option value="angle">角度</option></select></label><button id="drawing-dimension-add">寸法線を追加</button><button id="drawing-dimension-overall">全体寸法を追加</button><button id="drawing-dimension-undo">最後の寸法を削除</button><button id="drawing-dimension-clear">寸法を全削除</button><button id="drawing-dimension-cancel" hidden>寸法追加を中止</button></div>
+ <div class="drawing-controls">
+  <label>寸法<select id="drawing-dimension-kind" aria-describedby="drawing-dimension-hint"><option value="horizontal">水平（横の距離）</option><option value="vertical">垂直（縦の距離）</option><option value="aligned">２点間（直線距離）</option><option value="diameter">直径 Ø</option><option value="radius">半径 R</option><option value="angle">角度</option></select></label>
+  <small id="drawing-dimension-hint"></small>
+  <button id="drawing-dimension-add">寸法線を追加</button><button id="drawing-dimension-overall">全体寸法を追加</button><button id="drawing-dimension-undo">最後の寸法を削除</button><button id="drawing-dimension-clear">寸法を全削除</button><button id="drawing-dimension-cancel" hidden>寸法追加を中止</button>
+ </div>
  <div class="drawing-controls"><button id="drawing-center-add">中心マーク</button><button id="drawing-center-line">中心線（２点）</button><button id="drawing-centers-all">円の中心を一括表示</button><label>切断線<select id="drawing-section-orientation"><option value="vertical">縦</option><option value="horizontal">横</option></select></label><button id="drawing-section-add">断面図を追加</button><label>詳細倍率<select id="drawing-detail-factor"><option value="2">２倍</option><option value="4">４倍</option><option value="10">10倍</option></select></label><button id="drawing-detail-add">拡大詳細図を追加</button><label><input id="drawing-snap" type="checkbox" checked>配置・寸法線の吸着（Altで解除）</label></div>
  <div id="drawing-extra-editor" class="drawing-controls" hidden><label>断面・詳細図<select id="drawing-extra-target"></select></label><button id="drawing-section-reverse">見る方向を反転</button><label id="drawing-section-position-label">切断位置 (mm)<input id="drawing-section-position" type="number" step="0.1"></label><button id="drawing-extra-delete">この図を削除</button><span>切断線は直接ドラッグ、図の配置は「配置をドラッグ」で変更できます</span></div>
  <div class="drawing-controls"><button id="drawing-undo" disabled>元に戻す</button><button id="drawing-redo" disabled>やり直す</button><span>寸法・コメントをクリックして編集（Ctrl+Z / Ctrl+Y）</span></div><div id="drawing-editor" hidden class="drawing-controls"><strong id="drawing-editor-title"></strong><label id="drawing-precision-label">小数点以下<select id="drawing-precision"><option value="auto">自動（最大３桁）</option>${[0,1,2,3,4,5,6].map(n=>`<option value="${n}">${n}桁</option>`).join('')}</select></label><label id="drawing-font-label">文字サイズ (mm)<input id="drawing-font" type="number" min="1.5" max="10" step="0.1"></label><button id="drawing-edit-comment">本文を編集</button><button id="drawing-delete-selection">選択項目を削除</button><button id="drawing-deselect">編集を終了</button></div><label class="drawing-comment-label">コメント<textarea id="drawing-comment" rows="2" maxlength="2000" placeholder="材質・加工の注意事項など（改行できます）"></textarea></label><p id="drawing-status" role="status"></p><div id="drawing-preview"></div><div class="drawing-actions"><span id="drawing-paper"></span><button id="drawing-svg" disabled>SVG保存</button><button id="drawing-pdf" disabled>PDF保存</button></div>`;
  document.body.append(dialog);const $=id=>dialog.querySelector('#'+id);let saved=null,data=null,sheet=null,revision=0,features=[],visible=[],selected=[],dimensions=[],positions={},picking=null,source='',targets=[],overflow=false,drag=null,selection=null,commentSize=3.5,undo=[],redo=[],replaying=false,suppressClick=false,sections=[],details=[],markers=[],extraTarget='',action=null,busy=false,layoutKind='projection';
  const viewportHost=$('drawing-preview');viewportHost.tabIndex=0;viewportHost.setAttribute('aria-label','図面。ホイールで拡大、ホイール押し込みまたはSpace＋ドラッグで移動');
+ const dimensionKindInput=$('drawing-dimension-kind'),dimensionHint=$('drawing-dimension-hint');
  let dimensionPoints=[];
  $('drawing-dimension-add').insertAdjacentHTML('afterend',
   '<button id="drawing-dimension-point-add" type="button" aria-pressed="false" title="図をクリックして寸法の基準点を置きます">寸法点を追加</button>');
@@ -734,13 +747,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-dimension-relink').onclick=()=>{
   const index=selection?.index,d=dimensions[index];
   if(!d?.review||!sheet?.layout[d.view]||busy)return;
-  $('drawing-dimension-kind').value=d.kind;
+  dimensionKindInput.value=d.kind;
   startDimension(d.kind,{view:d.view,replace:index});
   viewportHost.scrollIntoView({block:'nearest'});
  };
  dialog.addEventListener('keydown',e=>{e.stopPropagation();if(activateHoleKey(e))return;const input=e.target.matches('input,textarea,select,[contenteditable="true"]');if(input)return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){e.preventDefault();e.stopPropagation();(e.key.toLowerCase()==='y'||e.shiftKey?$('drawing-redo'):$('drawing-undo')).click();}else if((e.key==='Delete'||e.key==='Backspace')&&selection){e.preventDefault();e.stopPropagation();$('drawing-delete-selection').click();}},true);
  function controls(){
   const ready=!!sheet&&!busy,editable=ready&&names().length>0;
+  syncDimensionHint();
   syncPreviewBackground();syncCommentTargets();syncViewScales();syncPageAssignments();
   syncDrawingMaterials();
   for(const button of conflictList.querySelectorAll('button')){
@@ -1024,6 +1038,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function focusDrawingConflict(index,box){
   if(busy||drag||!sheet)return;
   picking=null;action=null;selection={type:'dimension',index};editor();
+  syncDimensionHint();
   const svg=viewportHost.querySelector('svg');
   svg.querySelector('[data-focused-conflict]')?.remove();
   const outline=document.createElementNS('http://www.w3.org/2000/svg','rect');
@@ -1611,8 +1626,21 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   viewport.markers();
  }
+ function syncDimensionHint(){
+  let text=dimensionPickTargets[dimensionKindInput.value];
+  if(!picking)text='「寸法線を追加」を押し、'+text;
+  else if(picking.ready)text='寸法を置く位置をクリックします。';
+  else if(picking.firstLine)text='同じ図で２本目の直線をクリックします。';
+  else if(picking.a)text='同じ図で２点目の寸法点をクリックします。';
+  if(dimensionHint.textContent!==text)dimensionHint.textContent=text;
+ }
+ dimensionKindInput.onchange=()=>{
+  if(picking&&picking.kind!==dimensionKindInput.value)cancelPick();
+  else syncDimensionHint();
+ };
+ syncDimensionHint();
  function startDimension(kind,reference={}){if(!data||busy)return;action=null;selection=null;picking={kind,...reference};render();status(['diameter','radius'].includes(picking.kind)?'円または円弧をクリックし、寸法を置く位置をクリックしてください':picking.kind==='angle'?'同じ図の直線を２本選び、角度寸法を置く位置をクリックしてください':'同じ図の寸法点を２点選び、寸法線を置く位置をクリックしてください');}
- $('drawing-dimension-add').onclick=()=>startDimension($('drawing-dimension-kind').value);
+ $('drawing-dimension-add').onclick=()=>startDimension(dimensionKindInput.value);
  $('drawing-dimension-cancel').onclick=cancelPick;dialog.addEventListener('cancel',e=>{if(drag){e.preventDefault();finishPaperDrag(false);}else if(picking||action){e.preventDefault();cancelPick();}else if(inspectedHole){e.preventDefault();inspectedHole=null;syncInspectedHole();}});$('drawing-dimension-undo').onclick=()=>{dimensions.pop();selection=null;cancelPick();};$('drawing-dimension-clear').onclick=()=>{dimensions=[];selection=null;cancelPick();};
  $('drawing-dimension-overall').onclick=()=>{if(!data||!sheet||busy)return;for(const d of overallDrawingDimensions(data,Number($('drawing-scale').value),sheet,{uniqueAxes:true}))if(dimensions.length<500&&!dimensions.some(e=>!e.review&&e.overall===d.overall))dimensions.push(applyDimensionFont(d));cancelPick();};
  $('drawing-dimension-auto').onclick=()=>{
@@ -1695,7 +1723,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  $('drawing-preview').onclick=e=>{if(!sheet||drag||busy)return;if(action){actionClick(e);return;}if(!picking){const note=e.target.closest('[data-leader]');if(note){selection={type:'leader',id:note.dataset.leader};editor();return;}const marker=e.target.closest('[data-marker]');if(marker){selection={type:'marker',id:marker.dataset.marker};editor();return;}const extra=e.target.closest('[data-section],[data-detail]');if(extra){extraTarget=extra.dataset.section||extra.dataset.detail;extraControls();return;}const el=e.target.closest('[data-dimension],[data-comment]');selection=el?.hasAttribute('data-dimension')?{type:'dimension',index:Number(el.dataset.dimension)}:el?{type:'comment',id:el.dataset.comment==='true'?'comment':el.dataset.comment}:null;if(selection?.type==='comment')selectDrawingComment(selection.id);editor();return;}try{if(picking.ready){placePickedDrawingDimension(e);return;}
  if(['radius','diameter'].includes(picking.kind)){const hit=nearest(e,'arc');if(!hit)throw Error('円・円弧に近い位置をクリックしてください（楕円は対象外）');picking={...picking,view:hit.name,center:hit.arc.center,radius:hit.arc.radius,ready:true};}
- else if(picking.kind==='angle'){const hit=nearest(e,'line');if(!hit)throw Error('直線に近い位置をクリックしてください');if(!picking.firstLine){picking.view=hit.name;picking.firstLine=hit.line;status('２本目の直線を選択してください');return;}Object.assign(picking,angleDimension(picking.firstLine,hit.line),{ready:true});}
+ else if(picking.kind==='angle'){const hit=nearest(e,'line');if(!hit)throw Error('直線に近い位置をクリックしてください');if(!picking.firstLine){picking.view=hit.name;picking.firstLine=hit.line;syncDimensionHint();status('２本目の直線を選択してください');return;}Object.assign(picking,angleDimension(picking.firstLine,hit.line),{ready:true});}
  else{
   const hit=nearest(e,'point');
   if(!hit)throw Error('寸法点をクリックしてください。必要な点がなければ「寸法点を追加」を使えます');
@@ -1709,7 +1737,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(hit.manual)(picking.manualEndpoints??=[]).push('b');
   picking.ready=true;
  }
- status('寸法 '+Number(dimensionValue(picking).toFixed(3))+(picking.kind==='angle'?'°':' mm')+'：配置位置をクリックしてください');}catch(err){status(err.message);}};
+ syncDimensionHint();status('寸法 '+Number(dimensionValue(picking).toFixed(3))+(picking.kind==='angle'?'°':' mm')+'：配置位置をクリックしてください');}catch(err){status(err.message);}};
  function beginDimensionDrag(index){
   const d=dimensions[index],geometry=drawingDimensionGeometry(d,sheet.layout[d.view]);
   return {type:'dimension',index,origin:[...d.at],alongOffset:d.alongOffset,direction:geometry?.direction};
@@ -1950,7 +1978,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  dimensionList=installDrawingDimensionList(viewportBar,{
   read:()=>({dimensions,colors:dimensionColors,ready:!!data&&!!sheet&&!busy}),notify:status,
   onChange(next,{reflow=false}={}){if(!sheet||busy)return;dimensions=next;selection=null;picking=null;action=null;render(true,{reflowDimensions:reflow});},
-  onFocus(index){if(!sheet||busy)return;const d=dimensions[index];if(!d)return;picking=null;action=null;selection={type:'dimension',index};editor();
+  onFocus(index){if(!sheet||busy)return;const d=dimensions[index];if(!d)return;picking=null;action=null;selection={type:'dimension',index};editor();syncDimensionHint();
    const view=sheet.layout[d.view],placement=view&&dimensionPlacement({...d,hidden:false},sheet);
    if(placement){viewport.focus(placement.box);viewportHost.scrollIntoView({block:'nearest'});if(d.hidden){const svg=viewportHost.querySelector('svg');svg.insertAdjacentHTML('beforeend','<g data-hidden-dimension-preview="true" pointer-events="none" opacity=".55">'+dimensionSVG({...d,hidden:false},view,view.scale,index,dimensionColors)+'</g>');svg.querySelector('[data-hidden-dimension-preview] [data-dimension]')?.setAttribute('data-edit-selected','true');}}
    status(d.hidden?'非表示の寸法 '+(index+1)+' を薄く仮表示しています。SVG・PDFには出ません':placement?'寸法 '+(index+1)+'（'+dimensionLabel(d)+'）を選択しました':'この寸法のビューを表示すると図中で確認できます');}

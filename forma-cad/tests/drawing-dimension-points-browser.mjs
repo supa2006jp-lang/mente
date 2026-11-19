@@ -43,6 +43,7 @@ try{
  const points=()=>frontManual.evaluateAll(marks=>marks.map(mark=>JSON.parse(mark.dataset.snapPoint)));
  const label=preview.locator('[data-dimension] text');
  const guides=preview.locator('[data-dimension-point-guide]');
+ const kind=field('dimension-kind'),hint=field('dimension-hint');
  async function load(document){
   const buffer=Buffer.from(JSON.stringify(document));
   await page.locator('#file').setInputFiles({name:'drawing-points.forma.json',mimeType:'application/json',buffer});
@@ -81,6 +82,24 @@ try{
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  await page.locator('#canvas-host canvas').waitFor();
  await load(project);
+ const selectorBox=await kind.boundingBox(),hintBox=await hint.boundingBox();
+ assert.ok(hintBox.y>=selectorBox.y+selectorBox.height,'the hint is below the dimension selector');
+ for(const [value,target] of [
+  ['horizontal',/横の距離を測る左右の寸法点/],['vertical',/縦の距離を測る上下の寸法点/],
+  ['aligned',/両端の寸法点/],['diameter',/直径.*円・円弧の線/],['radius',/半径.*円・円弧の線/],
+  ['angle',/２本の直線/],
+ ]){
+  await kind.selectOption(value);
+  assert.match(await hint.textContent(),target);
+ }
+ await field('dimension-add').click();
+ await clickAt([20,-12]);
+ assert.match(await hint.textContent(),/２本目の直線/);
+ await clickAt([0,-6]);
+ assert.match(await hint.textContent(),/置く位置/);
+ await kind.selectOption('horizontal');
+ assert.match(await hint.textContent(),/「寸法線を追加」.*横の距離/);
+ assert.equal(await field('dimension-cancel').isHidden(),true);
  await field('dimension-add').click();
  assert.equal(await preview.locator('[data-snap-view="front"][data-snap-point="[8,-3]"]').count(),0);
  await field('dimension-point-add').click();
@@ -101,7 +120,12 @@ try{
  assert.deepEqual(await points(),[[8,-3],[30,-3]]);
  await field('dimension-add').click();
  assert.equal(await guides.count(),0);
- await frontManual.first().click();await frontManual.last().click();await clickAt([20,.5]);
+ await frontManual.first().click();
+ assert.match(await hint.textContent(),/２点目の寸法点/);
+ await frontManual.last().click();
+ assert.match(await hint.textContent(),/置く位置/);
+ await clickAt([20,.5]);
+ assert.match(await hint.textContent(),/「寸法線を追加」.*横の距離/);
  assert.deepEqual(await label.allTextContents(),['22']);
  const nearOutline=await labelBoxInFront();
  assert.ok(nearOutline.top>.15&&nearOutline.top<.85,JSON.stringify(nearOutline));
@@ -182,7 +206,7 @@ try{
  assert.equal(await manual.count(),3);
  assert.deepEqual(await label.allTextContents(),['20']);
  assert.deepEqual(errors,[]);
- console.log('PASS manual dimension points, axis guides, hidden-edge snapping, clearance from drawn edges, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
+ console.log('PASS dimension click guidance, manual points, axis guides, hidden-edge snapping, clearance from drawn edges, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
