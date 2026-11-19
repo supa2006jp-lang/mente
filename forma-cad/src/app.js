@@ -48,7 +48,7 @@ import {snapSketchLineToGrid} from './sketch-grid-line-snap.js';
 import {createSketchNumberTabs} from './sketch-number-tabs.js';
 import {edgeBodyRevolveOptions} from './edge-body-revolve.js';
 import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
-import {createPrintSupportExportChoice} from './print-support-export-choice.js';
+import {createPrintSupportExportChoice,savedSupportExportIds} from './print-support-export-choice.js';
 let supportExportChoice=null;
 import {createPrintSupportDialog} from './print-support-dialog.js';
 import {supportHistoryFeature} from './print-support-batch.js';
@@ -1072,6 +1072,7 @@ function bodyRenameButton(id){
 }
 function renderTree(){const splitStyles=sectionBodyStyles(editingSectionSplitId?features.slice(0,features.findIndex(f=>f.id===editingSectionSplitId)):features);
  updatePrintCopyActions();
+ printSupportController?.syncSavedExport();
  const facePaintEntries=faceColorsByBody(features);
  $('bodies').replaceChildren();$('features').replaceChildren();$('sketches').replaceChildren();renderSketchGroups();
  for(const child of [...sketchGroup.children])disposeObject(child);
@@ -1889,12 +1890,14 @@ async function exportCheckedStl(original,ids){
   if(message)notify(message+'（出力メッシュ検査済み）');
  }catch(error){if(token!==null)stlInspection.error(token,error);throw error;}
 }
+function exportSavedPrintSupports(original,ids,isCurrent=()=>features===original){
+ const createPackage=()=>kernelClient.run(original,{type:'printSupportSavedExport',ids},{document:original});
+ return savePrintSupport3mf(createPackage,download,isCurrent);
+}
 $('export').onclick=async()=>{if(!meshes.size||$('export').disabled||stlExportBusy)return;stlExportBusy=true;partWorkshop?.close();$('export').disabled=true;const original=features;try{const choice=await supportExportChoice.choose();if(choice.kind==='cancel'||features!==original)return;if(choice.kind==='support'){printSupportController.openForExport(choice.feature);return;}
  if(choice.kind==='saved-support'){
   try{
-   const current=()=>features===original;
-   const createPackage=()=>kernelClient.run(original,{type:'printSupportSavedExport',ids:choice.ids},{document:original});
-   if(await savePrintSupport3mf(createPackage,download,current))notify('現在の配置で一括3MFを出力しました');
+   if(await exportSavedPrintSupports(original,choice.ids))notify('現在の配置で一括3MFを出力しました');
   }catch(error){if(error.code!=='cancelled')notify('一括3MFを保存できませんでした。'+error.message);}
   return;
  }
@@ -5357,6 +5360,7 @@ const printLayoutButton=document.createElement('button');printLayoutButton.id='p
 printLayoutButton.onclick=()=>{if(stage!=='model'||document.querySelector('dialog[open]')||pendingExtrude||extrusionBusy||moveTool?.active){notify('編集中の操作を終了してから印刷配置してください');return;}moveTool?.cancel();sectionControl?.cancel();printQuality?.close();bodyDisplay?.stopExploded();finishSketch(false);clearEdgeSelection();clearFaceSelection();$('measurement').hidden=true;const latest=features.findLast(feature=>['printLayoutPlan','printLayout'].includes(feature.spec?.type));printLayoutController.open(latest?.spec.type==='printLayoutPlan'?latest:null);};
 function supportSelectedFace(){if(stage!=='model'||sketch||pendingExtrude||extrusionBusy||moveTool?.active)return null;const face=selectedFace,point=face?.cadFace?.point,normal=face?.cadFace?.normal||face?.frame?.n;return face?.bodyId&&point&&normal?{bodyId:face.bodyId,point:[...point],normal:[...normal]}:null;}
 printSupportController=createPrintSupportDialog({getControls:()=>controls,scene,host,canvas:renderer.domElement,camera,meshes,kernel:new KernelClient(),getFeatures:()=>features,bodyName:bodyDisplayName,getFace:supportSelectedFace,notify,download,recordFailure:(context,error)=>failureRecovery?.capture(context,error),
+ getSavedExportIds:()=>savedSupportExportIds(features,bodyDisplay.visibleIds()),exportSaved:exportSavedPrintSupports,
  onStart:()=>{cancelAllTools();finishSketch(false);clearEdgeSelection();clearFaceSelection();clearBodySelection();selected=null;selectedFace=null;selectedSurface=null;chosenRegion=null;pendingExtrude=false;stage='model';dropPreview();syncFields();$('measurement').hidden=true;},
  fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},
  applyBatch(entries,original,isCurrent){if(features!==original||!isCurrent())throw Error('モデルが変更されました');setProject([...original,...entries.map(({input,result})=>supportHistoryFeature(input,result))]);selected=null;stage='model';syncFields();},

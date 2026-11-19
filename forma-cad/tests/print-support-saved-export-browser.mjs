@@ -28,6 +28,14 @@ for(const [i,target] of ['body-a','body-b'].entries()){
  features.push(supportHistoryFeature(spec,result));
 }
 const buffer=Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}));
+function checkCombinedFile(bytes){
+ const files=unzipSync(bytes),model=strFromU8(files['3D/3dmodel.model']),config=strFromU8(files['Metadata/model_settings.config']);
+ const parts=[...config.matchAll(/subtype="normal_part"><metadata key="name" value="([^"]+)"/g)].map(match=>match[1]);
+ assert.deepEqual(parts.sort(),['body-a','body-b','ribs-a','ribs-b']);
+ assert.equal(config.match(/subtype="support_blocker"/g)?.length,2);
+ assert.equal(model.match(/<item objectid=/g)?.length,1,'one shared print object in one 3MF');
+ assert.match(config,/key="layer_height" value="0.3"/);
+}
 const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
 const server=http.createServer(async(req,res)=>{
  try{
@@ -42,7 +50,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
  browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
- const page=await browser.newPage({viewport:{width:1760,height:1080},acceptDownloads:true});
+ const page=await browser.newPage({viewport:{width:1900,height:1080},acceptDownloads:true});
  page.setDefaultTimeout(60000);
  const errors=[],downloads=[];
  page.on('pageerror',error=>errors.push(error.message));
@@ -85,16 +93,35 @@ try{
  assert.match(download.suggestedFilename(),/\.3mf$/);
  assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds]);
  assert.equal(downloads.length,1);
- const bytes=await readFile(await download.path()),files=unzipSync(bytes);
- const model=strFromU8(files['3D/3dmodel.model']),config=strFromU8(files['Metadata/model_settings.config']);
- const parts=[...config.matchAll(/subtype="normal_part"><metadata key="name" value="([^"]+)"/g)].map(match=>match[1]);
- assert.deepEqual(parts.sort(),['body-a','body-b','ribs-a','ribs-b']);
- assert.equal(config.match(/subtype="support_blocker"/g)?.length,2);
- assert.equal(model.match(/<item objectid=/g)?.length,1,'one shared print object in one 3MF');
- assert.match(config,/key="layer_height" value="0.3"/);
+ checkCombinedFile(await readFile(await download.path()));
+
+ const dialog=page.locator('#print-support-dialog'),field=id=>dialog.locator('[data-id="'+id+'"]');
+ const direct=field('export-saved-3mf');
+ await page.locator('#print-support-tool').click();
+ await direct.waitFor();
+ assert.match(await direct.textContent(),/設定済みのリブと本体を一括3MF出力（2件）/);
+ await field('close').click();
+ await dialog.waitFor({state:'hidden'});
+ await page.locator('[data-history-feature="ribs-a"] button').click();
+ await direct.waitFor();
+ await page.waitForFunction(()=>document.querySelector('#print-support-dialog [data-id="export-state"]').dataset.state==='ready');
+ assert.match(await direct.textContent(),/（2件）/,'the editing preview can hide a saved mesh without excluding it');
+ const otherRibVisibility=page.locator('#bodies [data-body-id="ribs-b"] .eye');
+ await otherRibVisibility.click();
+ assert.match(await direct.textContent(),/（1件）/);
+ await otherRibVisibility.click();
+ assert.match(await direct.textContent(),/（2件）/);
+ await field('layerHeight').fill('0.24');
+ const [directDownload]=await Promise.all([page.waitForEvent('download'),direct.click()]);
+ assert.match(directDownload.suggestedFilename(),/\.3mf$/);
+ assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds]);
+ assert.equal(downloads.length,2);
+ const bytes=await readFile(await directDownload.path());
+ checkCombinedFile(bytes);
+ assert.equal(await dialog.isVisible(),true);
  if(process.env.FORMA_TEST_3MF)await writeFile(process.env.FORMA_TEST_3MF,bytes);
  assert.deepEqual(errors,[]);
- console.log('PASS two separately saved supports, one 3MF with both bodies and both blockers, and cancelled save before CAD calculation');
+ console.log('PASS both export entries, saved rather than draft geometry, visibility changes during preview, and one 3MF with both bodies, ribs and blockers');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

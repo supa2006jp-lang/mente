@@ -25,7 +25,8 @@ export function createBodyDisplay({meshes,scene,host,hiddenBodies,getFeatures,ge
   const text=[exploded?'離して表示中（表示のみ）':'',isolation?'単独表示中':''].filter(Boolean).join(' / ');notice.hidden=!text;if(notice.textContent!==text)notice.textContent=text;
   host.dataset.exploded=String(exploded);host.dataset.isolatedBodies=JSON.stringify(isolation?[...isolation]:[]);host.dataset.displayOffsets=JSON.stringify(exploded?Object.fromEntries([...offsets].filter(([id])=>meshes.has(id)).map(([id,v])=>[id,v.toArray()])):{});
  }
- function applyVisibility(){if(isolation&&![...isolation].some(id=>meshes.has(id)))isolation=null;for(const [id,mesh] of meshes)mesh.visible=isolation?isolation.has(id):!hiddenBodies.has(id);}
+ const isVisible=id=>isolation?isolation.has(id):!hiddenBodies.has(id);
+ function applyVisibility(){if(isolation&&![...isolation].some(id=>meshes.has(id)))isolation=null;for(const [id,mesh] of meshes)mesh.visible=isVisible(id);}
  function stopExploded(silent=false){if(!exploded)return;exploded=false;update();if(!silent)onChange();}
  function attach(mesh){
   if(mesh.userData.displayRaycast)return;
@@ -45,5 +46,5 @@ export function createBodyDisplay({meshes,scene,host,hiddenBodies,getFeatures,ge
  q('transparent-slide-lids').onclick=()=>{if(canChange())setLidTransparent(!lidTransparent);};
  q('explode-bodies').onclick=()=>{if(!canChange()||!available())return;exploded=!exploded;update();onChange();};q('body-auto-color').onclick=()=>{if(canChange())onAutoColor();};q('body-selection-color').onclick=()=>{if(canChange())onSelectionColor();};q('isolate-selection').onclick=()=>isolate(getSelected());q('restore-isolation').onclick=()=>restoreIsolation();
  q('explode-gap').oninput=()=>{const value=Number(q('explode-gap').value);q('explode-gap').setCustomValidity(value>=1&&value<=200?'':'表示の間隔は1〜200 mmです');if(value<1||value>200||!Number.isFinite(value))return;gap=value;offsets=splitDisplayOffsets(getFeatures(),gap);update();};
- rebuild();return {update,rebuild,setLidTransparent,get lidTransparent(){return lidTransparent;},withDisplay,isolate,restoreIsolation,stopExploded,reset(){setLidTransparent(false);stopExploded(true);restoreIsolation(true);update();},get exploded(){return exploded;},offset(id){return exploded?offsets.get(id)||new THREE.Vector3():new THREE.Vector3();}};
+ rebuild();return {update,rebuild,setLidTransparent,get lidTransparent(){return lidTransparent;},withDisplay,isolate,restoreIsolation,stopExploded,visibleIds(){return [...meshes.keys()].filter(isVisible);},reset(){setLidTransparent(false);stopExploded(true);restoreIsolation(true);update();},get exploded(){return exploded;},offset(id){return exploded?offsets.get(id)||new THREE.Vector3():new THREE.Vector3();}};
 }
