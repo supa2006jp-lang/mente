@@ -9,8 +9,34 @@ export function printSupport3mf(pkg){
  const config='<?xml version="1.0" encoding="UTF-8"?><config><object id="'+group+'"><metadata key="name" value="FormaCAD 連結リブサポート"/><metadata key="extruder" value="1"/><metadata key="layer_height" value="'+xml(pkg.layerHeight)+'"/>'+parts.map((o,i)=>'<part id="'+(i+1)+'" subtype="'+o.type+'"><metadata key="name" value="'+xml(o.id)+'"/><metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/></part>').join('')+'</object><plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="'+group+'"/><metadata key="instance_id" value="0"/><metadata key="identify_id" value="1"/></model_instance></plate></config>';
  return pack3mf(model,{'Metadata/model_settings.config':config});
 }
-export async function savePrintSupport3mf(pkg,download,isCurrent=()=>true){
- const data=printSupport3mf(pkg),suggestedName='design-support.3mf';
+export async function savePrintSupport3mf(packageOrCreate,download,isCurrent=()=>true){
+ const suggestedName='design-support.3mf';
  const ensure=()=>{if(!isCurrent())throw Error('モデルや設定が変更されたため3MF出力を中止しました');};
- try{ensure();if(typeof window.showSaveFilePicker==='function'){const handle=await window.showSaveFilePicker({suggestedName,types:[{description:'Bambu Studio用3MF',accept:{'model/3mf':['.3mf']}}]});ensure();const writable=await handle.createWritable();try{ensure();await writable.write(data);ensure();await writable.close();}catch(e){await writable.abort().catch(()=>{});throw e;}}else{const entered=window.prompt('Bambu Studioで「プロジェクト」として開く3MFの名前',suggestedName);if(entered===null)return false;let name=entered.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_');if(!name)throw Error('ファイル名を入力してください');if(!/\.3mf$/i.test(name))name+='.3mf';ensure();download(data,name,'model/3mf');}return true;}catch(e){if(e.name==='AbortError')return false;throw e;}
+ const createData=async()=>{
+  ensure();
+  const pkg=typeof packageOrCreate==='function'?await packageOrCreate():packageOrCreate;
+  ensure();
+  return printSupport3mf(pkg);
+ };
+ try{
+  ensure();
+  if(typeof window.showSaveFilePicker==='function'){
+   // Open the picker while the click's user activation is still available.
+   const handle=await window.showSaveFilePicker({suggestedName,types:[{description:'Bambu Studio用3MF',accept:{'model/3mf':['.3mf']}}]});
+   const data=await createData();
+   ensure();
+   const writable=await handle.createWritable();
+   try{ensure();await writable.write(data);ensure();await writable.close();}
+   catch(error){await writable.abort().catch(()=>{});throw error;}
+  }else{
+   const entered=window.prompt('Bambu Studioで「プロジェクト」として開く3MFの名前',suggestedName);
+   if(entered===null)return false;
+   let name=entered.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_');
+   if(!name)throw Error('ファイル名を入力してください');
+   if(!/\.3mf$/i.test(name))name+='.3mf';
+   const data=await createData();
+   ensure();download(data,name,'model/3mf');
+  }
+  return true;
+ }catch(error){if(error.name==='AbortError')return false;throw error;}
 }

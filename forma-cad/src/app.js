@@ -1893,8 +1893,8 @@ $('export').onclick=async()=>{if(!meshes.size||$('export').disabled||stlExportBu
  if(choice.kind==='saved-support'){
   try{
    const current=()=>features===original;
-   const pkg=await kernelClient.run(original,{type:'printSupportSavedExport',ids:choice.ids},{document:original});
-   if(current()&&await savePrintSupport3mf(pkg,download,current))notify('現在の配置で一括3MFを出力しました');
+   const createPackage=()=>kernelClient.run(original,{type:'printSupportSavedExport',ids:choice.ids},{document:original});
+   if(await savePrintSupport3mf(createPackage,download,current))notify('現在の配置で一括3MFを出力しました');
   }catch(error){if(error.code!=='cancelled')notify('一括3MFを保存できませんでした。'+error.message);}
   return;
  }

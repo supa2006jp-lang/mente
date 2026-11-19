@@ -3,21 +3,27 @@ export function printSupportExportCandidates(features,bodyIds){
  return features.flatMap((feature,index)=>feature.kind==='cadop'&&feature.spec?.type==='printSupport'&&feature.spec.style==='walls'&&visible.has(feature.spec.id||feature.id)?[{feature,index,later:index<features.length-1}]:[]);
 }
 export function savedSupportExportGroups(features,bodyIds){
- const visible=new Set(bodyIds),groups=new Map();
+ const visible=new Set(bodyIds),groups=new Map(),eligible=[];
  let legacy=null;
  for(const [index,feature] of features.entries()){
   const spec=feature.spec;
-  if(feature.kind!=='cadop'||spec?.type!=='printSupport'||spec.style!=='walls'||spec.batch!==true){
+  if(feature.kind!=='cadop'||spec?.type!=='printSupport'||spec.style!=='walls'){
    legacy=null;continue;
   }
-  if(spec.batchGroup)legacy=null;
+  if(spec.batch!==true||spec.batchGroup)legacy=null;
   else if(!legacy||legacy.layerHeight!==spec.layerHeight)legacy={key:'legacy-'+feature.id,layerHeight:spec.layerHeight};
-  const key=spec.batchGroup||legacy.key;
   if(!visible.has(spec.id||feature.id)||feature.analysis?.printSupport?.complete===false||feature.analysis?.supportExport?.complete===false)continue;
+  eligible.push({id:feature.id,index});
+  if(spec.batch!==true)continue;
+  const key=spec.batchGroup||legacy.key;
   if(!groups.has(key))groups.set(key,{ids:[],index});
   groups.get(key).ids.push(feature.id);
  }
- return [...groups.values()];
+ const rows=[...groups.values()];
+ if(eligible.length>1&&eligible.length<=100&&!rows.some(row=>row.ids.length===eligible.length)){
+  rows.push({ids:eligible.map(row=>row.id),index:eligible[0].index,all:true});
+ }
+ return rows;
 }
 export function createPrintSupportExportChoice({getFeatures,getBodyIds,bodyName}){
  const dialog=document.createElement('dialog');dialog.id='print-support-export-choice';dialog.style.cssText='width:460px;max-width:calc(100vw - 56px);padding:22px;border:1px solid #83a8b9;border-radius:12px;background:#f5fbff;color:#193a50;box-shadow:0 8px 28px #152c4940';
@@ -29,7 +35,8 @@ export function createPrintSupportExportChoice({getFeatures,getBodyIds,bodyName}
   const row=rows[Number(q('target').value)||0];
   q('support').textContent=row?.ids?'現在の配置で一括3MF出力':'3MF出力画面へ';
   q('later').hidden=!row?.ids&&!row?.later;
-  q('later').textContent=row?.ids?'本体・土台・リブをまとめて移動した場合は、現在の位置に除外範囲も合わせて出力します。':
+  q('later').textContent=row?.all?'本体・土台・リブと自動サポートの除外範囲を、現在の配置で１つの3MFにまとめます。':
+   row?.ids?'本体・土台・リブをまとめて移動した場合は、現在の位置に除外範囲も合わせて出力します。':
    row?.later?'この後にも加工工程があります。3MF画面は、この連結リブサポートの工程時点の形状です。後の加工は含まれません。':'';
  }
  function monitor(){if(!resolve)return;if(getFeatures()!==original||JSON.stringify(getBodyIds())!==visibility){finish('cancel');return;}frame=requestAnimationFrame(monitor);}
@@ -40,7 +47,9 @@ export function createPrintSupportExportChoice({getFeatures,getBodyIds,bodyName}
   rows=[...printSupportExportCandidates(original,ids),...groups];
   if(!rows.length)return Promise.resolve({kind:'stl'});
   visibility=JSON.stringify(ids);
-  q('target').replaceChildren(...rows.map((row,i)=>new Option(row.ids?'工程 '+(row.index+1)+' からの一括配置（'+row.ids.length+'ボディ）':'工程 '+(row.index+1)+' ／ '+bodyName(row.feature.spec.target),String(i))));
+  q('target').replaceChildren(...rows.map((row,i)=>new Option(
+   row.all?'表示中のリブサポートをまとめる（'+row.ids.length+'件）':
+   row.ids?'工程 '+(row.index+1)+' からの一括配置（'+row.ids.length+'ボディ）':'工程 '+(row.index+1)+' ／ '+bodyName(row.feature.spec.target),String(i))));
   q('target').value=String(rows.length-1);q('target-label').hidden=rows.length<2;selected();dialog.showModal();q('support').focus();
   return new Promise(done=>{resolve=done;frame=requestAnimationFrame(monitor);});
  }};
