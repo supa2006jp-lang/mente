@@ -1,6 +1,5 @@
 import * as R from 'replicad';
 import {MODEL_PRECISION} from './model-precision.js';
-import {cadMesh} from './cad-mesh.js';
 import {solidMeshComplete} from './solid-mesh.js';
 
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
@@ -25,7 +24,7 @@ export function finalizeUnion(shape,{onProgress}={}){
    upgrader.SetSafeInputMode(true);upgrader.SetLinearTolerance(MODEL_PRECISION.topology);upgrader.SetAngularTolerance(MODEL_PRECISION.angular);upgrader.Build();result=R.cast(upgrader.Shape()).asShape3D();
    if(!valid(result))continue;
    const after=metrics(result);
-   if((after.faces>=before.faces&&after.edges>=before.edges)||!preserved(before,after)||!solidMeshComplete(result,cadMesh(result)))continue;
+   if((after.faces>=before.faces&&after.edges>=before.edges)||!preserved(before,after)||!solidMeshComplete(result))continue;
    onProgress?.({stage:'結合結果の検査が完了しました',unionResult:{normalized:true,edges,before,after}});
    const output=result;result=null;return output;
   }catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;}
@@ -35,7 +34,7 @@ export function finalizeUnion(shape,{onProgress}={}){
  // after checking its independent CAD and mesh rather than forcing simplification.
  const original=R.deserializeShape(snapshot).asShape3D();let accepted=false;
  try{
-  if(!valid(original)||!solidMeshComplete(original,cadMesh(original)))throw Error('結合した面の接続を確認できませんでした。元のボディは変更していません');
+  if(!valid(original)||!solidMeshComplete(original))throw Error('結合した面の接続を確認できませんでした。元のボディは変更していません');
   onProgress?.({stage:'結合結果の検査が完了しました',unionResult:{normalized:false,before,after:before}});
   accepted=true;return original;
  }finally{if(!accepted)original.delete();}

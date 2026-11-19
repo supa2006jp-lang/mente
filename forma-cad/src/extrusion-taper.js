@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {cadMesh} from './cad-mesh.js';
 import {basisFor,worldPoint} from './frames.js';
 import {validateTaperAngle} from './taper.js';
 import {oneSidedTaper} from './one-sided-taper.js';
@@ -9,7 +10,7 @@ function loftTaper(shape,origin,normal,angle,mode='all'){
  const coordinate=p=>(p[0]-origin[0])*normal.x+(p[1]-origin[1])*normal.y+(p[2]-origin[2])*normal.z;
  const parallel=face=>{const n=face.normalAt();try{return Math.abs(n.x*normal.x+n.y*normal.y+n.z*normal.z)/n.Length>.999999;}finally{n.delete();}};
  const caps=faces.filter(face=>{if(face.geomType!=='PLANE'||!parallel(face))return false;const c=face.center;try{return Math.abs(coordinate(c.toTuple()))<.01;}finally{c.delete();}});
- const vertices=shape.mesh({tolerance:.1,angularTolerance:.2}).vertices;let height=0;for(let i=0;i<vertices.length;i+=3)height=Math.max(height,coordinate(vertices.slice(i,i+3)));
+ const {vertices}=cadMesh(shape,{tolerance:.1,angularTolerance:.2});let height=0;for(let i=0;i<vertices.length;i+=3)height=Math.max(height,coordinate(vertices.slice(i,i+3)));
  const shift=height*Math.tan(angle*Math.PI/180);
  const band=(wire,hole)=>{
   let end,a,b;try{

@@ -1,12 +1,12 @@
 import {cadPosition} from './cad-coordinates.js';
-import {Brush,INTERSECTION} from 'three-bvh-csg';
+import {meshCsgBrush,meshCsgData} from './mesh-csg-data.js';
+import {INTERSECTION} from 'three-bvh-csg';
 import * as THREE from 'three';
 import {evaluator,makeGeometry,volume} from './geometry.js';
 import {basisFor} from './frames.js';
 
 // Reject contact-only candidates before the expensive CSG intersection.
 function rangeAlong(mesh,normal){
- mesh.updateMatrixWorld(true);
  const positions=cadPosition(mesh.geometry),point=new THREE.Vector3();
  let min=Infinity,max=-Infinity;
  for(let i=0;i<positions.count;i++){
@@ -15,6 +15,11 @@ function rangeAlong(mesh,normal){
  }
  return [min,max];
 }
+
+function worldBounds(mesh){
+ mesh.updateWorldMatrix(true,false);
+ return new THREE.Box3().setFromBufferAttribute(cadPosition(mesh.geometry)).applyMatrix4(mesh.matrixWorld);
+}
 function positiveBoxOverlap(a,b){
  return ['x','y','z'].every(axis=>Math.min(a.max[axis],b.max[axis])-Math.max(a.min[axis],b.min[axis])>1e-5);
 }
@@ -22,21 +27,23 @@ function positiveBoxOverlap(a,b){
 // A bounding-box test alone would switch to cut for cavities and nearby parts.
 export function extrusionIntersections(feature,bodies){
  const geometry=makeGeometry({...feature,operation:'new',holesOnly:false,throughAll:false});
- const tool=new Brush(geometry);tool.updateMatrixWorld(true);
- const toolBounds=new THREE.Box3().setFromBufferAttribute(geometry.attributes.position);
- const normal=basisFor(feature).n,[toolMin,toolMax]=rangeAlong(tool,normal);
+ const profile=new THREE.Mesh(geometry);
  const matches=[];
+ let tool;
  try{
+  const toolBounds=worldBounds(profile);
+  const normal=basisFor(feature).n,[toolMin,toolMax]=rangeAlong(profile,normal);
   for(const [id,mesh] of bodies){
-   if(!mesh.visible||!positiveBoxOverlap(toolBounds,new THREE.Box3().setFromObject(mesh)))continue;
+   if(!mesh.visible||!positiveBoxOverlap(toolBounds,worldBounds(mesh)))continue;
    const [bodyMin,bodyMax]=rangeAlong(mesh,normal);
    if(Math.min(toolMax,bodyMax)-Math.max(toolMin,bodyMin)<=1e-4)continue;
-   const target=new Brush(mesh.geometry);target.position.copy(mesh.position);target.quaternion.copy(mesh.quaternion);target.scale.copy(mesh.scale);target.updateMatrixWorld(true);
-   const overlap=evaluator.evaluate(target,tool,INTERSECTION);
-   try{const amount=volume(overlap.geometry);if(amount>1e-5)matches.push({id,volume:amount});}
-   finally{overlap.geometry.dispose();}
+   tool??=meshCsgBrush(meshCsgData(profile));
+   const target=meshCsgBrush(meshCsgData(mesh));
+   let overlap;
+   try{overlap=evaluator.evaluate(target,tool,INTERSECTION);const amount=volume(overlap.geometry);if(amount>1e-5)matches.push({id,volume:amount});}
+   finally{overlap?.geometry.dispose();target.geometry.dispose();target.material.dispose();}
   }
- }finally{geometry.dispose();}
+ }finally{tool?.geometry.dispose();tool?.material.dispose();geometry.dispose();profile.material.dispose();}
  return matches.sort((a,b)=>b.volume-a.volume);
 }
 // Grid profiles deliberately omit CAD-face references so only their clipped

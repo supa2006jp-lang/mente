@@ -1,7 +1,6 @@
 import {MODEL_PRECISION,BOOLEAN_TOLERANCES} from './model-precision.js';
 import * as R from 'replicad';
 import {measurePhase} from './phase-timings.js';
-import {cadMesh} from './cad-mesh.js';
 import {solidMeshComplete} from './solid-mesh.js';
 import {containedUnion} from './solid-contained-union.js';
 import {finalizeUnion} from './solid-union-result.js';
@@ -58,9 +57,7 @@ function fuseBatch(shapes,{onProgress,verifyMesh=false}={}){
    builder.Build();if(builder.HasErrors())continue;result=R.cast(builder.Shape()).asShape3D();
    onProgress?.({stage:'結合したソリッドを検査しています'});
    const check=new oc.BRepCheck_Analyzer(result.wrapped,true,false);let valid;
-   // Compare the native CAD areas against double-precision mesh positions.
-   // Render coordinates can round away the accuracy needed on thin faces.
-   try{const volume=R.measureVolume(result);valid=check.IsValid()&&Number.isFinite(volume)&&volume>=largest-eps&&volume<=sum+eps&&(!verifyMesh||solidMeshComplete(result,cadMesh(result)));}finally{check.delete();}
+   try{const volume=R.measureVolume(result);valid=check.IsValid()&&Number.isFinite(volume)&&volume>=largest-eps&&volume<=sum+eps&&(!verifyMesh||solidMeshComplete(result));}finally{check.delete();}
    if(valid){const parts=result.solids;let count;try{count=parts.length;}finally{parts.forEach(part=>part.delete());}if(count<bestCount){best?.delete();best=result;bestCount=count;result=null;}if(count===1){const output=best;best=null;return output;}}
   }catch{}finally{result?.delete();builder.delete();argumentsList.delete();toolsList.delete();if(snapshots)inputs.forEach(s=>s.delete());}
  }

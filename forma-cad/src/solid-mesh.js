@@ -1,6 +1,9 @@
 import * as R from 'replicad';
+import {cadMesh} from './cad-mesh.js';
+
 // A valid BREP can still have missing or overlapping triangles after a boolean.
-export function solidMeshComplete(shape,mesh=shape.mesh({tolerance:.08,angularTolerance:.15})){
+// Compare against exact CAD areas and volumes using native mesh positions.
+export function solidMeshComplete(shape,mesh=cadMesh(shape)){
  const areas=new Map(),v=mesh.vertices,t=mesh.triangles;
  for(const group of mesh.faceGroups){
   let area=0;
@@ -21,9 +24,16 @@ export function solidMeshComplete(shape,mesh=shape.mesh({tolerance:.08,angularTo
    if(straight){const expected=R.measureArea(face);if(Math.abs(area-expected)>Math.max(.001,expected*1e-5))return false;}
   }
   if(polyhedral){
-   let signed=0;
-   for(let i=0;i<t.length;i+=3){const a=t[i]*3,b=t[i+1]*3,c=t[i+2]*3;signed+=(v[a]*(v[b+1]*v[c+2]-v[b+2]*v[c+1])+v[a+1]*(v[b+2]*v[c]-v[b]*v[c+2])+v[a+2]*(v[b]*v[c+1]-v[b+1]*v[c]))/6;}
-   const expected=Math.abs(R.measureVolume(shape));if(Math.abs(Math.abs(signed)-expected)>Math.max(.001,expected*1e-5))return false;
+   // Measure relative to the mesh so large world coordinates do not dominate
+   // the small differences between vertices on a thin face.
+   const [ox,oy,oz]=v;
+   let sixVolume=0;
+   for(let i=0;i<t.length;i+=3){
+    const a=t[i]*3,b=t[i+1]*3,c=t[i+2]*3,ax=v[a],ay=v[a+1],az=v[a+2];
+    const ux=v[b]-ax,uy=v[b+1]-ay,uz=v[b+2]-az,vx=v[c]-ax,vy=v[c+1]-ay,vz=v[c+2]-az;
+    sixVolume+=(ax-ox)*(uy*vz-uz*vy)+(ay-oy)*(uz*vx-ux*vz)+(az-oz)*(ux*vy-uy*vx);
+   }
+   const expected=Math.abs(R.measureVolume(shape));if(Math.abs(Math.abs(sixVolume/6)-expected)>Math.max(.001,expected*1e-5))return false;
   }
   return true;
  }finally{for(const face of faces)face.delete();}
