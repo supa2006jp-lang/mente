@@ -57,7 +57,7 @@ function projectAnnotation(item,transform){
 }
 
 // A section keeps its view ID. On reversal its camera mirrors one sheet coordinate.
-export function followSectionEdit(previous,current,before,after,{dimensions,details,markers,leaders}){
+export function followSectionEdit(previous,current,before,after,{dimensions,details,markers,leaders,dimensionPoints=[]}){
  const axis=drawingProjections[before.view][before.orientation==='vertical'?'horizontal':'vertical'];
  const mirror=before.reverse===after.reverse?-1:axis[2]?1:0;
  const transform=p=>p.map((v,i)=>i===mirror?-v:v);
@@ -78,7 +78,7 @@ export function followSectionEdit(previous,current,before,after,{dimensions,deta
   if(!affected.has(original.view))return original;
   const d=projectAnnotation(original,transform),edge=edges.get(d.view);
   delete d.review;
-  if(edge&&d.a&&d.b&&!d.vertex){
+  if(edge&&d.a&&d.b&&!d.vertex&&!d.manualEndpoints?.length){
    let endpoints;
    if(edge.has(d.a,d.b)){
     endpoints=edge.follow(d.a,d.b);
@@ -104,5 +104,6 @@ export function followSectionEdit(previous,current,before,after,{dimensions,deta
   const next=projectAnnotation(note,transform),anchor=edges.get(note.view)?.point(next.anchor);
   return anchor?{...next,anchor,at:offset(next.at,next.anchor,anchor)}:next;
  });
- return {dimensions:nextDimensions,details:nextDetails,markers:nextMarkers,leaders:nextLeaders};
+ const nextPoints=dimensionPoints.map(item=>affected.has(item.view)?{...item,point:transform(item.point)}:item);
+ return {dimensions:nextDimensions,details:nextDetails,markers:nextMarkers,leaders:nextLeaders,dimensionPoints:nextPoints};
 }

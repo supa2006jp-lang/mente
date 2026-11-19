@@ -2,6 +2,7 @@ import {circles,insideView} from './drawing-annotations.js';
 import {drawingCurves} from './drawing-curves.js';
 import {dimensionValue,pathEndpoints} from './drawing-dimensions.js';
 import {drawingProjectedFrame,drawingProjections} from './drawing-view-preferences.js';
+import {drawingDimensionPointFits} from './drawing-dimension-points.js';
 
 const epsilon=1e-4;
 export const drawingReferenceCircleLimit=256;
@@ -151,7 +152,10 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
    else if(d.feature==='pitch')updated=followPitch(d,context(d.view,view,reference),reference);
    else if(d.automatic&&d.feature!=='profile-edge')updated=followLocation(d,context(d.view,view,reference),reference,box);
    else{
-    const shape=context(d.view,view,reference),a=followPoint(d.a,shape,reference,box),b=followPoint(d.b,shape,reference,box);
+    const shape=context(d.view,view,reference);
+    const endpoint=key=>d.manualEndpoints?.includes(key)?
+     (drawingDimensionPointFits(view,d[key])?d[key]:null):followPoint(d[key],shape,reference,box);
+    const a=endpoint('a'),b=endpoint('b');
     if(a&&b)updated={...d,a,b,at:translate(d.at,midpoint(d.a,d.b),midpoint(a,b))};
    }
   }

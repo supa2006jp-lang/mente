@@ -8,6 +8,7 @@ import {validDrawingPrintPalette} from './drawing-print-palette.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
 import {holeReferenceLimit} from './drawing-hole-references.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
+import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -77,6 +78,15 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  const sections=o.sections||[],details=o.details||[],markers=o.markers||[];if(!Array.isArray(sections)||sections.length>8||!Array.isArray(details)||details.length>8||!Array.isArray(markers)||markers.length>200)fail();
  const viewNames=new Set(drawingProjectionNames),ids=new Set();for(const section of sections){if(!extraId(section.id)||!section.id.startsWith('section-')||ids.has(section.id)||!viewNames.has(section.view)||!['vertical','horizontal'].includes(section.orientation)||!Number.isFinite(section.coordinate)||Math.abs(section.coordinate)>1e6||typeof section.reverse!=='boolean')fail();ids.add(section.id);}
  for(const id of ids)viewNames.add(id);for(const detail of details){if(!extraId(detail.id)||!detail.id.startsWith('detail-')||ids.has(detail.id)||!viewNames.has(detail.view)||!point(detail.center)||!Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||![2,4,10].includes(detail.factor))fail();ids.add(detail.id);}for(const id of ids)viewNames.add(id);
+ if(s.dimensionPoints!==undefined){
+  if(!Array.isArray(s.dimensionPoints)||s.dimensionPoints.length>maxDrawingDimensionPoints)fail();
+  const pointIds=new Set();
+  for(const item of s.dimensionPoints){
+   if(!item||typeof item.id!=='string'||!/^dimension-point-[a-zA-Z0-9-]{1,60}$/.test(item.id)||
+    pointIds.has(item.id)||!viewNames.has(item.view)||!point(item.point))fail();
+   pointIds.add(item.id);
+  }
+ }
  if(o.viewScales!==undefined){
   if(!o.viewScales||typeof o.viewScales!=='object'||Array.isArray(o.viewScales)||
    Object.entries(o.viewScales).some(([id,scale])=>id!=='iso'&&!viewNames.has(id)||!Number.isFinite(scale)||scale<.0001||scale>1000))fail();
@@ -118,6 +128,9 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
   if(d.hidden!==undefined&&typeof d.hidden!=='boolean')fail();
+  if(d.manualEndpoints!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||!Array.isArray(d.manualEndpoints)||
+   !d.manualEndpoints.length||d.manualEndpoints.length>2||new Set(d.manualEndpoints).size!==d.manualEndpoints.length||
+   d.manualEndpoints.some(key=>key!=='a'&&key!=='b')))fail();
   if(d.alongOffset!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||
    !Number.isFinite(d.alongOffset)||Math.abs(d.alongOffset)>1e6))fail();
   if(d.arcPoint!==undefined&&(d.kind!=='radius'||!point(d.arcPoint)))fail();
