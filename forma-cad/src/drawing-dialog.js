@@ -25,7 +25,8 @@ import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.
 import {drawingHoleCandidates,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {followSectionEdit} from './drawing-section-references.js';
 import {autoDimensionKeys,autoDimensionTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
-import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
+import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
+import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from './drawing-dimension-references.js';
 import {drawingDimensionPointFits,maxDrawingDimensionPoints,snapDrawingDimensionPoint} from './drawing-dimension-points.js';
@@ -1674,7 +1675,25 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   return best;
  }
- $('drawing-preview').onclick=e=>{if(!sheet||drag||busy)return;if(action){actionClick(e);return;}if(!picking){const note=e.target.closest('[data-leader]');if(note){selection={type:'leader',id:note.dataset.leader};editor();return;}const marker=e.target.closest('[data-marker]');if(marker){selection={type:'marker',id:marker.dataset.marker};editor();return;}const extra=e.target.closest('[data-section],[data-detail]');if(extra){extraTarget=extra.dataset.section||extra.dataset.detail;extraControls();return;}const el=e.target.closest('[data-dimension],[data-comment]');selection=el?.hasAttribute('data-dimension')?{type:'dimension',index:Number(el.dataset.dimension)}:el?{type:'comment',id:el.dataset.comment==='true'?'comment':el.dataset.comment}:null;if(selection?.type==='comment')selectDrawingComment(selection.id);editor();return;}try{if(picking.ready){if(dimensions.length>=500&&picking.replace===undefined)throw Error('寸法は500個まで追加できます');const p=paperPoint(e),at=local(picking.view,p),snapped=$('drawing-snap').checked&&!e.altKey?snapDimension(picking,at,dimensions,sheet.layout[picking.view].scale,picking.replace):{at},d={...picking,at:snapped.at};delete d.ready;delete d.firstLine;delete d.replace;const refreshed=applyDimensionFont(d);if(picking.replace===undefined)dimensions.push(refreshed);else{const old=dimensions[picking.replace];for(const key of ['precision','displayValue','fontSize','note','tolerance','lineColor','textColor','pinned','alongOffset'])if(old[key]!==undefined)refreshed[key]=old[key];dimensions[picking.replace]=refreshed;selection={type:'dimension',index:picking.replace};}cancelPick();return;}
+ const noClearDimensionPosition='付近に図形の線を隠さずに寸法を置ける場所がありません。位置を変えてください';
+ function placePickedDrawingDimension(e){
+  const {ready,firstLine,replace,...draft}=picking;
+  if(dimensions.length>=500&&replace===undefined)throw Error('寸法は500個まで追加できます');
+  const at=local(draft.view,paperPoint(e)),d=applyDimensionFont({...draft,at}),old=dimensions[replace];
+  if(old)for(const key of ['precision','displayValue','fontSize','note','tolerance','lineColor','textColor','pinned','alongOffset']){
+   if(old[key]!==undefined)d[key]=old[key];
+  }
+  const scale=sheet.layout[d.view].scale;
+  const snap=$('drawing-snap').checked&&!e.altKey?snapDimension(d,at,dimensions,scale,replace):{at};
+  const hitsLinework=drawingLineworkTest(viewportHost.querySelector('svg'),sheet);
+  const placed=keepDrawingDimensionClear(d,sheet,hitsLinework,snap.at);
+  if(!placed)throw Error(noClearDimensionPosition);
+  if(replace===undefined)dimensions.push(placed);
+  else{dimensions[replace]=placed;selection={type:'dimension',index:replace};}
+  cancelPick();
+  if(placed.at!==snap.at)status('図形の線を隠さない近くの位置に寸法を配置しました');
+ }
+ $('drawing-preview').onclick=e=>{if(!sheet||drag||busy)return;if(action){actionClick(e);return;}if(!picking){const note=e.target.closest('[data-leader]');if(note){selection={type:'leader',id:note.dataset.leader};editor();return;}const marker=e.target.closest('[data-marker]');if(marker){selection={type:'marker',id:marker.dataset.marker};editor();return;}const extra=e.target.closest('[data-section],[data-detail]');if(extra){extraTarget=extra.dataset.section||extra.dataset.detail;extraControls();return;}const el=e.target.closest('[data-dimension],[data-comment]');selection=el?.hasAttribute('data-dimension')?{type:'dimension',index:Number(el.dataset.dimension)}:el?{type:'comment',id:el.dataset.comment==='true'?'comment':el.dataset.comment}:null;if(selection?.type==='comment')selectDrawingComment(selection.id);editor();return;}try{if(picking.ready){placePickedDrawingDimension(e);return;}
  if(['radius','diameter'].includes(picking.kind)){const hit=nearest(e,'arc');if(!hit)throw Error('円・円弧に近い位置をクリックしてください（楕円は対象外）');picking={...picking,view:hit.name,center:hit.arc.center,radius:hit.arc.radius,ready:true};}
  else if(picking.kind==='angle'){const hit=nearest(e,'line');if(!hit)throw Error('直線に近い位置をクリックしてください');if(!picking.firstLine){picking.view=hit.name;picking.firstLine=hit.line;status('２本目の直線を選択してください');return;}Object.assign(picking,angleDimension(picking.firstLine,hit.line),{ready:true});}
  else{
@@ -1703,7 +1722,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   else d.alongOffset=state.alongOffset;
  }
  function moveDrawingDimension(state,dx,dy,event){
-  const d=dimensions[state.index],scale=sheet.layout[d.view].scale,start=map(d.view,state.origin);
+  const d={...dimensions[state.index]},scale=sheet.layout[d.view].scale,start=map(d.view,state.origin);
   if(state.direction){
    const [x,y]=state.direction,parallel=dx*x+dy*y;
    const offset=(state.alongOffset??0)+(!event.shiftKey&&Math.abs(parallel)>.35?parallel/scale:0);
@@ -1711,11 +1730,15 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    else delete d.alongOffset;
    dx-=parallel*x;dy-=parallel*y;
   }
-  const at=local(d.view,[start[0]+dx,start[1]+dy]);
-  const snap=$('drawing-snap').checked&&!event.altKey?snapDimension(d,at,dimensions,scale,state.index):{at};
-  d.at=snap.at;
+  d.at=local(d.view,[start[0]+dx,start[1]+dy]);
+  const snap=$('drawing-snap').checked&&!event.altKey?snapDimension(d,d.at,dimensions,scale,state.index):{at:d.at};
+  state.hitsLinework??=drawingLineworkTest(viewportHost.querySelector('svg'),sheet);
+  const placed=keepDrawingDimensionClear(d,sheet,state.hitsLinework,snap.at);
+  if(!placed){status(noClearDimensionPosition);return;}
+  dimensions[state.index]=placed;
   render(false);
-  if(snap.match)status('寸法線の位置に吸着中（Altで解除）');
+  if(placed.at!==snap.at)status('図形の線を隠さない近くの位置に調整中');
+  else if(snap.match)status('寸法線の位置に吸着中（Altで解除）');
  }
  function beginCommentDrag(value){
   const name=value==='true'?'comment':value,note=sheet.notes.find(note=>note.id===name);

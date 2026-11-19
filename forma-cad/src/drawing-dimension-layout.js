@@ -149,6 +149,45 @@ function radiusCandidates(d,v){
 const longRadiusLeader=(d,v)=>d.kind==='radius'&&radiusLeaderLength(d,v)>Math.max(8,dimensionLabelWidth(dimensionLabel(d),d.fontSize??3.2)/2+4)+12.001;
 const insidePaper=(box,sheet)=>box.x>=5&&box.y>=18&&box.x+box.width<=sheet.width-5&&box.y+box.height<=sheet.contentBottom-1;
 
+const labelDirections=Array.from({length:16},(_,i)=>[Math.cos(i*Math.PI/8),Math.sin(i*Math.PI/8)]);
+
+export function keepDrawingDimensionClear(d,sheet,hitsLinework,snappedAt=d.at){
+ const snapped=snappedAt===d.at?d:{...d,at:snappedAt};
+ const snappedPlacement=dimensionPlacement(snapped,sheet);
+ if(!snappedPlacement||!hitsLinework(snappedPlacement.box))return snapped;
+ const {box}=snapped===d?snappedPlacement:dimensionPlacement(d,sheet);
+ if(snapped!==d&&!hitsLinework(box))return d;
+
+ const view=sheet.layout[d.view],geometry=drawingDimensionGeometry(d,view);
+ const origin=geometry.arc?geometry.at:map(view,d.at),obstacles=dimensionObstacles(sheet);
+ let directions=labelDirections;
+ if(geometry.direction||geometry.arc){
+  let normal;
+  if(geometry.arc){
+   const {center,radius}=geometry.arc;
+   normal=geometry.at.map((value,i)=>(value-center[i])/radius);
+  }else{
+   const [x,y]=geometry.direction;
+   normal=[-y,x];
+   const outward=[geometry.at[0]-view.x-view.width/2,geometry.at[1]-view.y-view.height/2];
+   if(outward[0]*normal[0]+outward[1]*normal[1]<0)normal=normal.map(n=>-n);
+  }
+  directions=[normal,normal.map(n=>-n)];
+ }
+ // Search in paper millimeters, so zoom and model scale don't change the clearance.
+ const limit=Math.max(24,box.height*2);
+ for(let distance=.25;distance<=limit;distance+=.25){
+  for(const [index,[x,y]] of directions.entries()){
+   if(geometry.arc&&index===1&&geometry.arc.radius-distance<4)continue;
+   const dx=x*distance,dy=y*distance,candidate={...box,x:box.x+dx,y:box.y+dy};
+   if(insidePaper(candidate,sheet)&&!obstacles.some(({box})=>overlaps(box,candidate,.15))&&!hitsLinework(candidate)){
+    return {...d,at:local(view,[origin[0]+dx,origin[1]+dy])};
+   }
+  }
+ }
+ return null;
+}
+
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
 export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false}={}){

@@ -58,6 +58,22 @@ try{
   },at);
  }
  async function clickAt(at){await page.mouse.click(...await screen(at));}
+ async function labelBoxInFront(){
+  return preview.locator('[data-dimension] rect').evaluate(rect=>{
+   const front=rect.ownerSVGElement.querySelector('[data-view="front"] > g[transform]');
+   const matrix=front.getScreenCTM().inverse().multiply(rect.getScreenCTM());
+   const box=rect.getBBox(),top=new DOMPoint(box.x,box.y).matrixTransform(matrix);
+   const bottom=new DOMPoint(box.x+box.width,box.y+box.height).matrixTransform(matrix);
+   return {x:(top.x+bottom.x)/2,y:top.y+(bottom.y-top.y)*.75/1.45,top:top.y,bottom:bottom.y};
+  });
+ }
+ async function dragLabelTo(y){
+  const start=await labelBoxInFront();
+  await page.mouse.move(...await screen([start.x,start.y]));
+  await page.mouse.down();
+  await page.mouse.move(...await screen([start.x,y]),{steps:5});
+  await page.mouse.up();
+ }
  async function download(button){
   const [event]=await Promise.all([page.waitForEvent('download'),button.click()]);
   return readFile(await event.path(),'utf8');
@@ -85,7 +101,24 @@ try{
  assert.deepEqual(await points(),[[8,-3],[30,-3]]);
  await field('dimension-add').click();
  assert.equal(await guides.count(),0);
- await frontManual.first().click();await frontManual.last().click();await clickAt([20,7]);
+ await frontManual.first().click();await frontManual.last().click();await clickAt([20,.5]);
+ assert.deepEqual(await label.allTextContents(),['22']);
+ const nearOutline=await labelBoxInFront();
+ assert.ok(nearOutline.top>.15&&nearOutline.top<.85,JSON.stringify(nearOutline));
+ await dragLabelTo(-3);
+ const nearHiddenLine=await labelBoxInFront();
+ assert.ok(nearHiddenLine.bottom<-3.1&&nearHiddenLine.bottom>-3.95,JSON.stringify(nearHiddenLine));
+ await field('undo').click();
+ assert.deepEqual(await labelBoxInFront(),nearOutline);
+ await field('redo').click();
+ assert.deepEqual(await labelBoxInFront(),nearHiddenLine);
+ await field('hidden').uncheck();
+ await dragLabelTo(-3);
+ const overHiddenLine=await labelBoxInFront();
+ assert.ok(Math.abs(overHiddenLine.y+3)<.35,JSON.stringify(overHiddenLine));
+ await field('hidden').check();
+ await dragLabelTo(7);
+ assert.ok(Math.abs((await labelBoxInFront()).y-7)<.35);
  assert.deepEqual(await label.allTextContents(),['22']);
  await field('scale').selectOption('0.5');
  assert.deepEqual(await label.allTextContents(),['22']);
@@ -149,7 +182,7 @@ try{
  assert.equal(await manual.count(),3);
  assert.deepEqual(await label.allTextContents(),['20']);
  assert.deepEqual(errors,[]);
- console.log('PASS manual dimension points, axis guides, hidden-edge snapping, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
+ console.log('PASS manual dimension points, axis guides, hidden-edge snapping, clearance from drawn edges, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
