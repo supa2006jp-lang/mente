@@ -106,10 +106,26 @@ try{
  await direct.waitFor();
  await page.waitForFunction(()=>document.querySelector('#print-support-dialog [data-id="export-state"]').dataset.state==='ready');
  assert.match(await direct.textContent(),/（2件）/,'the editing preview can hide a saved mesh without excluding it');
- const otherRibVisibility=page.locator('#bodies [data-body-id="ribs-b"] .eye');
- await otherRibVisibility.click();
+ const previewedRibVisibility=page.locator('#bodies [data-body-id="ribs-a"] .eye');
+ assert.equal(await previewedRibVisibility.getAttribute('aria-pressed'),'true');
+ await previewedRibVisibility.click();
+ assert.equal(await previewedRibVisibility.getAttribute('aria-pressed'),'false');
+ const includeHidden=field('saved-export-include-hidden');
+ assert.equal(await includeHidden.isChecked(),true);
+ assert.match(await direct.textContent(),/（2件）/,'an explicitly hidden saved support is included by default');
+ await includeHidden.uncheck();
  assert.match(await direct.textContent(),/（1件）/);
- await otherRibVisibility.click();
+ await includeHidden.check();
+ assert.match(await direct.textContent(),/（2件）/);
+ await field('close').click();
+ await dialog.waitFor({state:'hidden'});
+ await choose.click();
+ await picker.waitFor();
+ assert.equal(await picker.locator('option').count(),1,'closing the preview does not show a hidden mesh again');
+ await picker.getByRole('button',{name:'キャンセル'}).click();
+ await page.locator('#print-support-tool').click();
+ await direct.waitFor();
+ assert.equal(await includeHidden.isChecked(),true);
  assert.match(await direct.textContent(),/（2件）/);
  await field('layerHeight').fill('0.24');
  const [directDownload]=await Promise.all([page.waitForEvent('download'),direct.click()]);
@@ -121,7 +137,7 @@ try{
  assert.equal(await dialog.isVisible(),true);
  if(process.env.FORMA_TEST_3MF)await writeFile(process.env.FORMA_TEST_3MF,bytes);
  assert.deepEqual(errors,[]);
- console.log('PASS both export entries, saved rather than draft geometry, visibility changes during preview, and one 3MF with both bodies, ribs and blockers');
+ console.log('PASS both export entries, saved rather than draft geometry, visibility retained after preview, and one 3MF including a hidden saved support');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

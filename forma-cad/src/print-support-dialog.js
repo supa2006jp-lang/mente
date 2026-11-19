@@ -23,7 +23,7 @@ import {cadPosition} from './cad-coordinates.js';
 import {createSupportFastPreview} from './print-support-fast-preview.js';
 import {cadFaceGroup} from './face-selection.js';
 import {compareBridgeWidths} from './print-support-bridges.js';
-export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,getFace,onStart,apply,applyBatch,notify,fitPreview,download,getSavedExportIds=()=>[],exportSaved,recordFailure=(job,error)=>failureRecord({...job,error})}){
+export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,getFace,onStart,apply,applyBatch,notify,fitPreview,download,getSavedExportIds=()=>[],getBodyVisibility=()=>undefined,exportSaved,recordFailure=(job,error)=>failureRecord({...job,error})}){
  const dialog=document.createElement('dialog');dialog.id='print-support-dialog';dialog.style.cssText='position:fixed;inset:80px 12px auto auto;margin:0;width:355px;max-width:calc(100vw - 48px);max-height:calc(100vh - 135px);overflow:auto;padding:18px;z-index:120;background:#f5fbff;color:#193a50;border:1px solid #83a8b9;border-radius:12px;box-shadow:0 8px 28px #152c4940';
  const fields=[['interfaceLineWidth','上面の接触線の幅',.4,1.5],['interfaceSpacing','上面の線の隙間',.1,1.5],['topContactRimWidth','上面の輪郭の帯の幅',.4,2],['edgeMargin','外周からの余白',.1,2],['lineWidth','印刷の線幅',.2,1],['wallLines','薄壁の線数',1,8],['roofLayers','薄皮の層数',1,6],['roofSectionLength','分割の間隔の目安',10,60],['roofSeamWidth','分割線の幅',.4,1.2],['tieInterval','横つなぎの高さ間隔',8,60],['wallPitch','薄壁の間隔',2,15],['wallThickness','薄壁の厚み',.4,2],['layerHeight','積層ピッチ',.06,.4],['spacing','支柱の間隔の目安',8,100],['footDiameter','足の直径',6,50],['footThickness','足の厚み',.4,3],['postDiameter','支柱の直径',2,12],['tipDiameter','先端の直径',.6,6],['topGap','上面との縦すき間',.05,1.5],['bottomGap','モデル上の接点の縦すき間',.05,1.5],['braceDiameter','斜め補強の直径',1,5],['bedZ','ベッド高さ',-10000,10000],['maxSupports','生成する本数の上限',1,36]];
  fields.push(['bottomSkinLayers','底面の薄皮の層数',1,6],['bottomSectionLength','底面の分割間隔',10,60],['bottomSeamWidth','底面の分割線の幅',.4,1.2]);
@@ -33,9 +33,13 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const style=document.createElement('style');style.textContent='#print-support-dialog label{display:block;color:#193a50;margin:8px 0}#print-support-dialog input:not([type="checkbox"]),#print-support-dialog select{width:100%;box-sizing:border-box}#print-support-dialog .support-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px}#print-support-dialog button{background:#e2f0f7;color:#193a50;border:1px solid #8aaaba;border-radius:6px;padding:8px}#print-support-dialog button.accent{background:#078baa;color:white;border-color:#08778b}#print-support-dialog button:disabled{opacity:.5}#print-support-dialog input[type="checkbox"]{width:auto;display:inline;margin-right:7px}#print-support-dialog .editor-actions{background:transparent;display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}#print-support-dialog [hidden]{display:none!important}#print-support-dialog small{display:block;font-size:12px;line-height:1.5}';dialog.append(style);document.body.append(dialog);const $=id=>dialog.querySelector('[data-id="'+id+'"]');
  const savedExportPanel=document.createElement('div');
  savedExportPanel.hidden=true;savedExportPanel.style.marginTop='8px';
- savedExportPanel.innerHTML='<button type="button" class="accent" data-id="export-saved-3mf"></button><small data-id="saved-export-status" role="status"></small>';
+ savedExportPanel.innerHTML='<button type="button" class="accent" data-id="export-saved-3mf"></button>'+
+  '<label data-id="saved-export-hidden-label" hidden><input type="checkbox" data-id="saved-export-include-hidden" checked><span data-id="saved-export-hidden-text"></span></label>'+
+  '<small data-id="saved-export-pending" hidden>プレビュー中のリブは、作成を確定すると一括出力に加わります。</small>'+
+  '<small data-id="saved-export-status" role="status"></small>';
  dialog.querySelector('form').firstElementChild.after(savedExportPanel);
  const savedExportButton=$('export-saved-3mf'),savedExportStatus=$('saved-export-status');
+ const includeHidden=$('saved-export-include-hidden');
  $('roof-note').before($('roofLayers').closest('label'));$('roofSeams').closest('label').after($('roofSectionLength').closest('label'),$('roofSeamWidth').closest('label'));
  const legend=document.createElement('div');legend.dataset.id='roof-legend';legend.style.cssText='font-size:12px;line-height:1.7;margin:8px 0';$('roof-note').after(legend);
  const printOptions=document.createElement('div');printOptions.dataset.id='rib-options';printOptions.innerHTML='<label><input type="checkbox" data-id="fitLineWidth">線幅×線数で薄壁の厚みを決める</label><small data-id="print-settings-note"></small><label>薄壁を伸ばす向き<select data-id="wallDirection"><option value="auto">自動</option><option value="x">横方向（X）</option><option value="y">縦方向（Y）</option></select></label><button type="button" data-id="rib-rotate">向きを90°切り替える</button><details data-id="rib-selection"><summary>不要なリブを除外する</summary><button type="button" data-id="rib-pick">画面でリブを除外／復帰</button><button type="button" data-id="rib-reset">除外をすべて解除</button><small data-id="rib-status"></small><div data-id="rib-list" style="max-height:160px;overflow:auto"></div><small>赤い半透明のリブは生成しません。除外したリブごとに3MFの自動サポートを設定できます。除外した範囲の上下の薄皮と、支えが足りない上面の薄皮も省きます。</small></details>';$('wallRoof').closest('label').before(printOptions);$('lineWidth').closest('label').before($('fitLineWidth').closest('label'));
@@ -149,21 +153,27 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return entries.length?{entries,history,preview}:null;
  }
  const removal=installSupportRemoval({anchor:material,host,scene,meshes,kernel,bodyName,getState:removalState,onChange:controls});
- function clear(){coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
+ function clear(){coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
  function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;clear();$('apply').disabled=true;return revision;}
  function close(){reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
- const savedExportIds=()=>dialog.open&&original===getFeatures()?getSavedExportIds():[];
+ const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
  function syncSavedExport(){
-  const count=savedExportIds().length;
-  savedExportPanel.hidden=!count;
-  savedExportButton.disabled=busy||picking||removal.active;
-  if(!count)return;
+  const total=savedExportIds(false).length;
+  savedExportPanel.hidden=!total;
+  if(!total)return;
+  const visible=savedExportIds(true).length,hiddenCount=total-visible;
+  const count=includeHidden.checked?total:visible;
+  savedExportButton.disabled=busy||picking||removal.active||!count;
+  $('saved-export-hidden-label').hidden=!hiddenCount;
+  $('saved-export-hidden-text').textContent='非表示のリブも含める（'+hiddenCount+'件）';
+  $('saved-export-pending').hidden=!!editing||!(batching()?batchExportCount():cached?.result.supportPreview?.exportStatus?.ok);
   const label='設定済みのリブと本体を一括3MF出力（'+count+'件）';
   if(savedExportButton.textContent!==label)savedExportButton.textContent=label;
  }
+ includeHidden.onchange=()=>{savedExportStatus.textContent='';syncSavedExport();};
  savedExportButton.onclick=async()=>{
   if(busy||picking||removal.active)return;
-  const ids=savedExportIds();
+  const ids=savedExportIds(!includeHidden.checked);
   if(!ids.length)return;
   const snapshot=original,request=revision;
   const current=()=>dialog.open&&request===revision&&getFeatures()===snapshot;
@@ -575,6 +585,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(dialog.open)return;faceView.endPick();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;});
  dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
  function open(target=null,feature=null,selection=null,restored=null,initialTargets=[]){
+  includeHidden.checked=true;
   savedExportStatus.textContent='';
   reinforcementComparison=null;comparisonPanel.hidden=true;
   onStart();original=getFeatures();editing=feature;const index=feature?original.findIndex(f=>f.id===feature.id):-1;if(feature&&index<0)return;history=feature?original.slice(0,index):original;
