@@ -517,7 +517,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    });
    contourLines.set(index,lines);
    if(!row.editable)continue;
-   const state=row.suppressedReason==='bore'?'（小さな丸穴を省略）':row.suppressed?'（外側の小片を省略）':Object.keys(row.override).length?'（個別設定）':'';
+   const state=row.suppressedReason==='thread'?'（ねじ穴の入口を省略）':row.suppressedReason==='bore'?'（小さな丸穴を省略）':row.suppressed?'（外側の小片を省略）':Object.keys(row.override).length?'（個別設定）':'';
    select.add(new Option(title+state,String(index)));
    const marker=document.createElement('button');marker.type='button';marker.textContent=String(index+1);
    marker.dataset.supportCoverageMarker=String(index+1);marker.title=title;

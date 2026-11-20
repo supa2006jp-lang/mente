@@ -19,7 +19,12 @@ export function indexedPrintSupportMesh(mesh){
   colors?.push(mesh.colors[i/3]);
   for(const [x,y]of [[a,b],[b,c],[c,a]]){const key=Math.min(x,y)+','+Math.max(x,y);let edge=edges.get(key);if(!edge){edge={count:0,sign:0};edges.set(key,edge);}edge.count++;edge.sign+=x<y?1:-1;}
  }
- if(!triangles.length||[...edges.values()].some(e=>e.count!==2||e.sign!==0))throw Error('3MFの面の接続に問題があるため出力を中止しました。形状を確認してください');
+ const irregular=[...edges.values()].filter(edge=>edge.count!==2||edge.sign!==0);
+ if(!triangles.length||irregular.length){
+  const error=Error('3MFの面の接続に問題があるため出力を中止しました。形状を確認してください');
+  if(irregular.length&&irregular.every(edge=>edge.count>2&&edge.sign===0))error.code='coincident-support-edges';
+  throw error;
+ }
  const audit=inspectStlMesh({vertices,triangles});
  if(!audit.ok||audit.removedDegenerate)throw Error('3MFの形状をスライサーの精度で確認できません。形状を確認してください');
  return {vertices,triangles,...(colors?{colors}:{})};

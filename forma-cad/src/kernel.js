@@ -75,6 +75,7 @@ import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {cadMesh} from './cad-mesh.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
+import {createPrintSupportCache} from './print-support-cache.js';
 import {savedSupportPackage} from './print-support-saved-export.js';
 import {inspectPrintSupportPackage} from './print-support-preflight.js';
 import {inspectSupportRemoval} from './print-support-removal.js';
@@ -289,7 +290,21 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
  if(f.mode==='thin'){const shapes=thinShapes(f.skipHoleWalls?{...r,holes:[]}:r,f.wall,f.side).map(s=>{const ps=s.extractPoints();return extrudeProfile({...r,outer:ps.shape.map(p=>[p.x,p.y]),holes:ps.holes.map(h=>h.map(p=>[p.x,p.y]))},f.depth);});return R.makeCompound(shapes).asShape3D();}return extrudeProfile(r,f.depth);
 }
 const bodyTokens=new WeakMap();
-let printSupportPreviewCache=null;
+const printSupportPreviewCache=createPrintSupportCache(24_000_000,4);
+const printSupportBodyMeshes=createPrintSupportCache(12_000_000,6);
+
+function printSupportBodyMesh(shape){
+ const token=bodyTokens.get(shape),cached=token&&printSupportBodyMeshes.get(token);
+ if(cached)return structuredClone(cached);
+ const render=cadMesh(shape),output=printSupportExportMesh(shape,{meshShape:()=>render});
+ const meshes={render,output};
+ if(token){
+  const meshSize=mesh=>8*(mesh.vertices.length+mesh.triangles.length+(mesh.normals?.length||0)+4*(mesh.faceGroups?.length||0));
+  const size=meshSize(render)+(output===render?0:meshSize(output));
+  if(size<=12_000_000)printSupportBodyMeshes.set(token,structuredClone(meshes),size);
+ }
+ return meshes;
+}
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  f=nativeSketchFeature(f,features);
  if(!f.untilSolid&&!thinSourceFillEnabled(f))return extrusionToolNative(f,bodies,contactInfo,features,onProgress);
@@ -507,7 +522,7 @@ function computeOperation(features,spec,onProgress,context={}){
   const bodies=kernelBodies(features);
   try{
    return savedSupportPackage(features,spec.ids,bodies,(prefix,settings)=>
-    runOperation(prefix,{...settings,preview:false,saveSupportExport:true},onProgress).analysis.supportExport,onProgress);
+    runOperation(prefix,{...settings,preview:false,saveSupportExport:true},onProgress),onProgress);
   }finally{for(const body of bodies.values())body.delete();}
  }
  if(spec.type==='printSupportFaces'){
@@ -631,9 +646,10 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    [...bodies].map(([id,shape])=>[id,bodyTokens.get(shape)]),
    Object.entries(validatePrintSupport(p)).sort(([a],[b])=>a.localeCompare(b)),
   ]):null;
-  if(previewKey&&printSupportPreviewCache?.key===previewKey){
+  const cachedPreview=previewKey&&printSupportPreviewCache.get(previewKey);
+  if(cachedPreview){
    onProgress?.({stage:'検査済みのリブプレビューを再利用しています'});
-   return structuredClone(printSupportPreviewCache.result);
+   return structuredClone(cachedPreview);
   }
   const previousSupports=new Set(p.batch===true?features.filter(f=>f.spec?.type==='printSupport').flatMap(f=>f.outputs.map(o=>o.id)):[]);
   previousSupports.delete(p.target);
@@ -659,15 +675,19 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    if(p.batch===true||p.saveSupportExport===true)analysis.supportExport={
     complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,baseBodyIds:made.analysis.baseBodyIds,blockers,autoSupportFaces};
    if(!p.preview)return {outputs,remove,analysis};
-   const targetMesh=cadMesh(bodies.get(p.target));
+   const targetBody=bodies.get(p.target),targetMeshes=blockers.length?printSupportBodyMesh(targetBody):null;
+   const targetMesh=targetMeshes?.render??cadMesh(targetBody);
    const supportPackage=blockers.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,
-    bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id),{meshShape:id===p.target?()=>targetMesh:undefined})}))
+    bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...(id===p.target?targetMeshes.output:printSupportBodyMesh(bodies.get(id)).output)}))
      .concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape,{meshShape:supportMesh?()=>supportMesh:undefined})}]:[]),
     blockers,...(autoSupportFaces.length?{autoSupportFaces}:{})}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
    if(analysis.supportExport)analysis.supportExport.complete=exportStatus.ok;
    const result={outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...targetMesh},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview,skins:made.skinPreview}:{}),...(made.columnPreview?.length?{columns:made.columnPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),...(made.printRegions?{printRegions:made.printRegions}:{}),...(made.adjustmentHints?.length?{adjustmentHints:made.adjustmentHints}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
-   if(previewKey&&exportStatus.ok)printSupportPreviewCache=JSON.stringify(result).length<=8_000_000?{key:previewKey,result:structuredClone(result)}:null;
+   if(previewKey&&exportStatus.ok){
+    const size=JSON.stringify(result).length;
+    if(size<=8_000_000)printSupportPreviewCache.set(previewKey,structuredClone(result),size);
+   }
    return result;
   }finally{made.shape?.delete();made.blockers?.forEach(s=>s.delete());}
  }

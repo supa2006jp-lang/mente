@@ -4,15 +4,18 @@ import test from 'node:test';
 import * as R from 'replicad';
 import init from 'replicad-opencascadejs';
 import {cadMesh} from '../src/cad-mesh.js';
-import {runOperation} from '../src/kernel.js';
+import {runInternalThreadShape,runOperation} from '../src/kernel.js';
 import {smallSupportBoreFloor,tinyRibAtSupportHole} from '../src/print-support-bores.js';
 import {supportShapeBounds} from '../src/print-support-solid-groups.js';
 import {printSupportNewDefaults} from '../src/print-support-new-defaults.js';
 import {validatePrintSupportPreset} from '../src/print-support-presets.js';
+import {printSupport3mf} from '../src/print-support-3mf.js';
+
+const wasm=new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url);
+const initialize=readFile(wasm).then(wasmBinary=>init({wasmBinary})).then(R.setOC);
 
 async function boreFixture(){
- const wasm=new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url);
- R.setOC(await init({wasmBinary:await readFile(wasm)}));
+ await initialize;
  const owned=[],hold=shape=>(owned.push(shape),shape);
  try{
   const roof=hold(R.makeBox([0,0,40],[64,40,53]));
@@ -79,4 +82,59 @@ test('fragment filtering requires a nearby hole and a footprint narrower than on
  assert(!tinyRibAtSupportHole([[6,8.1,0],[6.8,8.9,20]],holes,settings));
  assert(!tinyRibAtSupportHole([[6,18,0],[6.8,18.3,20]],holes,settings));
  assert.equal(validatePrintSupportPreset({style:'walls',topGap:.3,skipSmallBores:false}).skipSmallBores,false);
+});
+
+test('grooves stay printable when their standard spacing touches a round opening',async()=>{
+ const history=await boreFixture();
+ const spec={...printSupportNewDefaults,type:'printSupport',id:'contact-ribs',target:'model',mode:'auto',preview:true,
+  skipSmallBores:true,skipSmallExterior:true,keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true};
+ const first=runOperation(history,spec),contact=first.analysis.printSupport.contactInterface;
+ assert(first.supportPreview.exportStatus.ok,JSON.stringify(first.supportPreview.exportStatus.issues));
+ assert.equal(contact.upper,1);
+ assert.equal(contact.depth,.3);
+ assert.deepEqual(contact.settings.upper,{enabled:true,width:.6,spacing:.2});
+ assert.equal(contact.grooveOffsets?.length,1);
+ assert(Math.abs(contact.grooveOffsets[0].offset)>.01&&Math.abs(contact.grooveOffsets[0].offset)<.08);
+ assert(printSupport3mf(first.supportPackage).length>1000);
+
+ const next=runOperation(history,{...spec,wallDirection:'y',wallPitch:9});
+ assert(next.supportPreview.exportStatus.ok,JSON.stringify(next.supportPreview.exportStatus.issues));
+ assert.equal(next.analysis.printSupport.ceilingScopeReuse?.reused,1);
+ assert(next.analysis.printSupport.contactInterface.grooveOffsets?.length);
+ assert.notEqual(next.analysis.printSupport.count,first.analysis.printSupport.count);
+ const stages=[];
+ const again=runOperation(history,spec,progress=>stages.push(progress.stage));
+ assert(stages.includes('検査済みのリブプレビューを再利用しています'));
+ assert.deepEqual(again,first);
+});
+
+test('a modeled large threaded opening does not grow ribs from its small entrance face',async()=>{
+ await initialize;
+ const owned=[],hold=shape=>(owned.push(shape),shape);
+ try{
+  const roof=hold(R.makeBox([0,0,26],[46,32,34]));
+  const wall=hold(R.makeBox([0,0,0],[2,32,26]));
+  const tool=hold(R.makeCylinder(7.7,8.2,[22,15,25.9]));
+  const joined=hold(roof.fuse(wall)),body=hold(joined.cut(tool));
+  const history=[{id:'thread-body',kind:'cadop',remove:[],outputs:[{id:'thread-body',brep:body.serialize()}]}];
+  const threaded=hold(runInternalThreadShape(history,{type:'thread',id:'thread',target:'thread-body',profile:'metric60',threadVersion:2,pitch:2,
+   threadFaceOffsets:[-.2,-.2,-.2,0],threadCylinderOffset:-.2,fullLength:true,surfacePoint:[29.7,15,30]}));
+  const features=[{...history[0],outputs:[{id:'thread-body',brep:threaded.serialize()}]}];
+  const output=runOperation(features,{...printSupportNewDefaults,type:'printSupport',id:'thread-ribs',target:'thread-body',mode:'auto',
+   preview:true,skipSmallBores:true,keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true,
+   wallRoof:false,wallTies:false,wallBottomSkin:false,contactLines:false});
+  const {printSupport}=output.analysis;
+  assert.equal(printSupport.omittedThreadFaces,1);
+  assert.equal(printSupport.faceCount,1);
+  assert(output.supportPreview.coverage.some(row=>row.suppressedReason==='thread'));
+  assert(output.supportPackage.blockers.some(({vertices})=>{
+   const coordinates=[0,1,2].map(axis=>vertices.filter((_,i)=>i%3===axis));
+   const low=coordinates.map(values=>Math.min(...values)),high=coordinates.map(values=>Math.max(...values));
+   return Math.abs((low[0]+high[0])/2-22)<.05&&Math.abs((low[1]+high[1])/2-15)<.05&&
+    Math.abs(low[2])<1e-6&&high[2]>26;
+  }),'the clear column below the threaded opening is also excluded from slicer supports');
+  const ribs=hold(R.deserializeShape(output.outputs[0].brep).asShape3D()),probe=hold(R.makeCylinder(7.1,25.5,[22,15,0]));
+  const overlap=hold(ribs.intersect(probe));
+  assert(Math.abs(R.measureVolume(overlap))<1e-6);
+ }finally{owned.reverse().forEach(shape=>shape.delete());}
 });

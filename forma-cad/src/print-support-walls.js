@@ -23,7 +23,8 @@ import {supportFallbackColumns} from './print-support-column-fallback.js';
 import {widerSupportRib} from './print-support-local-rib.js';
 import {fillSupportGaps} from './print-support-gap-fill.js';
 import {fuseSupportSolids,supportBoxesTouch} from './print-support-solid-groups.js';
-import {smallSupportBoreFloor,supportHoleBounds,tinyRibAtSupportHole} from './print-support-bores.js';
+import {smallSupportBoreFloor,supportHoleBounds,supportThreadRunoutPlan,tinyRibAtSupportHole} from './print-support-bores.js';
+import {createPrintSupportCache} from './print-support-cache.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
 function previewSkin(shape,axis,side,records){
@@ -70,7 +71,30 @@ function omitSmallBore(face,box,model){
   return false;
  }
 }
-function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress,getBases}){
+
+function threadOpeningBlocker({center:[x,y,height],radius,top},bodies,bodyBounds,p){
+ const mouthBottom=height-p.topGap-p.layerHeight;
+ let bottom=p.bedZ;
+ // Extend the exclusion through the free space below the hole. If another
+ // part lies in that projection, leave its support region available.
+ const probe=R.makeCylinder(radius,mouthBottom-p.bedZ,[x,y,p.bedZ]);
+ try{
+  const span=bounds(probe);
+  for(const [id,body] of bodies){
+   if(!supportBoxesTouch(span,bodyBounds.get(id)))continue;
+   const occupied=probe.intersect(body);
+   try{if(Math.abs(R.measureVolume(occupied))>.0001)bottom=Math.max(bottom,bounds(occupied)[1][2]+p.layerHeight);}
+   finally{occupied.delete();}
+  }
+ }catch(error){
+  if(error instanceof WebAssembly.RuntimeError)throw error;
+  bottom=mouthBottom;
+ }finally{probe.delete();}
+ bottom=Math.min(bottom,mouthBottom);
+ return R.makeCylinder(radius,top+p.layerHeight-bottom,[x,y,bottom]);
+}
+
+function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress,getBases,threadRunout,scopeCache}){
  const item=p.preview||p.fillGaps?supportCoverageFace(face,p.target,p,override):null;
  if(item){
   item.ceilingId=ceilingId;
@@ -88,14 +112,15 @@ function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skip
  let complete=false;
  try{
   const suppressBores=p.mode==='auto'&&p.skipSmallBores&&!override;
-  if(suppressBores&&omitSmallBore(face,b,model)){
-   if(p.preview||p.saveSupportExport||p.batch===true){
+  const boreReason=threadRunout?'thread':suppressBores&&omitSmallBore(face,b,model)?'bore':null;
+  if(boreReason){
+   if(boreReason==='bore'&&(p.preview||p.saveSupportExport||p.batch===true)){
     const shifted=hold(face.clone().translate([0,0,p.layerHeight]));
     const direction=new R.Vector([0,0,-(p.topGap+2*p.layerHeight)]);
     try{manualBlockers.push(hold(R.basicFaceExtrusion(shifted,direction)));}finally{direction.delete();}
    }
-   part.omittedBore=true;
-   if(coverage){coverage.item.suppressed=true;coverage.item.suppressedReason='bore';}
+   part.omittedBore=boreReason;
+   if(coverage){coverage.item.suppressed=true;coverage.item.suppressedReason=boreReason;}
    complete=true;
    return part;
   }
@@ -129,32 +154,44 @@ function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skip
    }
   }
   const cutouts=[],holes=suppressBores?supportHoleBounds(face):[];
+  const scopeKey=scopeCache?JSON.stringify([ceilingId,p.mode==='face'?p.faces:null,p.edgeMargin,p.topGap,p.bedZ,p.sideGap,
+   p.roofTabs?p.roofTabLength:0,manualZones.map(item=>item.zone)]):null;
   let initialFailure=null,skipGapFill=false;
   for(let attempt=0;attempt<4;attempt++){
    const ownedBeforeFace=owned.length;
-   let profile;
-   try{profile=hold(inset(face,p.edgeMargin));}
-   catch(error){
-    if(!p.fallbackPosts||error.message!=='薄壁の外周のすき間を作れません。柱型を選ぶか対象面を選び直してください')throw error;
-    part.skippedScope=hold(scopedBlocker(face,p,z,[]));break;
+   const key=attempt===0?scopeKey:null;
+   let reusable=key?restoreWallScope(scopeCache,key,hold):null;
+   if(reusable)part.reusedScope=true;
+   else{
+    let profile;
+    try{profile=hold(inset(face,p.edgeMargin));}
+    catch(error){
+     if(!p.fallbackPosts||error.message!=='薄壁の外周のすき間を作れません。柱型を選ぶか対象面を選び直してください')throw error;
+     part.skippedScope=hold(scopedBlocker(face,p,z,[]));break;
+    }
+    const shifted=hold(profile.translate([0,0,-p.topGap])),v=new R.Vector([0,0,p.bedZ-z+p.topGap]);
+    let beforeGap;
+    try{beforeGap=hold(R.basicFaceExtrusion(shifted,v));}finally{v.delete();}
+    for(const tool of zoneTools)beforeGap=hold(beforeGap.cut(tool));
+    for(const {low,high} of cutouts)beforeGap=hold(beforeGap.cut(hold(R.makeBox(low,high))));
+    const originalVolume=R.measureVolume(beforeGap);
+    if(originalVolume<=.001){
+     owned.splice(ownedBeforeFace).forEach(item=>item.delete());
+     if(!initialFailure)break;
+     part.skippedCeiling={height:z,reason:initialFailure.code};
+     clearanceRegions.push(...initialFailure.regions.map(region=>({...region,height:z,partial:false})));
+     part.skippedScope=hold(scopedBlocker(face,p,z,[]));
+     break;
+    }
+    const originalBounds=bounds(beforeGap),trimmed=sideGap?sideGap.trim(beforeGap,hold):beforeGap;
+    const volume=trimmed!==beforeGap?Math.abs(R.measureVolume(trimmed)):null;
+    const gapTrimmed=volume!==null&&Math.abs(originalVolume)-volume>1e-6;
+    reusable={shifted,beforeGap,prism:gapTrimmed?trimmed:beforeGap,originalBounds,volume,gapTrimmed};
+    if(key)saveWallScope(scopeCache,key,reusable);
    }
-   const shifted=hold(profile.translate([0,0,-p.topGap])),v=new R.Vector([0,0,p.bedZ-z+p.topGap]);let prism,blockedRibs=0;try{prism=hold(R.basicFaceExtrusion(shifted,v));}finally{v.delete();}
-   for(const tool of zoneTools)prism=hold(prism.cut(tool));
-   for(const {low,high} of cutouts)prism=hold(prism.cut(hold(R.makeBox(low,high))));
-   if(R.measureVolume(prism)<=.001){
-    owned.splice(ownedBeforeFace).forEach(item=>item.delete());
-    if(!initialFailure)break;
-    part.skippedCeiling={height:z,reason:initialFailure.code};
-    clearanceRegions.push(...initialFailure.regions.map(region=>({...region,height:z,partial:false})));
-    part.skippedScope=hold(scopedBlocker(face,p,z,[]));
-    break;
-   }
+   const {shifted,beforeGap,prism,originalBounds,volume,gapTrimmed}=reusable;
+   let blockedRibs=0;
    const keepThickness=!!sideGap&&p.keepRibThickness===true;
-   const beforeGap=prism,originalBounds=bounds(prism);
-   if(sideGap)prism=sideGap.trim(prism,hold);
-   const volume=prism!==beforeGap?Math.abs(R.measureVolume(prism)):null;
-   const gapTrimmed=volume!==null&&Math.abs(R.measureVolume(beforeGap))-volume>1e-6;
-   if(!gapTrimmed)prism=beforeGap;
    part.sideGapLimited||=gapTrimmed;
    if(gapTrimmed&&volume<=.001){
     part.skippedScope=hold(scopedBlocker(face,p,z,[]));
@@ -170,10 +207,11 @@ function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skip
    const sectionBudget=Math.floor((limits.ribs-extraRibs)/ribsPerSection);
    if(protectWidth&&p.sectionSideGapRibs&&sectionBudget<2)part.ribQuota=limits.ribs;
    const clearCap=protectWidth&&(coverage||p.sectionSideGapRibs&&sectionBudget>=2)?
-    sideGapFootprint(prism,bodies,top):null;
+    cachedWallCap(scopeCache,key,'clear',()=>sideGapFootprint(prism,bodies,top)):null;
    const sections=clearCap&&p.sectionSideGapRibs&&sectionBudget>=2?
-    supportRibSections(supportHorizontalCap(beforeGap,top),
-     [clearCap,...sideGap.sectionLevels(originalBounds,top).map(level=>sideGapFootprint(prism,bodies,level,false)).filter(Boolean)],
+    supportRibSections(cachedWallCap(scopeCache,key,'original',()=>supportHorizontalCap(beforeGap,top)),
+     [clearCap,...cachedWallCap(scopeCache,key,'levels',()=>sideGap.sectionLevels(originalBounds,top)
+      .map(level=>sideGapFootprint(prism,bodies,level,false)).filter(Boolean))],
      axis,p,sectionBudget,required=>{
       if(required>sectionBudget)part.ribQuota=limits.ribs;
       else part.minRibs=Math.max(part.minRibs,required*ribsPerSection+extraRibs);
@@ -460,7 +498,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skip
  }
 }
 
-function prepareWallSupports(bodies,p,onProgress,cache){
+function prepareWallSupports(bodies,p,onProgress,cache,scopeCache){
  const coverageRows=[],trimmedBlockers=new Set(),usedOverrides=new Set(),autoSupportFaces=[],adjustmentHints=[];
  const contactRegions=[],bottomSeams={enabled:!!p.bottomSeams,count:0,skipped:0,sections:0,spacing:p.bottomSectionLength,width:p.bottomSeamWidth};
  const tieIntervals=new Set(),tieAttachments=[],bottomSkins=[],bottomHeights=[],skippedCeilings=[],skippedScopes=[],clearanceRegions=[];
@@ -475,8 +513,8 @@ function prepareWallSupports(bodies,p,onProgress,cache){
  const columns=[],columnBlockers=[];
  let shape,sideGap,selectedFacePreview,firstSkinFailure,columnBases;
  let omitted=0,faceCount=0,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0;
- let omittedExterior=0,omittedRibPieces=0,omittedBoreFaces=0,omittedHoleFragments=0,nonHorizontalFaces=0,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
- let reusedCeilings=0,rebuiltCeilings=0,faceNumber=0;
+ let omittedExterior=0,omittedRibPieces=0,omittedBoreFaces=0,omittedThreadFaces=0,omittedHoleFragments=0,nonHorizontalFaces=0,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
+ let reusedCeilings=0,rebuiltCeilings=0,reusedScopes=0,faceNumber=0;
  const gapFill={ribs:0,columns:0,faces:0};
  const getBases=()=>p.baseMode==='bedOrModel'?(columnBases??=supportBaseSurfaces(bodies)):null;
  let upperEnabled=false,lowerEnabled=false,upperPerFace=false,lowerPerFace=false;
@@ -504,16 +542,24 @@ function prepareWallSupports(bodies,p,onProgress,cache){
  }
  try{
   selectedFacePreview=p.preview&&selection?supportSelectedFaceMeshes(selection):null;
+  const eligible=[];
   for(const [index,face] of faces.entries()){
    const info=faceInfo(face);
    if(!info)continue;
-   const {b,horizontal}=info;
+   const z=info.horizontal?tuple(face.center)[2]:null;
+   eligible.push({face,index,z,...info,override:info.horizontal?matchSupportFaceOverride(face,p.faceOverrides||[],z):null});
+  }
+  const threadHoles=p.mode==='auto'&&p.skipSmallBores?
+   supportThreadRunoutPlan(eligible.filter(row=>row.horizontal),eligible.filter(row=>!row.horizontal)):null;
+  if(exportFaces&&threadHoles)for(const opening of threadHoles.blockers)
+   manualBlockers.push(threadOpeningBlocker(opening,bodies,bodyBounds,p));
+  for(const {face,index,b,horizontal,z,override} of eligible){
    if(!horizontal){
     if(selection)throw Error('薄壁型は水平な平面の下面を選択してください');
-    nonHorizontal(face,b);continue;
+    if(!threadHoles?.internalFaces.has(index))nonHorizontal(face,b);
+    continue;
    }
-   const z=tuple(face.center)[2],supportFace={number:++faceNumber,height:z},ceilingId=p.mode+':'+index;
-   const override=matchSupportFaceOverride(face,p.faceOverrides||[],z);
+   const supportFace={number:++faceNumber,height:z},ceilingId=p.mode+':'+index;
    if(override)usedOverrides.add(override);
    const settings=override?{...p,...override}:p;
    upperEnabled||=settings.wallRoof;
@@ -537,7 +583,9 @@ function prepareWallSupports(bodies,p,onProgress,cache){
      if(p.roofTabs)for(const axis of [0,1]){scope[0][axis]-=p.roofTabLength;scope[1][axis]+=p.roofTabLength;}
      sideGap=createSupportSideGap(bodies,scope,p.sideGap);
     }
-    part=prepareWallCeiling(face,settings,{b,z,bodies,bodyBounds,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress:onProgress,getBases});
+    part=prepareWallCeiling(face,settings,{b,z,bodies,bodyBounds,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress:onProgress,getBases,
+     threadRunout:threadHoles?.runouts.has(index),scopeCache});
+    if(part.reusedScope)reusedScopes++;
    }
    // Blockers are owned separately because trimming replaces their shapes.
    const ownBlockers=new Set([part.blocker,...part.manualBlockers]);
@@ -583,7 +631,8 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    firstSkinFailure??=part.skinFailure;
    sideGapLimited||=part.sideGapLimited;
    if(part.omittedExterior)omittedExterior++;
-   if(part.omittedBore)omittedBoreFaces++;
+   if(part.omittedBore==='bore')omittedBoreFaces++;
+   if(part.omittedBore==='thread')omittedThreadFaces++;
    omittedHoleFragments+=part.omittedHoleFragments||0;
    if(part.aligned)alignedCeilings++;
    sectionCount+=part.sections||0;
@@ -690,9 +739,11 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   if(sectionCount)analysis.sideGapSections=sectionCount;
   if(nonHorizontalFaces)analysis.nonHorizontalFaces=nonHorizontalFaces;
   if(reusedCeilings)analysis.ceilingReuse={reused:reusedCeilings,rebuilt:rebuiltCeilings};
+  if(reusedScopes)analysis.ceilingScopeReuse={reused:reusedScopes};
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
   if(omittedExterior||omittedRibPieces)analysis.omittedExterior={faces:omittedExterior,ribPieces:omittedRibPieces};
   if(omittedBoreFaces)analysis.omittedBoreFaces=omittedBoreFaces;
+  if(omittedThreadFaces)analysis.omittedThreadFaces=omittedThreadFaces;
   if(omittedHoleFragments)analysis.omittedHoleFragments=omittedHoleFragments;
   if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;
   analysis.bottomSkin={enabled:faceNumber?lowerEnabled:!!p.wallBottomSkin,...(lowerPerFace?{perFace:true}:{}),count:bottomSkins.length,layers:p.bottomSkinLayers,thickness:p.bottomSkinLayers*p.layerHeight,heights:[...new Set(bottomHeights)].sort((a,b)=>a-b),contactGap:0,...(p.bottomSeams?{seams:bottomSeams}:{})};analysis.wallTies.auto=!!p.autoReinforce;analysis.wallTies.intervals=[...tieIntervals].sort((a,b)=>a-b);analysis.strength={heuristic:true,ribs:candidateRibs.filter(r=>!r.excluded).map(({id,number,risk})=>({id,number,...risk})),skippedTies};
@@ -718,13 +769,59 @@ const contactOptions=new Set([
 ]);
 let cachedStructure=null;
 let cachedCeilings;
+let cachedScopes;
 
-function wallContextKey(bodies,p,bodyKey){
- if(!p.preview||!bodyKey)return null;
- const bodiesKey=[...bodies].map(([id,shape])=>[id,bodyKey(shape)]);
- if(bodiesKey.some(([,token])=>token==null))return null;
+function wallBodiesKey(bodies,bodyKey){
+ if(!bodyKey)return null;
+ const tokens=[...bodies].map(([id,shape])=>[id,bodyKey(shape)]);
+ return tokens.every(([,token])=>token!=null)?tokens:null;
+}
+
+function wallContextKey(bodiesKey,p){
+ if(!bodiesKey)return null;
  const options=Object.keys(p).sort().filter(key=>key!=='faceOverrides'&&!contactOptions.has(key)).map(key=>[key,p[key]]);
  return JSON.stringify([bodiesKey,options]);
+}
+
+function wallScopeCache(key){
+ if(!key)return null;
+ if(cachedScopes?.key!==key)cachedScopes={
+  key,solids:createPrintSupportCache(8_000_000,48),caps:createPrintSupportCache(4_000_000,96),
+ };
+ return cachedScopes;
+}
+
+function restoreWallScope(cache,key,hold){
+ const saved=cache.solids.get(key);
+ if(!saved)return null;
+ try{
+  const beforeGap=hold(R.deserializeShape(saved.beforeGap).asShape3D());
+  const prism=saved.gapTrimmed?hold(R.deserializeShape(saved.prism).asShape3D()):beforeGap;
+  const shifted=hold(R.deserializeShape(saved.shifted));
+  return {...saved,shifted,beforeGap,prism};
+ }catch(error){
+  cache.solids.delete(key);
+  if(error instanceof WebAssembly.RuntimeError)throw error;
+  return null;
+ }
+}
+
+function saveWallScope(cache,key,{shifted,beforeGap,prism,...scope}){
+ try{
+  const profile=shifted.serialize(),first=beforeGap.serialize(),trimmed=scope.gapTrimmed?prism.serialize():null;
+  cache.solids.set(key,{...scope,shifted:profile,beforeGap:first,prism:trimmed},profile.length+first.length+(trimmed?.length||0));
+ }catch(error){if(error instanceof WebAssembly.RuntimeError)throw error;}
+}
+
+function cachedWallCap(cache,key,name,build){
+ if(!key)return build();
+ const stamp=key+':'+name,entry=cache.caps.get(stamp);
+ if(entry)return entry.mesh;
+ const mesh=build();
+ const meshes=Array.isArray(mesh)?mesh:mesh?[mesh]:[];
+ const size=meshes.reduce((size,{vertices,triangles})=>size+8*(vertices.length+triangles.length),0);
+ cache.caps.set(stamp,{mesh},size);
+ return mesh;
 }
 
 function mapCeilingShapes(part,transform){
@@ -804,10 +901,10 @@ function reuseWallStructure(key){
 }
 
 export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
- const context=wallContextKey(bodies,p,bodyKey);
+ const tokens=p.preview?wallBodiesKey(bodies,bodyKey):null,context=wallContextKey(tokens,p);
  const key=context&&p.contactLines?JSON.stringify([context,p.faceOverrides??[]]):null,reused=reuseWallStructure(key);
  if(reused)onProgress?.({stage:'リブ本体と横つなぎを再利用しています'});
- const prepared=reused||prepareWallSupports(bodies,p,onProgress,wallCeilingCache(context));
+ const prepared=reused||prepareWallSupports(bodies,p,onProgress,wallCeilingCache(context),wallScopeCache(tokens&&JSON.stringify([tokens,p.target])));
  const {analysis,blockers,wallRecords,contactRegions,skinChecks,ribPreview,skinPreview,exclusionPreview,roofPreview,selectedFaces,coverage,autoSupportFaces,adjustmentHints,columnPreview}=prepared;
  let shape=prepared.shape,accepted=false,contactPreview=[],flatSkinPreview=[];
  try{
@@ -848,7 +945,7 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
   const volume=shape?R.measureVolume(shape):0;
   analysis.contactInterface=contactAnalysis;
   analysis.material=supportMaterialEstimate(volume,p,windows.enabled?windows.originalVolume:volume);
-  if(reused){delete analysis.ceilingReuse;analysis.reusedStructure=true;}
+  if(reused){delete analysis.ceilingReuse;delete analysis.ceilingScopeReuse;analysis.reusedStructure=true;}
   accepted=true;
   return {shape,analysis,blockers,autoSupportFaces,...(selectedFaces?{selectedFaces}:{}),...(p.preview?{contactPreview,ribPreview,skinPreview,roofPreview,coverage,adjustmentHints,columnPreview,
    printRegions:[...exclusionPreview,...flatSkinPreview]}:{})};

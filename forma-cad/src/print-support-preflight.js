@@ -7,7 +7,7 @@ export function inspectPrintSupportPackage(pkg,{targetId,supportId}={}){
  if(!Number.isFinite(pkg.layerHeight)||pkg.layerHeight<.06||pkg.layerHeight>.4)issues.push({role:'configuration',message:'積層ピッチが不正です'});
  for(const [index,mesh]of bodies.entries())parts.push({id:mesh?.id,index,role:mesh?.id===supportId?'support':mesh?.id===targetId?'target':'base',mesh});
  for(const [index,mesh]of blockers.entries())parts.push({index,role:'blocker',mesh});
- const rows=parts.map(({mesh,...part})=>{try{const indexed=indexedPrintSupportMesh(mesh);return {...part,ok:true,triangles:indexed.triangles.length/3};}catch(error){const issue={...part,ok:false,message:error.message};issues.push(issue);return issue;}});
+ const rows=parts.map(({mesh,...part})=>{try{const indexed=indexedPrintSupportMesh(mesh);return {...part,ok:true,triangles:indexed.triangles.length/3};}catch(error){const issue={...part,ok:false,message:error.message,...(error.code?{code:error.code}:{})};issues.push(issue);return issue;}});
  return {ok:!issues.length,state:issues.length?'blocked':'ready',parts:rows,issues};
 }
 export function supportExportPartName(part,bodyName=id=>id){

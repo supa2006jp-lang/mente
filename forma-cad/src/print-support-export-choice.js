@@ -2,7 +2,12 @@ export function printSupportExportCandidates(features,bodyIds){
  const visible=new Set(bodyIds);
  return features.flatMap((feature,index)=>feature.kind==='cadop'&&feature.spec?.type==='printSupport'&&feature.spec.style==='walls'&&visible.has(feature.spec.id||feature.id)?[{feature,index,later:index<features.length-1}]:[]);
 }
-const savedSupportReady=feature=>feature.analysis?.printSupport?.complete!==false&&feature.analysis?.supportExport?.complete!==false;
+export function mayRebuildSavedContact(feature){
+ const previous=feature.analysis?.printSupport;
+ return feature.spec?.contactLines===true&&previous?.complete===true&&!previous.contactInterface?.grooveOffsets?.length;
+}
+const savedSupportReady=feature=>feature.analysis?.printSupport?.complete!==false&&
+ (feature.analysis?.supportExport?.complete!==false||mayRebuildSavedContact(feature));
 export function savedSupportExportIds(features,bodyIds){
  return printSupportExportCandidates(features,bodyIds).filter(({feature})=>savedSupportReady(feature)).map(({feature})=>feature.id);
 }

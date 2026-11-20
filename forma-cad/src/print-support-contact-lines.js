@@ -4,6 +4,7 @@ import {bottomContactInsetMask,upperContactRimMask} from './print-support-contac
 import * as R from 'replicad';
 import {supportAdjustmentError} from './print-support-adjustments.js';
 import {supportBoxesTouch,supportSolidGroups} from './print-support-solid-groups.js';
+import {MODEL_PRECISION} from './model-precision.js';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 const displayMesh=shape=>shape.mesh({tolerance:.08,angularTolerance:.15});
 function validContactResult(shape,count){
@@ -11,6 +12,54 @@ function validContactResult(shape,count){
  const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
  try{return check.IsValid();}finally{check.delete();}
 }
+
+function contactBoundaryLimits(skin,axis,height){
+ const limits=new Set(),faces=skin.faces;
+ try{
+  for(const face of faces){
+   if(face.geomType!=='PLANE'||!bounds(face).every(point=>Math.abs(point[2]-height)<=MODEL_PRECISION.contact))continue;
+   const edges=face.edges;
+   try{
+    for(const edge of edges){
+     const [low,high]=bounds(edge);
+     if(high[axis]-low[axis]>MODEL_PRECISION.contact)limits.add(low[axis]).add(high[axis]);
+    }
+   }finally{edges.forEach(edge=>edge.delete());}
+  }
+  return limits;
+ }finally{faces.forEach(face=>face.delete());}
+}
+
+function nearestFreeGrooveOffset(alignments,maximum,clearance){
+ let low=Infinity,high=-Infinity;
+ for(const alignment of alignments){
+  const start=alignment-clearance;
+  if(start>high+MODEL_PRECISION.contact){
+   if(low<=0&&high>=0)break;
+   low=start;
+  }
+  high=alignment+clearance;
+ }
+ if(low>0||high<0)return 0;
+ return [low-MODEL_PRECISION.contact,high+MODEL_PRECISION.contact].filter(offset=>Math.abs(offset)<=maximum)
+  .sort((a,b)=>Math.abs(a)-Math.abs(b))[0]??null;
+}
+
+function contactGrooveOffset(skin,spans,axis,height,settings){
+ if(!spans.length)return 0;
+ // A groove tangent to a hole or a corner can leave four faces sharing a
+ // vertical edge. Translate the pattern together to keep its pitch and width.
+ const maximum=Math.min(.08,settings.width/4,settings.spacing/2),clearance=.03;
+ const boundaries=spans.flat(),alignments=[];
+ for(const limit of contactBoundaryLimits(skin,axis,height))for(const boundary of boundaries){
+  const offset=limit-boundary;
+  if(Math.abs(offset)<=maximum+clearance+MODEL_PRECISION.contact)alignments.push(offset);
+ }
+ if(!alignments.some(offset=>Math.abs(offset)<=MODEL_PRECISION.contact))return 0;
+ alignments.sort((a,b)=>a-b);
+ return nearestFreeGrooveOffset(alignments,maximum,clearance)??nearestFreeGrooveOffset(alignments,maximum,.002)??0;
+}
+
 // One layer of grooves replaces a solid contact face with parallel landing
 // lines. Bottom grooves start on the model, not in air. Bed feet stay solid.
 export function supportContactLines(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false}={}){
@@ -19,9 +68,20 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
   for(const {shape,role,axis,supportFace}of regions){
    const settings=contactRoleSettings(p,role);if(!settings.enabled)continue;const b=bounds(shape),other=1-axis;if(role==='lower'&&b[0][2]<=p.bedZ+1e-6){analysis.bedPreserved++;continue;}const low=b[0][other],high=b[1][other],pitch=settings.width+settings.spacing;
    onProgress?.({stage:(role==='upper'?'上面':'底面')+'に線状の接触層を作成しています',supportFace});
-   const z=role==='upper'?Math.max(b[0][2],b[1][2]-p.layerHeight):b[0][2],top=role==='upper'?b[1][2]:Math.min(b[1][2],z+p.layerHeight),stripes=[],start=masks.length,slots=analysis.slots,cutCount=analysis[role],relief=analysis.bottomEndRelief?.count??0;let compound,cut;
+   const z=role==='upper'?Math.max(b[0][2],b[1][2]-p.layerHeight):b[0][2],top=role==='upper'?b[1][2]:Math.min(b[1][2],z+p.layerHeight),stripes=[],start=masks.length,slots=analysis.slots,cutCount=analysis[role],relief=analysis.bottomEndRelief?.count??0;
+   let compound,cut,offset=0;
    try{
-    for(let at=low+settings.width;at<high-settings.width-1e-6;at+=pitch){if(++analysis.slots>1024)throw Error('接触層の線が多すぎます。線の隙間を広げるか対象面を絞ってください');const a=[...b[0]],c=[...b[1]];a[axis]-=.01;c[axis]+=.01;a[other]=at;c[other]=Math.min(at+settings.spacing,high-settings.width);a[2]=z;c[2]=top;if(c[other]-a[other]>1e-6)stripes.push(R.makeBox(a,c));}
+    const spans=[];
+    for(let at=low+settings.width;at<high-settings.width-1e-6;at+=pitch){
+     if(++analysis.slots>1024)throw Error('接触層の線が多すぎます。線の隙間を広げるか対象面を絞ってください');
+     spans.push([at,Math.min(at+settings.spacing,high-settings.width)]);
+    }
+    offset=contactGrooveOffset(shape,spans,other,role==='upper'?top:z,settings);
+    for(const [from,to] of spans){
+     const a=[...b[0]],c=[...b[1]];
+     a[axis]-=.01;c[axis]+=.01;a[other]=from+offset;c[other]=to+offset;a[2]=z;c[2]=top;
+     stripes.push(R.makeBox(a,c));
+    }
     if(role==='lower'&&p.bottomContactInset>0){if(b[1][axis]-b[0][axis]<2*p.bottomContactInset+p.lineWidth||high-low<2*p.bottomContactInset+pitch+settings.width)throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');const rim=bottomContactInsetMask(shape,z,top,p.bottomContactInset);masks.push(rim);landings.push({shape,b,z,top,width:settings.width});analysis.bottomEndRelief={distance:p.bottomContactInset,count:(analysis.bottomEndRelief?.count||0)+1};}
     if(!stripes.length)continue;compound=R.makeCompound(stripes);cut=shape.intersect(compound);
     if(role==='upper'&&p.topContactRim){
@@ -32,7 +92,7 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
     }
     if(volume(cut)>.0001){masks.push(cut);cut=null;analysis[role]++;}
    }finally{
-    if(masks.length>start)groups.push({shape,role,masks:masks.slice(start),slots:analysis.slots-slots,cut:analysis[role]-cutCount,relief:(analysis.bottomEndRelief?.count??0)-relief});
+    if(masks.length>start)groups.push({shape,role,offset,masks:masks.slice(start),slots:analysis.slots-slots,cut:analysis[role]-cutCount,relief:(analysis.bottomEndRelief?.count??0)-relief});
     cut?.delete();compound?.delete();stripes.forEach(s=>s.delete());
    }
   }
@@ -90,6 +150,8 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
    }
    if(skipped.size)analysis.skippedDisconnected=skipped.size;
   }
+  const grooveOffsets=groups.filter(group=>group.cut&&group.offset&&!skipped.has(group.shape)).map(({role,offset})=>({role,offset}));
+  if(grooveOffsets.length)analysis.grooveOffsets=grooveOffsets;
   for(const {shape,b,z,top,width}of landings){if(skipped.has(shape))continue;const box=R.makeBox([b[0][0],b[0][1],z],[b[1][0],b[1][1],top]);let layer,remaining;try{layer=shape.intersect(box);remaining=result.intersect(layer);if(volume(remaining)<p.lineWidth*width*(top-z))throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');}finally{remaining?.delete();layer?.delete();box.delete();}}
   if(p.preview)local=supportLocalPreview(original,activeMasks);analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};if(p.preview)for(const {shape,role,axis}of regions){if(skipped.has(shape)||!contactRoleSettings(p,role).enabled)continue;const b=bounds(shape);if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;const a=[...b[0]],c=[...b[1]];if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);else c[2]=Math.min(c[2],a[2]+p.layerHeight);const box=R.makeBox(a,c);let mask,display;try{mask=shape.intersect(box);display=local.clip(mask);if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,bounds:bounds(display),...displayMesh(display)});}finally{display?.delete();mask?.delete();box.delete();}}
   if(p.preview)for(const [index,record]of ribRecords.entries()){onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）',supportFace:record.supportFace});const display=local.clip(record.shape,{contained:ribsAreContained});try{ribPreview.push({id:record.id,...displayMesh(display)});}finally{display.delete();}}analysis.removedVolume=Math.max(0,volume(original)-volume(result));const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:"flat"})):[];const shape=result;result=null;return {shape,analysis,preview,ribPreview,flatSkinPreview};
