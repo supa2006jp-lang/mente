@@ -39,7 +39,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  let group=null,areas=null,rows=[],markers=[],faceMeshes=[],muted=false,target=null,busy=false,focused=null,draw=null,outline=null,measurement=null;
  let pointSize=[2,2],localLength=12;
  const mm=value=>Number(value.toFixed(2))+' mm';
- const fields=[['wallPitch','薄壁の間隔 (mm)',2,15,'any'],['roofLayers','上面の薄皮 (層)',1,6,1],['bottomSkinLayers','底面の薄皮 (層)',1,6,1]];
+ const fields=[['wallPitch','薄壁の間隔 (mm)',2,15,'any'],['roofLayers','上面の薄皮の層数 (層)',1,6,1],['bottomSkinLayers','底面の薄皮の層数 (層)',1,6,1]];
  function visibility(){
   const placing=draw&&draw.mode!=='proposal';
   if(group){group.visible=!muted;areas.visible=display.checked||!!placing;
@@ -155,6 +155,15 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   if(!zones.hidden)renderZones(row);
   edit.replaceChildren();edit.hidden=!row?.editable;
   if(!row?.editable)return;
+  const skins=[['wallRoof','上面の薄皮'],['wallBottomSkin','底面の薄皮']].map(([key,title])=>{
+   const label=document.createElement('label'),choice=document.createElement('select');
+   choice.dataset.supportFaceSkin=key;
+   choice.add(new Option('共通設定',''));choice.add(new Option('あり','on'));choice.add(new Option('なし','off'));
+   choice.value=row.override[key]===true?'on':row.override[key]===false?'off':'';
+   choice.disabled=busy;
+   label.append(title,choice);edit.append(label);
+   return [key,choice];
+  });
   const inputs=fields.map(([key,name,min,max,step])=>{
    const label=document.createElement('label'),input=document.createElement('input');
    Object.assign(input,{type:'number',min,max,step,value:row.override[key]??'',placeholder:String(row.settings[key]),disabled:busy});
@@ -165,6 +174,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   save.onclick=()=>{
    if(busy||inputs.some(([,input])=>!input.reportValidity()))return;
    const values=Object.fromEntries(inputs.filter(([,input])=>input.value!=='').map(([key,input])=>[key,input.valueAsNumber]));
+   for(const [key,choice] of skins)if(choice.value)values[key]=choice.value==='on';
    const {noSupport,allowAutoSupport,edgeAssist,localRibs}=row.override;
    onSave(row,{...values,noSupport,allowAutoSupport,edgeAssist,localRibs});
   };
@@ -521,7 +531,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    bridgeToggle.disabled=busy||!bridgeMeshes.length;
    skinToggle.disabled=busy||!rows.some(row=>row.skinSupport);
    if(draw&&(busy||muted))focus(rows.indexOf(draw.row));
-   for(const control of [...edit.querySelectorAll('input,button'),...warning.querySelectorAll('button,select')])
+   for(const control of [...edit.querySelectorAll('input,button,select'),...warning.querySelectorAll('button,select')])
     control.disabled=busy;
    const row=select.value===''?null:rows[Number(select.value)];
    const canDraw=canPlace(row);

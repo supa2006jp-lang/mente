@@ -59,7 +59,12 @@ function inset(face,distance){
 }
 function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress}){
  const item=p.preview?supportCoverageFace(face,p.target,p,override):null;
- if(item)item.ceilingId=ceilingId;
+ if(item){
+  item.ceilingId=ceilingId;
+  item.ceilingNumber=supportFace.number;
+  item.skin={upper:{enabled:p.wallRoof,present:false},lower:{enabled:p.wallBottomSkin,present:false}};
+ }
+ const location={ceilingId,number:supportFace.number,...(item?.selection?{selection:item.selection}:{})};
  const coverage=item?{item,height:z,faceBounds:b,index:-1}:null;
  const part={coverage,blocker:null,skippedScope:null,manualBlockers:[],wallRecords:[],candidateRibs:[],
   contactRegions:[],roof:null,tabs:[],bottomSkins:[],ties:[],skinCheck:null,skinPreview:[],
@@ -258,7 +263,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
      const values=[error.available,...(error.regions||[]).map(region=>region.available)].filter(Number.isFinite);
      const selection=override?.selection??item?.selection;
      error.supportAdjustmentHints=[{kind:error.code==='support-skin-clearance'?'skin-clearance':'skin-anchor',role:error.role,
-      ...(selection?{selection}:{}),...(values.length?{available:Math.min(...values)}:{})}];
+      ...location,...(selection?{selection}:{}),...(values.length?{available:Math.min(...values)}:{})}];
     }
     if(p.mode!=='auto'){
      if(error?.code==='support-skin-clearance')error.supportClearanceRegions=clearanceDetails(error,b,z);
@@ -284,6 +289,8 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
    ribGapWidths(faceCandidates);
    if(coverage){
     coverage.axis=axis;
+    item.skin.upper.present=!!roof;
+    item.skin.lower.present=!!bottom?.shapes.length;
     coverage.item.localRibsSkipped=(p.localRibs?.length||0)-localPlaced.size;
     coverage.item.bridgePlacement={bounds:pb,margin:p.edgeMargin,footprint:clearCap,
      stripes:stripes.map(({center,span})=>span?{center,span}:{center})};
@@ -356,6 +363,10 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
   }
   complete=true;
   return part;
+ }catch(error){
+  if(error?.supportAdjustmentHints)
+   error.supportAdjustmentHints=error.supportAdjustmentHints.map(hint=>({...location,...hint}));
+  throw error;
  }finally{
   const kept=new Set();
   if(complete)mapCeilingShapes(part,shape=>{kept.add(shape);return shape;});
@@ -378,6 +389,7 @@ function prepareWallSupports(bodies,p,onProgress,cache){
  let omitted=0,faceCount=0,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0;
  let omittedExterior=0,omittedRibPieces=0,nonHorizontalFaces=0,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
  let reusedCeilings=0,rebuiltCeilings=0,faceNumber=0;
+ let upperEnabled=false,lowerEnabled=false,upperPerFace=false,lowerPerFace=false;
  let windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
  const exportFaces=p.preview||p.saveSupportExport||p.batch===true;
  function faceInfo(face){
@@ -414,6 +426,10 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    const override=matchSupportFaceOverride(face,p.faceOverrides||[],z);
    if(override)usedOverrides.add(override);
    const settings=override?{...p,...override}:p;
+   upperEnabled||=settings.wallRoof;
+   lowerEnabled||=settings.wallBottomSkin;
+   upperPerFace||=settings.wallRoof!==p.wallRoof||settings.roofLayers!==p.roofLayers;
+   lowerPerFace||=settings.wallBottomSkin!==p.wallBottomSkin||settings.bottomSkinLayers!==p.bottomSkinLayers;
    const limits={ribs:96-candidateRibs.length,seams:128-roofCuts,tabs:64-roofTabs.length};
    const partKey=cache?JSON.stringify([ceilingId,b,z,override??null,p.roofSeams?limits.seams:null,p.roofTabs?limits.tabs:null]):null;
    const cached=cache?.get(partKey,limits.ribs);
@@ -450,6 +466,8 @@ function prepareWallSupports(bodies,p,onProgress,cache){
     skippedCeilings.push(part.skippedCeiling);
     adjustmentHints.push(...(part.skinFailure?.supportAdjustmentHints||[]));
    }
+   if(part.blockedRibs&&p.baseMode==='bed')
+    adjustmentHints.push({kind:'base-blocked',ceilingId,number:supportFace.number,selection:part.coverage?.item.selection});
    firstSkinFailure??=part.skinFailure;
    sideGapLimited||=part.sideGapLimited;
    if(part.omittedExterior)omittedExterior++;
@@ -527,7 +545,6 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   blockers.push(...manualBlockers.splice(0));
   if(p.mode==='auto'&&usedOverrides.size!==(p.faceOverrides?.length||0))throw Error('個別設定の下面が見つかりません。設定する下面を選び直してください');
   if(faceNumber===1)for(const hint of adjustmentHints)if(hint.selection)hint.onlyCeiling=true;
-  if(omitted&&p.baseMode==='bed')adjustmentHints.push({kind:'base-blocked'});
   if(!candidateRibs.length){
    const error=firstSkinFailure||Error(sideGapLimited?(p.keepRibThickness?'指定した厚みと':'')+'側壁との横すき間を確保できる場所がありません。すき間を小さくするか、対象面を選び直してください':omittedExterior?'外側の細い張り出しを省きました。支える場合は対象面を選ぶか、外側の小片を省く設定を外してください':'薄壁を置ける水平な下面がありません。土台と高さを確認してください');
    if(firstSkinFailure)error.supportClearanceRegions=clearanceRegions;
@@ -539,10 +556,10 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   }
   const missingRibs=p.excludedRibs.filter(id=>!candidateRibs.some(r=>r.id===id||r.ribId===id));if(missingRibs.length)ribIssues.push('リブの配置が変わったため古い除外指定を使えません。除外をすべて解除してください');if(!walls.length)ribIssues.push('すべてのリブが除外されています。1枚以上戻してください');
   if(ribIssues.length&&!p.preview)throw Error([...new Set(ribIssues)].join('。'));
-  const missingPlacements=p.wallRoof&&p.roofTabs?(p.roofTabPlacements||[]).filter(v=>!roofMatched.includes(v.sectionId)).map(v=>v.sectionId):[];roofManualInvalid+=missingPlacements.length;
+  const missingPlacements=(faceNumber?upperEnabled:p.wallRoof)&&p.roofTabs?(p.roofTabPlacements||[]).filter(v=>!roofMatched.includes(v.sectionId)).map(v=>v.sectionId):[];roofManualInvalid+=missingPlacements.length;
   if(roofManualInvalid&&!p.preview)throw Error('指定した位置にタブを作成できません。プレビューで位置を選び直すか自動配置に戻してください');
   onProgress?.({stage:'各下面のリブと薄皮を結合しています'});
-  if(walls.length)shape=fuseSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
+  if(walls.length)shape=fuseSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin||bottomSkins.length)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
   for(const candidate of candidateRibs)if(!candidate.excluded){const b=candidate.bounds;candidate.risk=supportRibRisk({height:b[1][2]-b[0][2],thickness:p.wallThickness,bottom:b[0][2],top:b[1][2],levels:tieAttachments.filter(a=>a.ribs.includes(candidate.id)).map(a=>a.z)});}
   const analysis={style:'walls',edgeMargin:p.edgeMargin,count:walls.length,contacts:[],topGap:p.topGap,bottomGap:0,baseMode:p.baseMode,baseBodyIds:[...baseBodyIds],modelBasedCount:baseBodyIds.size?walls.length:0,bedBasedCount:baseBodyIds.size?0:walls.length,footDiameter:p.footDiameter,postDiameter:p.wallThickness,reinforcements:ties.length,skipped:omitted,omittedReinforcement:skippedTies,limited:false,bedZ:p.bedZ,wallPitch:p.wallPitch,wallThickness:p.wallThickness,layerHeight:p.layerHeight,faceCount,blockerCount:blockers.length,complete:omitted===0&&!ribIssues.length,wallTies:{enabled:p.wallTies,interval:p.tieInterval,count:ties.length,levels:[...tieLevels].sort((a,b)=>a-b),thickness:2*p.layerHeight,neckWidth:Math.min(Math.max(1.6,Math.min(3,2*p.wallThickness)),Math.max(.6,p.wallThickness))}};
   if(p.sideGap)analysis.sideGap=p.sideGap;
@@ -553,8 +570,8 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
   if(omittedExterior||omittedRibPieces)analysis.omittedExterior={faces:omittedExterior,ribPieces:omittedRibPieces};
   if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;
-  analysis.bottomSkin={enabled:!!p.wallBottomSkin,count:bottomSkins.length,layers:p.bottomSkinLayers,thickness:p.bottomSkinLayers*p.layerHeight,heights:[...new Set(bottomHeights)].sort((a,b)=>a-b),contactGap:0,...(p.bottomSeams?{seams:bottomSeams}:{})};analysis.wallTies.auto=!!p.autoReinforce;analysis.wallTies.intervals=[...tieIntervals].sort((a,b)=>a-b);analysis.strength={heuristic:true,ribs:candidateRibs.filter(r=>!r.excluded).map(({id,number,risk})=>({id,number,...risk})),skippedTies};
-  analysis.roof={enabled:!!p.wallRoof,count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};if(p.wallRoof&&p.roofSeams)analysis.roof.seams={enabled:true,count:roofCuts,skipped:roofSkippedCuts,sections:roofSections,spacing:p.roofSectionLength,width:p.roofSeamWidth};if(p.wallRoof&&p.roofTabs)analysis.roof.tabs={enabled:true,count:roofTabs.length,skipped:roofSkippedTabs,length:p.roofTabLength,width:4,...((p.roofTabPlacements||[]).length?{manualInvalid:roofManualInvalid}:{})};if(roofManualInvalid)analysis.complete=false;analysis.windows=windows;analysis.printSettings=supportPrintSettings(p);analysis.ribs={total:candidateRibs.length,excluded:candidateRibs.filter(r=>r.excluded).length,direction:p.wallDirection,edgeAligned:!!p.edgeRibs,issues:[...new Set(ribIssues)],missing:missingRibs};analysis.selection={mode:p.mode,count:selection?.faces.length||0};const result={shape,analysis,blockers,coverage,autoSupportFaces,selectedFaces:selectedFacePreview,
+  analysis.bottomSkin={enabled:faceNumber?lowerEnabled:!!p.wallBottomSkin,...(lowerPerFace?{perFace:true}:{}),count:bottomSkins.length,layers:p.bottomSkinLayers,thickness:p.bottomSkinLayers*p.layerHeight,heights:[...new Set(bottomHeights)].sort((a,b)=>a-b),contactGap:0,...(p.bottomSeams?{seams:bottomSeams}:{})};analysis.wallTies.auto=!!p.autoReinforce;analysis.wallTies.intervals=[...tieIntervals].sort((a,b)=>a-b);analysis.strength={heuristic:true,ribs:candidateRibs.filter(r=>!r.excluded).map(({id,number,risk})=>({id,number,...risk})),skippedTies};
+  analysis.roof={enabled:faceNumber?upperEnabled:!!p.wallRoof,...(upperPerFace?{perFace:true}:{}),count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};if(analysis.roof.enabled&&p.roofSeams)analysis.roof.seams={enabled:true,count:roofCuts,skipped:roofSkippedCuts,sections:roofSections,spacing:p.roofSectionLength,width:p.roofSeamWidth};if(analysis.roof.enabled&&p.roofTabs)analysis.roof.tabs={enabled:true,count:roofTabs.length,skipped:roofSkippedTabs,length:p.roofTabLength,width:4,...((p.roofTabPlacements||[]).length?{manualInvalid:roofManualInvalid}:{})};if(roofManualInvalid)analysis.complete=false;analysis.windows=windows;analysis.printSettings=supportPrintSettings(p);analysis.ribs={total:candidateRibs.length,excluded:candidateRibs.filter(r=>r.excluded).length,direction:p.wallDirection,edgeAligned:!!p.edgeRibs,issues:[...new Set(ribIssues)],missing:missingRibs};analysis.selection={mode:p.mode,count:selection?.faces.length||0};const result={shape,analysis,blockers,coverage,autoSupportFaces,selectedFaces:selectedFacePreview,
    wallRecords:p.preview&&p.contactLines?wallRecords.map(record=>({...record,shape:record.shape.clone()})):[],
    contactRegions:contactRegions.map(region=>({...region,shape:region.shape.clone()})),
    skinChecks:skinChecks.map(({item,shape})=>({index:coverage.indexOf(item),shape:shape.clone()})),

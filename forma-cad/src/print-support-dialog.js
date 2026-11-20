@@ -25,7 +25,8 @@ import {cadPosition} from './cad-coordinates.js';
 import {createSupportFastPreview} from './print-support-fast-preview.js';
 import {cadFaceGroup} from './face-selection.js';
 import {compareBridgeWidths} from './print-support-bridges.js';
-import {adjustSupportPreview,supportAdjustmentFields} from './print-support-adjustments.js';
+import {adjustSupportPreview,sameSupportFace,supportAdjustmentFields} from './print-support-adjustments.js';
+import {createSupportAdjustmentPermissions,createSupportAdjustmentReview} from './print-support-adjustment-view.js';
 export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,getFace,onStart,apply,applyBatch,notify,fitPreview,download,getSavedExportIds=()=>[],getBodyVisibility=()=>undefined,confirmOutput,recordFailure=(job,error)=>failureRecord({...job,error})}){
  const dialog=document.createElement('dialog');dialog.id='print-support-dialog';dialog.style.cssText='position:fixed;inset:80px 12px auto auto;margin:0;width:355px;max-width:calc(100vw - 48px);max-height:calc(100vh - 135px);overflow:auto;padding:18px;z-index:120;background:#f5fbff;color:#193a50;border:1px solid #83a8b9;border-radius:12px;box-shadow:0 8px 28px #152c4940';
  const fields=[['interfaceLineWidth','上面の接触線の幅',.4,1.5],['interfaceSpacing','上面の線の隙間',.1,1.5],['topContactRimWidth','上面の輪郭の帯の幅',.4,2],['edgeMargin','外周からの余白',.1,2],['sideGap','側壁との横すき間',0,2],['lineWidth','印刷の線幅',.2,1],['wallLines','薄壁の線数',1,8],['roofLayers','薄皮の層数',1,6],['roofSectionLength','分割の間隔の目安',10,60],['roofSeamWidth','分割線の幅',.4,1.2],['tieInterval','横つなぎの高さ間隔',8,60],['wallPitch','薄壁の間隔',2,15],['wallThickness','薄壁の厚み',.4,2],['layerHeight','積層ピッチ',.06,.4],['spacing','支柱の間隔の目安',8,100],['footDiameter','足の直径',6,50],['footThickness','足の厚み',.4,3],['postDiameter','支柱の直径',2,12],['tipDiameter','先端の直径',.6,6],['topGap','上面との縦すき間',.05,1.5],['bottomGap','モデル上の接点の縦すき間',.05,1.5],['braceDiameter','斜め補強の直径',1,5],['bedZ','ベッド高さ',-10000,10000],['maxSupports','生成する本数の上限',1,36]];
@@ -64,6 +65,17 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  autoSettings.innerHTML='<label><input type="checkbox" data-id="auto-adjust" checked>作成できる設定に自動調整</label>'+
   '<small data-id="auto-adjust-status" role="status"></small><button type="button" data-id="auto-adjust-undo" hidden>自動調整前の設定に戻す</button>';
  $('baseMode').closest('label').after(autoSettings);
+ const adjustmentPermissions=createSupportAdjustmentPermissions(autoSettings,()=>{
+  if(dialog.open&&$('auto-adjust').checked)schedule();
+ });
+ const adjustmentReview=createSupportAdjustmentReview({anchor:autoSettings,scene,host,bodyName,fitPreview,async loadFace(selection){
+  const entry=batching()?batchEntries.get(selection.bodyId):cached;
+  const row=entry?.result?.supportPreview?.coverage?.find(item=>sameSupportFace(item.selection,selection));
+  if(row)return row.face;
+  const result=await kernel.run(history,{type:'printSupportFaces',style:'posts',target:selection.bodyId,
+   faces:[selection],bedZ:0,topGap:0},{document:original});
+  return result.selectedFaces[0];
+ }});
  let autoAdjustment=null;
  const previewHint=document.createElement('small');previewHint.hidden=true;$('info').after(previewHint);
  const exportState=document.createElement('div');exportState.dataset.id='export-state';exportState.setAttribute('role','status');exportState.style.cssText='padding:10px;border:1px solid #8aaaba;border-radius:6px;margin:10px 0';$('export3mf').before(exportState);
@@ -153,7 +165,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   }:null;
   if($('target').value===target&&['noSupport','allowAutoSupport','localRibs'].some(key=>JSON.stringify(previous?.[key])!==JSON.stringify(settings[key])))rememberRibEdit();
   if(comparison&&$('target').value===target)comparison.undoDepth=ribUndo.length;
-  const placementChanged=['noSupport','wallPitch','edgeAssist','localRibs'].some(key=>JSON.stringify(previous?.[key])!==JSON.stringify(settings[key]));
+  const placementChanged=['noSupport','wallPitch','edgeAssist','localRibs','wallBottomSkin'].some(key=>JSON.stringify(previous?.[key])!==JSON.stringify(settings[key]));
   if(placementChanged||$('target').value!==target)resetStructure();
   faceOverrides.set(target,rows);$('target').value=target;schedule(false,comparison);if(message)notify(message);
  },onReset(target){if($('target').value===target)rememberRibEdit();faceOverrides.delete(target);resetStructure();schedule();}});
@@ -180,8 +192,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return entries.length?{entries,history,preview}:null;
  }
  const removal=installSupportRemoval({anchor:material,host,scene,meshes,kernel,bodyName,getState:removalState,onChange:controls});
- function clear(){autoFaceButton.hidden=true;coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
- function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;gapComparison.clear();clear();$('apply').disabled=true;return revision;}
+ function clear(){autoFaceButton.hidden=true;adjustmentReview.clearFocus();coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
+ function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;gapComparison.clear();adjustmentReview.clear();clear();$('apply').disabled=true;return revision;}
  function close(){gapBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
  const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
  function previewOutputs(){
@@ -232,10 +244,12 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }
  savedAndPreviewButton.onclick=()=>confirmSavedSelection(true);
  savedExportButton.onclick=()=>confirmSavedSelection(false);
- function controls(){const walls=$('style').value==='walls',roof=walls&&$('wallRoof').checked;$('sideGap').closest('label').hidden=!walls;$('roof-removal').hidden=!roof;$('roofSeams').closest('label').hidden=!roof;for(const key of ['roofSectionLength','roofSeamWidth'])$(key).closest('label').hidden=!roof||!$('roofSeams').checked;$('wallRoof').closest('label').hidden=!walls;$('roofLayers').closest('label').hidden=!walls||!$('wallRoof').checked;$('roof-note').hidden=!walls||!$('wallRoof').checked;$('roof-note').textContent='厚さ '+Number((Number($('roofLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mm。本体との上側のすき間は維持し、両端のリブの間だけをつなぎます。';$('wallWindows').closest('label').hidden=!walls;$('windows-note').hidden=!walls;$('wallTies').closest('label').hidden=!walls;$('tieInterval').closest('label').hidden=!walls||!$('wallTies').checked;for(const key of ['edgeMargin','wallPitch','wallThickness','layerHeight'])$(key).closest('label').hidden=!walls;for(const key of ['spacing','footDiameter','postDiameter','tipDiameter','bottomGap','braceDiameter','maxSupports'])$(key).closest('label').hidden=walls;$('braces').closest('label').hidden=walls;$('wall-note').hidden=$('export3mf').hidden=!walls;for(const el of dialog.querySelectorAll('input,select,button'))el.disabled=busy;$('apply').disabled=busy||!cached;$('export3mf').disabled=busy||!cached?.result.supportPackage?.complete;$('face-row').hidden=$('mode').value!=='face';$('braceDiameter').disabled=busy||!$('braces').checked;$('bottomGap').disabled=busy||$('baseMode').value==='bed';faceControls();placementControls(roof);ribControls(walls,roof);presets.sync(busy);failurePanel.hidden=!lastFailure;exportControls();improvementControls(walls);exteriorLabel.hidden=!walls||$('mode').value!=='auto';
+ const skinAvailable=key=>$(key).checked||overridesFor($('target').value).some(row=>row[key]===true);
+ function controls(){const walls=$('style').value==='walls',roof=walls&&skinAvailable('wallRoof');$('sideGap').closest('label').hidden=!walls;$('roof-removal').hidden=!roof;$('roofSeams').closest('label').hidden=!roof;for(const key of ['roofSectionLength','roofSeamWidth'])$(key).closest('label').hidden=!roof||!$('roofSeams').checked;$('wallRoof').closest('label').hidden=!walls;$('roofLayers').closest('label').hidden=!walls||!$('wallRoof').checked;$('roof-note').hidden=!walls||!$('wallRoof').checked;$('roof-note').textContent='厚さ '+Number((Number($('roofLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mm。本体との上側のすき間は維持し、両端のリブの間だけをつなぎます。';$('wallWindows').closest('label').hidden=!walls;$('windows-note').hidden=!walls;$('wallTies').closest('label').hidden=!walls;$('tieInterval').closest('label').hidden=!walls||!$('wallTies').checked;for(const key of ['edgeMargin','wallPitch','wallThickness','layerHeight'])$(key).closest('label').hidden=!walls;for(const key of ['spacing','footDiameter','postDiameter','tipDiameter','bottomGap','braceDiameter','maxSupports'])$(key).closest('label').hidden=walls;$('braces').closest('label').hidden=walls;$('wall-note').hidden=$('export3mf').hidden=!walls;for(const el of dialog.querySelectorAll('input,select,button'))el.disabled=busy;$('apply').disabled=busy||!cached;$('export3mf').disabled=busy||!cached?.result.supportPackage?.complete;$('face-row').hidden=$('mode').value!=='face';$('braceDiameter').disabled=busy||!$('braces').checked;$('bottomGap').disabled=busy||$('baseMode').value==='bed';faceControls();placementControls(roof);ribControls(walls,roof);presets.sync(busy);failurePanel.hidden=!lastFailure;exportControls();improvementControls(walls);exteriorLabel.hidden=!walls||$('mode').value!=='auto';
   autoSettings.hidden=!walls;
   $('auto-adjust').disabled=busy||picking;
   $('auto-adjust-undo').hidden=!autoAdjustment;
+  adjustmentPermissions.controls({enabled:walls&&$('auto-adjust').checked,disabled:busy||picking});
   const batch=batching();
   batchPanel.sync({available:batchAvailable(),disabled:busy||picking,entries:batchEntries,calculating:batch&&batchPending,adjustments:batchAdjustments});
   const coverageTarget=$('target').value;
@@ -244,6 +258,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   comparisonControls();
   const blocked=busy||picking||inflight||batchPending;
   const masked=removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length;
+  adjustmentReview.controls(blocked||masked);
   $('auto-adjust-undo').disabled=blocked||masked;
   autoFaceButton.disabled=blocked||masked;
   gapComparison.controls({blocked,masked});
@@ -310,7 +325,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   $('pick').textContent=selectionBusy?'下面を確認中…':picking?'選択を終了してプレビュー':'下面を選ぶ・追加する';$('pick').disabled=busy||selectionBusy;$('face-clear').disabled=busy||selectionBusy||!selectedFaces.length;$('face-info').textContent=selectedFaces.length?'選択済み：'+selectedFaces.length+'面 ／ '+bodyName($('target').value):'下面を1面以上選択してください';$('face-list').replaceChildren(...selectedFaces.map((face,index)=>{const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px;margin:4px 0';const label=document.createElement('span');label.textContent='下面 '+(index+1);const remove=document.createElement('button');remove.type='button';remove.textContent='外す';remove.dataset.supportFaceRemove=index;remove.disabled=busy||selectionBusy;remove.onclick=()=>removeFace(index);row.append(label,remove);return row;}));
  }
  function removeFace(index){if(busy||selectionBusy)return;selectedFaces=selectedFaces.filter((_,i)=>i!==index);const items=faceView.items.filter((_,i)=>i!==index);resetStructure();if(picking){faceView.show(items);controls();$('error').textContent='';}else schedule();}
- function improvementControls(walls){contactControls(walls);const rim=walls&&$('contactLines').checked&&$('topContactLines').checked&&$('wallRoof').checked;$('topContactRim').closest('label').hidden=$('top-rim-note').hidden=!rim;$('topContactRim').disabled=busy;for(const key of ['topContactRimWidth'])$(key).closest('label').hidden=!rim||!$('topContactRim').checked;contact.hidden=!walls;$('contactLines').disabled=busy||!($('wallRoof').checked||$('wallBottomSkin').checked);for(const [flag,skin,keys]of [['topContactLines','wallRoof',['interfaceLineWidth','interfaceSpacing']],['bottomContactLines','wallBottomSkin',['bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset']]]){const on=walls&&$('contactLines').checked;$(flag).closest('label').hidden=!on;$(flag).disabled=busy||!$(skin).checked;for(const key of keys)$(key).closest('label').hidden=!on||!$(flag).checked||!$(skin).checked;}$('contact-note').textContent='本体側1層を上下別の線幅・隙間にします。上面の縦すき間は維持し、底面は本体に線で接触します。「底面の端の逃げ」で接触する1層だけ外周から離し、剥がし始めを作ります。0で従来の形です。ベッド上は広いまま残します。';bottomRemoval.hidden=!walls||!$('wallBottomSkin').checked;for(const key of ['bottomSectionLength','bottomSeamWidth'])$(key).closest('label').hidden=!walls||!$('wallBottomSkin').checked||!$('bottomSeams').checked;$('wallBottomSkin').closest('label').hidden=!walls;$('bottomSkinLayers').closest('label').hidden=!walls||!$('wallBottomSkin').checked;$('footThickness').disabled=$('connectFeet').disabled=busy||walls&&$('wallBottomSkin').checked;$('bottom-skin-note').textContent='底面のリブを '+Number((Number($('bottomSkinLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mmの薄皮でまとめます。従来の足の代わりになり、土台との接触は維持します。外しやすさは試し刷りで確認してください。';$('edgeRibs').closest('label').hidden=$('edge-ribs-note').hidden=!walls;faceView.setHidden(removal.active||contactView.active||$('mode').value!=='face');
+ function improvementControls(walls){contactControls(walls);const rim=walls&&$('contactLines').checked&&$('topContactLines').checked&&skinAvailable('wallRoof');$('topContactRim').closest('label').hidden=$('top-rim-note').hidden=!rim;$('topContactRim').disabled=busy;for(const key of ['topContactRimWidth'])$(key).closest('label').hidden=!rim||!$('topContactRim').checked;contact.hidden=!walls;$('contactLines').disabled=busy||!(skinAvailable('wallRoof')||skinAvailable('wallBottomSkin'));for(const [flag,skin,keys]of [['topContactLines','wallRoof',['interfaceLineWidth','interfaceSpacing']],['bottomContactLines','wallBottomSkin',['bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset']]]){const on=walls&&$('contactLines').checked;$(flag).closest('label').hidden=!on;$(flag).disabled=busy||!skinAvailable(skin);for(const key of keys)$(key).closest('label').hidden=!on||!$(flag).checked||!skinAvailable(skin);}$('contact-note').textContent='本体側1層を上下別の線幅・隙間にします。上面の縦すき間は維持し、底面は本体に線で接触します。「底面の端の逃げ」で接触する1層だけ外周から離し、剥がし始めを作ります。0で従来の形です。ベッド上は広いまま残します。';bottomRemoval.hidden=!walls||!skinAvailable('wallBottomSkin');for(const key of ['bottomSectionLength','bottomSeamWidth'])$(key).closest('label').hidden=!walls||!skinAvailable('wallBottomSkin')||!$('bottomSeams').checked;$('wallBottomSkin').closest('label').hidden=!walls;$('bottomSkinLayers').closest('label').hidden=!walls||!$('wallBottomSkin').checked;$('footThickness').disabled=$('connectFeet').disabled=busy||walls&&$('wallBottomSkin').checked;$('bottom-skin-note').textContent='底面のリブを '+Number((Number($('bottomSkinLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mmの薄皮でまとめます。従来の足の代わりになり、土台との接触は維持します。外しやすさは試し刷りで確認してください。';$('edgeRibs').closest('label').hidden=$('edge-ribs-note').hidden=!walls;faceView.setHidden(removal.active||contactView.active||$('mode').value!=='face');
   $('autoReinforce').closest('label').hidden=!walls||!$('wallTies').checked;strength.hidden=!walls;const a=cached?.result.analysis.printSupport,risks=a?.strength?.ribs||[],warnings=risks.filter(r=>r.severity!=='low');strength.replaceChildren();if(walls){const note=document.createElement('small');note.textContent=($('autoReinforce').checked&&$('wallTies').checked?'自動補強：指定間隔を上限に横つなぎを増やします。':$('wallTies').checked?'手動の補強間隔を使います。':'横つなぎはオフです。')+(a?.wallTies?.intervals?.length?' 配置間隔の目安 '+a.wallTies.intervals.join(' / ')+' mm。':'')+' 紫：補強要確認／黄：注意。高さと壁厚・実際に作れた横つなぎからの目安です。材料強度や揺れを保証しません。';strength.append(note);if(warnings.length){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='補強を確認したいリブ（'+warnings.length+'枚）';details.append(summary);for(const r of warnings){const line=document.createElement('small');line.textContent='リブ '+r.number+'：'+r.message+'（補強のない高さ '+r.unsupportedSpan.toFixed(1)+' mm／壁厚 '+Number($('wallThickness').value)+' mm）';details.append(line);}strength.append(details);}}
   const m=a?.material,n=v=>Number(v.toFixed(2));$('material-info').textContent=m?'サポート '+n(m.volume/1000)+' cm³ ／ 約 '+n(m.lengthM)+' m ／ 約 '+n(m.massG)+' g'+(a.bottomSkin?.enabled?'（底面薄皮を含む）':'')+(a.windows?.enabled?'。窓抜き前 '+n(m.beforeWindows.massG)+' g → '+n(m.massG)+' g（約 '+n(m.saved.massG)+' g・'+n(m.saved.lengthM)+' m削減）':''):'プレビュー後に体積から換算します。';removal.sync(busy||picking||ribPicking||ribBatch||contactView.active);$('apply').disabled||=removal.active||materialInvalid;$('export3mf').disabled||=removal.active||materialInvalid;if(materialInvalid)$('material-info').textContent='フィラメント径と材料の密度を範囲内で入力してください。';
  }
@@ -604,7 +619,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const tasks=targets.map(target=>{
    if(!batchIds.has(target))batchIds.set(target,crypto.randomUUID());
    const input={...source,...batchAdjustments.get(target),id:batchIds.get(target),target,batch:true,batchGroup,faces:[],excludedRibs:[],excludedRibBlockers:[],faceOverrides:overridesFor(target)};
-   return {input,key:JSON.stringify([$('auto-adjust').checked,Object.keys(input).sort().map(key=>[key,input[key]])])};
+   return {input,key:JSON.stringify([$('auto-adjust').checked,adjustmentPermissions.value(),Object.keys(input).sort().map(key=>[key,input[key]])])};
   });
   const keys=new Map(tasks.map(({input,key})=>[input.target,key]));
   for(const [target,entry] of batchEntries)if(keys.get(target)!==entry.key||retryFailed&&entry.error)batchEntries.delete(target);
@@ -618,18 +633,19 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
      if(!current())return;
      if(batchEntries.has(input.target))continue;
      $('info').textContent='計算中：'+bodyName(input.target);
+     let trialReport;
      try{
       const previous=currentBatch().map(entry=>supportHistoryFeature(entry.input,entry.result));
       const checked=validatePrintSupport(input);
-      const preview=await prepareSupportPreview(checked,request,previous.length?[...history,...previous]:history);
+      const preview=await prepareSupportPreview(checked,request,previous.length?[...history,...previous]:history,false,report=>{trialReport=report;});
       if(!current())return;
       const {result,adjustment}=preview;
       const issues=result.analysis.printSupport.ribs?.issues||[];
       if(!result.outputs.length||issues.length)throw Error(issues.join('。')||'リブを配置できませんでした');
-      batchEntries.set(input.target,{input:preview.input,key,result,adjustment});
+      batchEntries.set(input.target,{input:preview.input,key,result,adjustment,trialReport});
      }catch(error){
       if(!current())return;
-      batchEntries.set(input.target,{input,key,error:error.message,coverage:error.supportCoverage||[],clearance:error.supportClearanceRegions||[]});
+      batchEntries.set(input.target,{input,key,error:error.message,coverage:error.supportCoverage||[],clearance:error.supportClearanceRegions||[],trialReport});
      }
      controls();
     }
@@ -644,6 +660,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
       analysis:{printSupport:{contacts:[],clearanceRegions:[...results.flatMap(result=>result.analysis.printSupport.clearanceRegions||[]),...failedClearance]}}});
     }else{coverageView.show(failedCoverage);clearanceView.show(failedClearance,scene);}
     updateGapComparison(currentBatch());
+    adjustmentReview.show([...batchEntries].filter(([,entry])=>entry.trialReport)
+     .map(([target,entry])=>({target,report:entry.trialReport})));
     const adjusted=prepared.filter(entry=>entry.adjustment).length;
     $('auto-adjust-status').textContent=adjusted?adjusted+'ボディを自動調整しました。「複数ボディに一括配置」で変更内容を確認できます。':'';
     $('info').textContent=results.length?'橙色：作成できた連結リブサポート。ボディごとの結果は「複数ボディに一括配置」で確認できます。':'連結リブサポートを作成できませんでした。各ボディの結果を確認してください。';
@@ -668,7 +686,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    throw error;
   }
  }
- async function prepareSupportPreview(input,request,requestHistory=history,remap=false){
+ async function prepareSupportPreview(input,request,requestHistory=history,remap=false,onReport){
   const current=()=>request===revision&&dialog.open&&getFeatures()===original;
   const failures=new Map(),run=settings=>runSupportPreview(settings,request,requestHistory,failures);
   let attempts=0;
@@ -676,7 +694,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    return await adjustSupportPreview(input,{
     initial:remap?settings=>calculateRibPreview(settings,request,run):run,
     run:settings=>run(validatePrintSupport(settings)),
-    enabled:$('auto-adjust').checked,current:()=>current()&&(!remap||!ribReview.length),
+    enabled:$('auto-adjust').checked,allowedFields:adjustmentPermissions.value(),current:()=>current()&&(!remap||!ribReview.length),
+    onReport:report=>{if(current())onReport?.(report);},
     onTrial:number=>{
      attempts=number;
      $('auto-adjust-status').textContent='作成できる設定を試しています（'+number+'回目）';
@@ -724,7 +743,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return result;
  }
  function showPreviewInfo(a){
-  $('info').textContent='橙色：連結リブサポート '+a.count+(a.style==='walls'?'枚（薄壁・間隔 '+a.wallPitch+' mm） ／ 積層ピッチ '+a.layerHeight+' mm。下端は土台に接触します。':'本（ベッド上 '+a.bedBasedCount+'本・モデル上 '+a.modelBasedCount+'本） ／ ベッドの足 Ø'+a.footDiameter+' mm ／ 支柱 Ø'+a.postDiameter+' mm ／ 接点の縦すき間 '+a.topGap+' mm。'+(a.modelBasedCount?' モデル上の接点の縦すき間 '+a.bottomGap+' mm。':'')+(a.limited?' 本数の上限で配置を止めました。':'')+(a.skipped?' '+a.skipped+'候補を見送りました。':''))+(a.style==='walls'&&a.wallTies?.enabled?' 横つなぎ '+a.wallTies.count+'箇所（'+(a.wallTies.auto?'自動調整・指定上限 ':'高さ間隔 ')+a.wallTies.interval+' mm）。':'')+(a.style==='walls'&&a.skipped?' 土台に遮られた配置があります。対象面または支え始める場所を見直してください。':'')+(a.nonHorizontalFaces?' 斜面・曲面 '+a.nonHorizontalFaces+'面は薄壁の対象外です。3MFではこの近傍に自動サポートを使えます。':'')+(a.roof?.enabled?(a.roof.count?' 上面の薄皮 '+a.roof.count+'面（'+a.roof.layers+'層・'+Number(a.roof.thickness.toFixed(4))+' mm）。':' 薄皮：つなぐリブが2枚以上ある面はありません。'):'')+(a.roof?.seams?.enabled?' 分割線 '+a.roof.seams.count+'本・薄皮 '+a.roof.seams.sections+'区画'+(a.roof.seams.skipped?'（'+a.roof.seams.skipped+'本見送り）':'')+'。':'')+(a.windows?.enabled?(a.windows.count?' 窓抜き '+a.windows.count+'箇所・サポート体積 約'+a.windows.savedPercent.toFixed(1)+'%削減。':' 根元・接続部の保護条件に合う窓がないため、形状を維持しました。')+(a.windows.limited?' 窓の数の上限で一部を見送りました。':''):'')+(a.bottomSkin?.enabled?' 底面の薄皮 '+a.bottomSkin.count+'面（'+a.bottomSkin.layers+'層・'+Number(a.bottomSkin.thickness.toFixed(4))+' mm）。':'')+(a.contactInterface?.enabled?' 線状接触層：上面 '+a.contactInterface.upper+'面・底面 '+a.contactInterface.lower+'面（線幅 '+a.contactInterface.width+' mm・隙間 '+a.contactInterface.spacing+' mm）。':'')+(a.bottomSkin?.seams?.enabled?' 底面分割線 '+a.bottomSkin.seams.count+'本（見送り '+a.bottomSkin.seams.skipped+'本）。':'')+(a.omittedReinforcement?' 干渉する補強 '+a.omittedReinforcement+'箇所を省きました。':'');
+  const skinLayers=skin=>skin.perFace?'（下面ごとの設定）':'（'+skin.layers+'層・'+Number(skin.thickness.toFixed(4))+' mm）';
+  $('info').textContent='橙色：連結リブサポート '+a.count+(a.style==='walls'?'枚（薄壁・間隔 '+a.wallPitch+' mm） ／ 積層ピッチ '+a.layerHeight+' mm。下端は土台に接触します。':'本（ベッド上 '+a.bedBasedCount+'本・モデル上 '+a.modelBasedCount+'本） ／ ベッドの足 Ø'+a.footDiameter+' mm ／ 支柱 Ø'+a.postDiameter+' mm ／ 接点の縦すき間 '+a.topGap+' mm。'+(a.modelBasedCount?' モデル上の接点の縦すき間 '+a.bottomGap+' mm。':'')+(a.limited?' 本数の上限で配置を止めました。':'')+(a.skipped?' '+a.skipped+'候補を見送りました。':''))+(a.style==='walls'&&a.wallTies?.enabled?' 横つなぎ '+a.wallTies.count+'箇所（'+(a.wallTies.auto?'自動調整・指定上限 ':'高さ間隔 ')+a.wallTies.interval+' mm）。':'')+(a.style==='walls'&&a.skipped?' 土台に遮られた配置があります。対象面または支え始める場所を見直してください。':'')+(a.nonHorizontalFaces?' 斜面・曲面 '+a.nonHorizontalFaces+'面は薄壁の対象外です。3MFではこの近傍に自動サポートを使えます。':'')+(a.roof?.enabled?(a.roof.count?' 上面の薄皮 '+a.roof.count+'面'+skinLayers(a.roof)+'。':' 薄皮：つなぐリブが2枚以上ある面はありません。'):'')+(a.roof?.seams?.enabled?' 分割線 '+a.roof.seams.count+'本・薄皮 '+a.roof.seams.sections+'区画'+(a.roof.seams.skipped?'（'+a.roof.seams.skipped+'本見送り）':'')+'。':'')+(a.windows?.enabled?(a.windows.count?' 窓抜き '+a.windows.count+'箇所・サポート体積 約'+a.windows.savedPercent.toFixed(1)+'%削減。':' 根元・接続部の保護条件に合う窓がないため、形状を維持しました。')+(a.windows.limited?' 窓の数の上限で一部を見送りました。':''):'')+(a.bottomSkin?.enabled?' 底面の薄皮 '+a.bottomSkin.count+'面'+skinLayers(a.bottomSkin)+'。':'')+(a.contactInterface?.enabled?' 線状接触層：上面 '+a.contactInterface.upper+'面・底面 '+a.contactInterface.lower+'面（線幅 '+a.contactInterface.width+' mm・隙間 '+a.contactInterface.spacing+' mm）。':'')+(a.bottomSkin?.seams?.enabled?' 底面分割線 '+a.bottomSkin.seams.count+'本（見送り '+a.bottomSkin.seams.skipped+'本）。':'')+(a.omittedReinforcement?' 干渉する補強 '+a.omittedReinforcement+'箇所を省きました。':'');
   if(a.skippedCeilings?.length){const heights=[...new Set(a.skippedCeilings.map(face=>Number(face.height.toFixed(2))))].sort((x,y)=>x-y);$('info').textContent+=' 薄皮が収まらない下面 '+a.skippedCeilings.length+'面（高さ '+heights.slice(0,4).join('、')+(heights.length>4?' など':'')+' mm）は自動配置を見送りました。3MFでもこの範囲は自動サポートを使えます。';}if(a.clearanceRegions?.some(region=>region.partial))$('info').textContent+=' 薄皮が干渉する範囲を省き、残りに配置しました。3MFでも省いた範囲は自動サポートを使えます。';
   if(a.omittedExterior){const omitted=[a.omittedExterior.faces?'外側の張り出し '+a.omittedExterior.faces+'面':'',a.omittedExterior.ribPieces?'下面に届かないリブ片 '+a.omittedExterior.ribPieces+'個':''].filter(Boolean);$('info').textContent+=' '+omitted.join('・')+'を省きました。';}if(a.contactInterface?.skippedDisconnected)$('info').textContent+=' 分断を防ぐため、接触線を作れない薄皮 '+a.contactInterface.skippedDisconnected+' 面を平らなまま残しました。';
   if(a.sideGapAlignedCeilings)$('info').textContent+=' 側壁のすき間を起点にリブを等間隔に配置しました。';
@@ -760,7 +780,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    const job={};
    activeRun=job;inflight=true;
    try{
-    const prepared=await prepareSupportPreview(input,request,history,true);
+    const prepared=await prepareSupportPreview(input,request,history,true,
+     report=>adjustmentReview.show([{target:input.target,report}]));
     if(request!==revision||!dialog.open||getFeatures()!==original)return;
     const {result,adjustment}=prepared;
     input=prepared.input;

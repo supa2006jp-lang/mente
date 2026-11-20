@@ -25,11 +25,13 @@ export function validateSupportFaceOverrides(overrides,target,wallThickness){
  if(!Array.isArray(overrides)||overrides.length>32)throw Error('下面の個別設定は32面までです');
  const faces=validateSupportFaces(overrides.map(row=>row?.selection),target,{allowEmpty:true});
  return overrides.map((row,i)=>{
-  const {wallPitch,roofLayers,bottomSkinLayers,noSupport,allowAutoSupport,edgeAssist,localRibs}=row;
+  const {wallPitch,roofLayers,bottomSkinLayers,wallRoof,wallBottomSkin,noSupport,allowAutoSupport,edgeAssist,localRibs}=row;
   if(wallPitch!=null&&(!Number.isFinite(wallPitch)||wallPitch<2||wallPitch>15||wallPitch<=wallThickness))
    throw Error('下面の薄壁間隔は2〜15 mmで、薄壁の厚みより大きくしてください');
   for(const layers of [roofLayers,bottomSkinLayers])if(layers!=null&&(!Number.isInteger(layers)||layers<1||layers>6))
    throw Error('下面の薄皮は1〜6層で指定してください');
+  for(const flag of [wallRoof,wallBottomSkin])if(flag!==undefined&&typeof flag!=='boolean')
+   throw Error('下面ごとの薄皮の有無を選択してください');
   if(noSupport!==undefined&&(!Array.isArray(noSupport)||noSupport.length>8||noSupport.some(zone=>
    !Array.isArray(zone)||zone.length!==4||zone.some(value=>!Number.isFinite(value)||Math.abs(value)>100000)||
    zone[2]-zone[0]<.1-1e-9||zone[3]-zone[1]<.1-1e-9)))throw Error('除外範囲は縦横0.1 mm以上で、1面につき8箇所まで指定できます');
@@ -40,9 +42,10 @@ export function validateSupportFaceOverrides(overrides,target,wallThickness){
   if(localRibs!==undefined&&(!Array.isArray(localRibs)||localRibs.length>8||localRibs.some(rib=>
    !rib||!Array.isArray(rib.at)||rib.at.length!==2||rib.at.some(value=>!Number.isFinite(value)||Math.abs(value)>100000)||
    !Number.isFinite(rib.length)||rib.length<2||rib.length>40)))throw Error('短いリブは長さ2〜40 mmで、1面につき8本まで指定できます');
-  if([wallPitch,roofLayers,bottomSkinLayers].every(v=>v==null)&&!noSupport?.length&&!edgeAssist&&!localRibs?.length)throw Error('下面の個別設定が空です');
+  if([wallPitch,roofLayers,bottomSkinLayers,wallRoof,wallBottomSkin].every(v=>v==null)&&!noSupport?.length&&!edgeAssist&&!localRibs?.length)throw Error('下面の個別設定が空です');
   return {selection:faces[i],...(wallPitch!=null?{wallPitch}:{}),...(roofLayers!=null?{roofLayers}:{}),
-   ...(bottomSkinLayers!=null?{bottomSkinLayers}:{}),...(noSupport?.length?{noSupport:noSupport.map(zone=>[...zone])}:{}),
+   ...(bottomSkinLayers!=null?{bottomSkinLayers}:{}),...(wallRoof!==undefined?{wallRoof}:{}),...(wallBottomSkin!==undefined?{wallBottomSkin}:{}),
+   ...(noSupport?.length?{noSupport:noSupport.map(zone=>[...zone])}:{}),
    ...(allowAutoSupport?.length?{allowAutoSupport:[...allowAutoSupport]}:{}),...(edgeAssist?{edgeAssist}: {}),
    ...(localRibs?.length?{localRibs:localRibs.map(({at,length})=>({at:[...at],length}))}:{})};
  });
