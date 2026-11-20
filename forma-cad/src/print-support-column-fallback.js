@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {supportBoxesTouch} from './print-support-solid-groups.js';
 
 const tolerance=1e-6;
 const areaOverlap=(a,b)=>{
@@ -11,7 +12,7 @@ function samples(low,high,pitch){
  return Array.from({length:count*2+1},(_,i)=>low+(high-low)*i/(count*2));
 }
 
-export function supportFallbackColumns({face,faceBounds,height,bodies,bases,settings:p,limit,onProgress,positions}){
+export function supportFallbackColumns({face,faceBounds,height,bodies,bases,settings:p,limit,onProgress,positions,protectionTools=[]}){
  const radius=p.fallbackDiameter/2,margin=radius+p.edgeMargin,top=height-p.topGap;
  const low=faceBounds[0].map(v=>v+margin),high=faceBounds[1].map(v=>v-margin);
  if(limit<1||low[0]>high[0]+tolerance||low[1]>high[1]+tolerance||top<=p.bedZ+p.layerHeight)return [];
@@ -46,6 +47,10 @@ export function supportFallbackColumns({face,faceBounds,height,bodies,bases,sett
    // Only suppress slicer support directly above the new column.
    const shape=R.makeCylinder(radius,top-bottom,[x,y,bottom]);
    try{
+    const box=[[x-radius,y-radius,bottom],[x+radius,y+radius,top]];
+    if(protectionTools.some(tool=>supportBoxesTouch(box,tool.bounds)&&areaOverlap(shape,tool.shape)>tolerance)){
+     shape.delete();continue;
+    }
     const blocker=R.makeCylinder(radius,height+p.layerHeight-bottom,[x,y,bottom]);
     results.push({shape,blocker,point:[x,y,height],top,bottom,radius,baseBodyId:base?.bodyId});
    }catch(error){shape.delete();throw error;}

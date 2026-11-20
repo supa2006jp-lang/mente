@@ -29,7 +29,7 @@ function pullTab(part,record,side,otherCenter,bodies,holes,p,top,reject,sideGap)
 
 // Cut only the roof, never the fins/ties. Every resulting roof piece must keep
 // two fin landings. Tabs start inside an existing fin, then ramp out at >45°.
-export function roofRemovalDetails(original,records,profile,bodies,p,top,onProgress,{seams=128,tabs=64,sideGap}={}){
+export function roofRemovalDetails(original,records,profile,bodies,p,top,onProgress,{seams=128,tabs=64,sideGap,protectionTools=[]}={}){
  let roof=original.clone();const madeTabs=[],holes=[],preview=[],placements=[],matched=[];let cuts=0,skippedCuts=0,skippedTabs=0,manualInvalid=0;
  try{
   const axis=records[0].axis,other=1-axis;
@@ -43,6 +43,7 @@ export function roofRemovalDetails(original,records,profile,bodies,p,top,onProgr
   }
   if(p.roofTabs||p.preview){
    if(p.roofTabs)holes.push(...holeMasks(profile,top-p.bedZ+1));const parts=roof.solids;
+   const masks=[...holes,...protectionTools.map(tool=>tool.shape)];
    try{
     if(p.roofTabs&&parts.length>tabs)throw Error('薄皮のタブが多すぎます。分割の間隔を広げてください');
     const ends=[{record:records[0],side:-1},{record:records.at(-1),side:1}];
@@ -51,7 +52,7 @@ export function roofRemovalDetails(original,records,profile,bodies,p,top,onProgr
      if(p.preview)preview.push({role:'roof',...descriptor,...cadMesh(part)});
      if(!p.roofTabs)continue;
      onProgress?.({stage:'薄皮を剥がすタブを作成しています'});if(manual)matched.push(id);
-     if(high>=low)for(const t of manual?[manual.position]:[.5,.25,.75]){const center=low+(high-low)*t;for(const end of manual?ends.filter(e=>e.side===manual.side):ends){made=pullTab(part,end.record,end.side,center,bodies,holes,p,top,message=>reason=message,sideGap);if(made){chosen={side:end.side,position:t};break;}}if(made)break;}
+     if(high>=low)for(const t of manual?[manual.position]:[.5,.25,.75]){const center=low+(high-low)*t;for(const end of manual?ends.filter(e=>e.side===manual.side):ends){made=pullTab(part,end.record,end.side,center,bodies,masks,p,top,message=>reason=message,sideGap);if(made){chosen={side:end.side,position:t};break;}}if(made)break;}
      if(made){madeTabs.push(made);if(p.preview)preview.push({role:'tab',sectionId:id,...chosen,...cadMesh(made)});}else{skippedTabs++;if(manual)manualInvalid++;}
      placements.push({sectionId:id,manual:!!manual,ok:!!made,...chosen,...(!made?{reason}:{})});
     }

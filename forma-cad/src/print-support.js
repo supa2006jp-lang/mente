@@ -6,6 +6,7 @@ import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupportSteps} from './print-support-walls.js';
 import {finishCadSteps} from './cad-steps.js';
 import {supportMaterialEstimate} from './print-support-material.js';
+import {validateSupportHoleProtections} from './print-support-hole-protection.js';
 export const printSupportDefaults={style:'posts',fallbackPosts:false,fillGaps:false,fallbackDiameter:1.2,contactLines:false,topContactLines:true,bottomContactLines:true,topContactRim:false,topContactRimWidth:.6,interfaceLineWidth:.6,interfaceSpacing:.5,bottomContactInset:0,edgeMargin:.5,sideGap:0,bottomSeams:false,bottomSectionLength:25,bottomSeamWidth:.6,wallBottomSkin:false,bottomSkinLayers:2,edgeRibs:false,autoReinforce:false,filamentDiameter:1.75,materialDensity:1.24,lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',wallOffset:0,excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
@@ -13,6 +14,7 @@ export function validatePrintSupport(input){
  // Existing saved supports keep their original bed-only placement on replay.
  const p={...printSupportDefaults,...input,baseMode:input.baseMode??'bed',wallTies:input.wallTies??false,wallWindows:input.wallWindows??false,wallRoof:input.wallRoof??false,roofTabs:input.roofTabs??false,roofSeams:input.roofSeams??false};
  normalizeContactSettings(input,p);
+ if(input.holeProtections!==undefined)p.holeProtections=validateSupportHoleProtections(input.holeProtections);
  p.edgeMargin=input.edgeMargin??.5;if(!Number.isFinite(p.edgeMargin)||p.edgeMargin<.1||p.edgeMargin>2)throw Error('外周からの余白は0.1〜2 mmで指定してください');
  p.sideGap=input.sideGap??0;
  if(!Number.isFinite(p.sideGap)||p.sideGap<0||p.sideGap>2)throw Error('側壁との横すき間は0〜2 mmで指定してください');

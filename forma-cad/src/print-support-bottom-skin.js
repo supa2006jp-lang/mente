@@ -1,18 +1,27 @@
 import {splitSupportBottomSkin} from './print-support-bottom-seams.js';
 import * as R from 'replicad';
 import {skinClearanceError} from './print-support-skin-clearance.js';
+import {supportBoxesTouch,supportShapeBounds} from './print-support-solid-groups.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const overlap=(a,b)=>{const shape=a.intersect(b);try{return Math.abs(R.measureVolume(shape));}finally{shape.delete();}};
 // Resolve landings after removing the model: bed Z alone would put this skin
 // inside the lower plate for a support starting on another part of the model.
-export function makeSupportBottomSkins(records,prism,bodies,p,onProgress){
+export function makeSupportBottomSkins(records,prism,bodies,p,onProgress,protectionTools=[]){
  const seams={enabled:!!p.bottomSeams,count:0,skipped:0,sections:0,spacing:p.bottomSectionLength,width:p.bottomSeamWidth},skins=[],heights=[],thickness=p.bottomSkinLayers*p.layerHeight;if(!records.length)return {shapes:skins,heights,thickness,seams};let free=prism.clone(),faces=[];
  try{
   if(p.baseMode!=='bed')for(const body of bodies.values()){const next=free.cut(body);free.delete();free=next;}
   faces=free.faces;
   for(const face of faces){if(face.geomType!=='PLANE')continue;const n=tuple(face.normalAt());if(n[2]>-.999999)continue;const z=tuple(face.center)[2];let raw,skin,profile,vector;
    try{
-    onProgress?.({stage:'実際の底面に薄皮を作成しています'});profile=face.clone();vector=new R.Vector([0,0,thickness]);raw=R.basicFaceExtrusion(profile,vector);skin=raw.intersect(free);const volume=Math.abs(R.measureVolume(raw)),actual=Math.abs(R.measureVolume(skin));if(actual<.001)continue;
+    onProgress?.({stage:'実際の底面に薄皮を作成しています'});profile=face.clone();vector=new R.Vector([0,0,thickness]);raw=R.basicFaceExtrusion(profile,vector);
+    if(protectionTools.length){
+     const bounds=supportShapeBounds(raw);
+     for(const tool of protectionTools){
+      if(!supportBoxesTouch(bounds,tool.bounds))continue;
+      const next=raw.cut(tool.shape);raw.delete();raw=next;
+     }
+    }
+    skin=raw.intersect(free);const volume=Math.abs(R.measureVolume(raw)),actual=Math.abs(R.measureVolume(skin));if(actual<.001)continue;
     const parts=skin.solids;let attached;try{attached=parts.every(part=>records.some(r=>overlap(part,r.shape)>.0001));}finally{parts.forEach(part=>part.delete());}if(!attached)continue;
     if(Math.abs(actual-volume)>Math.max(.0001,volume*1e-6)){
      const collision=raw.cut(free);

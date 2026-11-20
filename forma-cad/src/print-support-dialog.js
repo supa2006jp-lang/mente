@@ -23,6 +23,7 @@ import {createSupportSliceReview} from './print-support-slice-view.js';
 import {supportSliceRepairApplied} from './print-support-slice-repair.js';
 import {supportMaterialEstimate} from './print-support-material.js';
 import {createSupportFaceView} from './print-support-face-view.js';
+import {createSupportHoleView} from './print-support-hole-view.js';
 import {cadPosition} from './cad-coordinates.js';
 import {createSupportFastPreview} from './print-support-fast-preview.js';
 import {cadFaceGroup} from './face-selection.js';
@@ -196,12 +197,19 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }});
  autoFaceButton.onclick=()=>coverageView.showAutoFaces();
  const faceView=createSupportFaceView({scene,host,meshes,camera});
+ let holeTarget=null;
+ const holeOpenings=new Map();
+ const holeView=createSupportHoleView({anchor:boreLabel,scene,host,canvas,camera,bodyName,onStart:beginHolePick,onFinish:finishHolePick});
+ function pickingObjects(){
+  return [faceView.pickMesh,...[...meshes.values()].filter(mesh=>mesh.visible)].filter(Boolean);
+ }
  const ribView=createSupportRibView({host,canvas,camera,onToggle:pickRib});
  const roofView=createSupportRoofView({host,canvas,camera,onSelect(sectionId){if(!dialog.open||busy)return;roofView.setSelected(sectionId);controls();}});
  const contactView=createSupportContactView({scene,host,camera,fitPreview,getControls});
  const clearRibHover=()=>ribView.hover(null);
- canvas.addEventListener('pointerleave',clearRibHover);
+ canvas.addEventListener('pointerleave',()=>{clearRibHover();if(holeTarget)holeView.hover(null);});
  canvas.addEventListener('pointermove',event=>{
+  if(holeTarget){holeView.hover(event.buttons?null:event,pickingObjects());return;}
   if(!cached||busy||picking||contactView.active||removal.active||reinforcementComparison?.showBefore||host.hasAttribute('data-support-zone-picking')||event.buttons){clearRibHover();return;}
   ribView.hover(ribView.pick(event,{near:false,reviewOnly:ribReview.length>0}));
  });
@@ -247,7 +255,46 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const next=pendingPreview;pendingPreview=null;
   if(dialog.open){if(next)next();else controls();}
  }
- function close(){changeBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
+ function stopPicking(){
+  faceView.endPick();picking=false;
+  if(holeTarget){holeTarget=null;holeView.end();}
+ }
+ function finishHolePick(changed){
+  stopPicking();
+  if(changed)resetStructure();
+  schedule();
+ }
+ function resolvedHoles(target){
+  const entry=batching()?batchEntries.get(target):cached;
+  return entry?.input.target===target?entry.result?.analysis.printSupport.holeProtections:null;
+ }
+ async function beginHolePick(target,index){
+  if(busy||picking||selectionBusy||!target||removal.active)return;
+  const opening=index===undefined?null:resolvedHoles(target)?.[index];
+  ribPicking=false;endRibBatch();ribView.setDisplay();
+  const request=invalidate({preserveWorker:true});
+  try{
+   faceView.beginPick(history,target,editing?.id);
+   picking=true;holeTarget=target;holeView.open(target,index,opening);
+   $('info').textContent=$('error').textContent='';
+   if(index!==undefined){controls();return;}
+   selectionBusy=true;controls();
+   let openings=holeOpenings.get(target);
+   if(!openings){
+    const result=await kernel.run(history,{type:'printSupportHoleOpenings',target});
+    if(request!==revision||!dialog.open||holeTarget!==target||getFeatures()!==original)return;
+    openings=result.openings;holeOpenings.set(target,openings);
+   }
+   holeView.showOpenings(openings);
+  }catch(error){
+   if(request===revision&&dialog.open){
+    selectionBusy=false;stopPicking();schedule();holeView.message(error.message);
+   }
+  }finally{
+   if(request===revision){selectionBusy=false;controls();}
+  }
+ }
+ function close(){changeBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();stopPicking();holeView.reset('');holeOpenings.clear();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;if(dialog.open)dialog.close();}
  const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
  function previewOutputs(){
   const entries=batching()?currentBatch():cached?[cached]:[];
@@ -318,6 +365,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   adjustmentPermissions.controls({enabled:walls&&$('auto-adjust').checked,disabled:busy||picking});
   const batch=batching();
   batchPanel.sync({available:batchAvailable(),disabled:busy||picking,entries:batchEntries,calculating:batch&&batchPending,adjustments:batchAdjustments});
+  holeView.sync({enabled:walls,locked:busy||selectionBusy||picking&&!holeTarget||removal.active||!!trialPreview||sliceReview.checking,
+   batchTargets:batch?[...batchPanel.selected]:[],activeTarget:$('target').value,resolve:resolvedHoles});
   const coverageTarget=$('target').value;
   coverageView.controls({available:walls,blocked:busy||picking||inflight||batchPending,masked:removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length,
    activeTarget:coverageTarget,hasOverrides:overridesFor(coverageTarget).length>0});
@@ -335,8 +384,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   $('apply').textContent=batch?'成功分をまとめて作成（'+currentBatch().length+'）':editing?'変更を適用':'連結リブサポートを作成';
   $('export3mf').textContent=batch?'成功分をまとめて3MF出力（'+batchExportCount()+'）':'プレビューを3MF出力（本体＋薄壁）';
   if(batch){
-   $('apply').disabled=busy||batchPending||removal.active||!currentBatch().length;
-   $('export3mf').disabled=busy||batchPending||removal.active||!batchExportCount();
+   $('apply').disabled=busy||picking||batchPending||removal.active||!currentBatch().length;
+   $('export3mf').disabled=busy||picking||batchPending||removal.active||!batchExportCount();
    contactTools.hidden=true;
    const count=batchExportCount();
    exportState.dataset.state=count&&!batchPending?'ready':batchPending?'checking':'unavailable';
@@ -394,7 +443,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   $('rib-comparison-after').setAttribute('aria-pressed',String(!before));
  }
  function faceControls(){
-  $('pick').textContent=selectionBusy?'下面を確認中…':picking?'選択を終了してプレビュー':'下面を選ぶ・追加する';$('pick').disabled=busy||selectionBusy;$('face-clear').disabled=busy||selectionBusy||!selectedFaces.length;$('face-info').textContent=selectedFaces.length?'選択済み：'+selectedFaces.length+'面 ／ '+bodyName($('target').value):'下面を1面以上選択してください';$('face-list').replaceChildren(...selectedFaces.map((face,index)=>{const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px;margin:4px 0';const label=document.createElement('span');label.textContent='下面 '+(index+1);const remove=document.createElement('button');remove.type='button';remove.textContent='外す';remove.dataset.supportFaceRemove=index;remove.disabled=busy||selectionBusy;remove.onclick=()=>removeFace(index);row.append(label,remove);return row;}));
+  $('pick').textContent=holeTarget?'下面を選ぶ・追加する':selectionBusy?'下面を確認中…':picking?'選択を終了してプレビュー':'下面を選ぶ・追加する';$('pick').disabled=busy||selectionBusy||!!holeTarget;$('face-clear').disabled=busy||selectionBusy||!!holeTarget||!selectedFaces.length;$('face-info').textContent=selectedFaces.length?'選択済み：'+selectedFaces.length+'面 ／ '+bodyName($('target').value):'下面を1面以上選択してください';$('face-list').replaceChildren(...selectedFaces.map((face,index)=>{const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:8px;margin:4px 0';const label=document.createElement('span');label.textContent='下面 '+(index+1);const remove=document.createElement('button');remove.type='button';remove.textContent='外す';remove.dataset.supportFaceRemove=index;remove.disabled=busy||selectionBusy||!!holeTarget;remove.onclick=()=>removeFace(index);row.append(label,remove);return row;}));
  }
  function removeFace(index){if(busy||selectionBusy)return;selectedFaces=selectedFaces.filter((_,i)=>i!==index);const items=faceView.items.filter((_,i)=>i!==index);resetStructure();if(picking){faceView.show(items);controls();$('error').textContent='';}else schedule();}
  function improvementControls(walls){contactControls(walls);const rim=walls&&$('contactLines').checked&&$('topContactLines').checked&&skinAvailable('wallRoof');$('topContactRim').closest('label').hidden=$('top-rim-note').hidden=!rim;$('topContactRim').disabled=busy;for(const key of ['topContactRimWidth'])$(key).closest('label').hidden=!rim||!$('topContactRim').checked;contact.hidden=!walls;$('contactLines').disabled=busy||!(skinAvailable('wallRoof')||skinAvailable('wallBottomSkin'));for(const [flag,skin,keys]of [['topContactLines','wallRoof',['interfaceLineWidth','interfaceSpacing']],['bottomContactLines','wallBottomSkin',['bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset']]]){const on=walls&&$('contactLines').checked;$(flag).closest('label').hidden=!on;$(flag).disabled=busy||!skinAvailable(skin);for(const key of keys)$(key).closest('label').hidden=!on||!$(flag).checked||!skinAvailable(skin);}$('contact-note').textContent='本体側1層を上下別の線幅・隙間にします。上面の縦すき間は維持し、底面は本体に線で接触します。「底面の端の逃げ」で接触する1層だけ外周から離し、剥がし始めを作ります。0で従来の形です。ベッド上は広いまま残します。';bottomRemoval.hidden=!walls||!skinAvailable('wallBottomSkin');for(const key of ['bottomSectionLength','bottomSeamWidth'])$(key).closest('label').hidden=!walls||!skinAvailable('wallBottomSkin')||!$('bottomSeams').checked;$('wallBottomSkin').closest('label').hidden=!walls;$('bottomSkinLayers').closest('label').hidden=!walls||!$('wallBottomSkin').checked;$('footThickness').disabled=$('connectFeet').disabled=busy||walls&&$('wallBottomSkin').checked;$('bottom-skin-note').textContent='底面のリブを '+Number((Number($('bottomSkinLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mmの薄皮でまとめます。従来の足の代わりになり、土台との接触は維持します。外しやすさは試し刷りで確認してください。';$('edgeRibs').closest('label').hidden=$('edge-ribs-note').hidden=!walls;faceView.setHidden(removal.active||contactView.active||$('mode').value!=='face');
@@ -610,7 +659,13 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const source=editing?.spec??restoredBatch;
   return source?.batch===true?{batch:true,...(source.batchGroup?{batchGroup:source.batchGroup}:{})}:{};
  };
- const spec=()=>({type:'printSupport',id,style:$('style').value,...($('style').value==='walls'&&Number($('sideGap').value)>0?{keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true}:{}),target:$('target').value,mode:$('mode').value,...batchSpec(),...(overridesFor($('target').value).length?{faceOverrides:overridesFor($('target').value)}:{}),baseMode:$('baseMode').value,faces:$('mode').value==='face'?selectedFaces.map(f=>structuredClone(f)):[],wallDirection:$('wallDirection').value,...(wallOffset?{wallOffset}:{}),excludedRibs:[...excludedRibs],excludedRibBlockers:[...excludedRibBlockers],roofTabs:false,roofTabPlacements:[],...Object.fromEntries(keys.filter(key=>!$(key).closest('label').hidden).map(key=>[key,$(key).value.trim()?Number($(key).value):NaN])),...Object.fromEntries(toggles.map(key=>[key,$(key).checked])),...Object.fromEntries(['interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','topContactRimWidth'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))});
+ function holeSpec(input){
+  const holes=input.style==='walls'?holeView.selections(input.target):[];
+  if(holes.length)input.holeProtections=holes;
+  else delete input.holeProtections;
+  return input;
+ }
+ const spec=()=>holeSpec({type:'printSupport',id,style:$('style').value,...($('style').value==='walls'&&Number($('sideGap').value)>0?{keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true}:{}),target:$('target').value,mode:$('mode').value,...batchSpec(),...(overridesFor($('target').value).length?{faceOverrides:overridesFor($('target').value)}:{}),baseMode:$('baseMode').value,faces:$('mode').value==='face'?selectedFaces.map(f=>structuredClone(f)):[],wallDirection:$('wallDirection').value,...(wallOffset?{wallOffset}:{}),excludedRibs:[...excludedRibs],excludedRibBlockers:[...excludedRibBlockers],roofTabs:false,roofTabPlacements:[],...Object.fromEntries(keys.filter(key=>!$(key).closest('label').hidden).map(key=>[key,$(key).value.trim()?Number($(key).value):NaN])),...Object.fromEntries(toggles.map(key=>[key,$(key).checked])),...Object.fromEntries(['interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','topContactRimWidth'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))});
  function exportControls(phase='unavailable'){
   exportState.hidden=$('style').value!=='walls';const report=cached?.result.supportPreview?.exportStatus,state=report?.state||phase;exportState.dataset.state=state;host.dataset.supportExportStatus=JSON.stringify(report||{ok:false,state});exportState.replaceChildren();
   const title=document.createElement('strong');title.textContent=state==='ready'?'3MF：出力可能':state==='blocked'?'3MF：要確認':state==='checking'?'3MF：面の接続を検査中…':'3MF：未検査';title.style.color=state==='ready'?'#14704f':state==='blocked'?'#b43b24':'#31566b';exportState.append(title);
@@ -625,7 +680,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const before=spec();
   const settings={fallbackPosts:printSupportDefaults.fallbackPosts,fillGaps:printSupportDefaults.fillGaps,
    fallbackDiameter:printSupportDefaults.fallbackDiameter,...values};
-  faceView.endPick();picking=false;resetStructure();
+  stopPicking();resetStructure();
   for(const key of keys)if(settings[key]!==undefined)$(key).value=settings[key];
   for(const key of toggles)if(settings[key]!==undefined)$(key).checked=settings[key];
   if($('style').value!==settings.style){clearRibEdits();excludedRibs=[];excludedRibBlockers=[];}
@@ -789,7 +844,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const targets=[...batchPanel.selected],source=spec();
   const tasks=targets.map(target=>{
    if(!batchIds.has(target))batchIds.set(target,crypto.randomUUID());
-   const input={...source,...batchAdjustments.get(target),id:batchIds.get(target),target,batch:true,batchGroup,faces:[],excludedRibs:[],excludedRibBlockers:[],faceOverrides:overridesFor(target)};
+   const input=holeSpec({...source,...batchAdjustments.get(target),id:batchIds.get(target),target,batch:true,batchGroup,faces:[],excludedRibs:[],excludedRibBlockers:[],faceOverrides:overridesFor(target)});
    return {input,key:JSON.stringify([$('auto-adjust').checked,adjustmentPermissions.value(),Object.keys(input).sort().map(key=>[key,input[key]])])};
   });
   const keys=new Map(tasks.map(({input,key})=>[input.target,key]));
@@ -945,6 +1000,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(a.omittedBoreFaces)$('info').textContent+=' 小さな丸穴の底・段差 '+a.omittedBoreFaces+'面を省きました。';
   if(a.omittedThreadFaces)$('info').textContent+=' ねじ穴の入口の小面 '+a.omittedThreadFaces+'面を省きました。';
   if(a.omittedHoleFragments)$('info').textContent+=' 穴の縁の細いリブ片 '+a.omittedHoleFragments+'個を省きました。';
+  if(a.holeProtections?.length)$('info').textContent+=' 丸穴・ねじ穴 '+a.holeProtections.length+'件を保護しています。';
   if(a.reusedStructure)$('info').textContent+=' リブ本体と横つなぎを再利用しました。';
   if(a.ceilingReuse)$('info').textContent+=' 下面 '+a.ceilingReuse.reused+'面分のリブと薄皮を再利用しました。';
   if(a.ceilingScopeReuse)$('info').textContent+=' 下面 '+a.ceilingScopeReuse.reused+'面の配置範囲と横すき間を再利用しました。';
@@ -1042,7 +1098,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   try{await savePreviewOutput(batching()?supportBatchPackage(currentBatch()):cached.result.supportPackage,current);}
   catch(error){if(current())$('error').textContent=error.message;}
  };
- $('style').onchange=()=>{faceView.endPick();picking=false;clearRibEdits();excludedRibs=[];excludedRibBlockers=[];ribPicking=false;$('topGap').value=$('style').value==='walls'?$('layerHeight').value:printSupportDefaults.topGap;schedule();};$('layerHeight').oninput=()=>{if($('style').value==='walls')$('topGap').value=$('layerHeight').value;resetStructure();schedule();};$('target').onchange=()=>{fastView.target=$('target').value;faceView.endPick();picking=false;selectedFaces=[];$('mode').value='auto';clearRibEdits();excludedRibs=[];excludedRibBlockers=[];ribPicking=false;schedule();};$('mode').onchange=$('baseMode').onchange=()=>{faceView.endPick();picking=false;resetStructure();schedule();};
+ $('style').onchange=()=>{stopPicking();clearRibEdits();excludedRibs=[];excludedRibBlockers=[];ribPicking=false;$('topGap').value=$('style').value==='walls'?$('layerHeight').value:printSupportDefaults.topGap;schedule();};$('layerHeight').oninput=()=>{if($('style').value==='walls')$('topGap').value=$('layerHeight').value;resetStructure();schedule();};$('target').onchange=()=>{fastView.target=$('target').value;stopPicking();selectedFaces=[];$('mode').value='auto';clearRibEdits();excludedRibs=[];excludedRibBlockers=[];ribPicking=false;schedule();};$('mode').onchange=$('baseMode').onchange=()=>{stopPicking();resetStructure();schedule();};
  for(const key of [...keys,...toggles])$(key).addEventListener('input',()=>{
   if(['filamentDiameter','materialDensity'].includes(key)){updateMaterial();return;}
   ribPicking=false;
@@ -1052,8 +1108,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   }
   schedule(false,null,[key]);
  });
- $('pick').onclick=()=>{if(busy||selectionBusy)return;if(picking){faceView.endPick();picking=false;schedule();return;}const items=faceView.items;ribPicking=false;ribView.setDisplay();invalidate();try{faceView.beginPick(history,$('target').value,editing?.id);faceView.show(items);picking=true;controls();$('error').textContent='対象ボディの下面をクリックで追加・解除します。Shift＋ドラッグで回転できます。';}catch(e){picking=false;controls();$('error').textContent=e.message;}};
- $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(dialog.open)return;faceView.endPick();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;});
+ $('pick').onclick=()=>{if(busy||selectionBusy||holeTarget)return;if(picking){stopPicking();schedule();return;}const items=faceView.items;ribPicking=false;ribView.setDisplay();invalidate();try{faceView.beginPick(history,$('target').value,editing?.id);faceView.show(items);picking=true;controls();$('error').textContent='対象ボディの下面をクリックで追加・解除します。Shift＋ドラッグで回転できます。';}catch(e){picking=false;controls();$('error').textContent=e.message;}};
+ $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(dialog.open)return;stopPicking();holeView.reset('');holeOpenings.clear();ribPicking=false;ribView.setDisplay();invalidate();busy=false;});
  dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(trialPreview||sliceReview.checking)return;if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
  function open(target=null,feature=null,selection=null,restored=null,initialTargets=[]){
   changeBaseline=null;
@@ -1063,8 +1119,9 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   savedExportStatus.textContent='';
   reinforcementComparison=null;comparisonPanel.hidden=true;
   onStart();original=getFeatures();editing=feature;const index=feature?original.findIndex(f=>f.id===feature.id):-1;if(feature&&index<0)return;history=feature?original.slice(0,index):original;
+  stopPicking();holeOpenings.clear();
   const rendered=rebuild(history);let ids;try{ids=[...rendered.keys()];fastView.prepare(rendered,restored?.input.target||feature?.spec.target||target||ids[0]);}finally{rendered.forEach(b=>b.geometry.dispose());}if(!ids.length){notify('先にソリッドを作成してください');return;}
-  $('target').replaceChildren(...ids.map(bodyId=>new Option(bodyName(bodyId),bodyId)));$('target').value=restored?.input.target||feature?.spec.target||target||ids[0];if(!$('target').value)$('target').value=ids[0];id=feature?.id||restored?.input.id||crypto.randomUUID();selectedFaces=structuredClone(restored?.input.faces||feature?.spec.faces||(selection?[selection]:[]));const values=restored?.input||feature?.spec||{...printSupportDefaults,...printSupportNewDefaults};$('style').value=restored?values.style||'posts':feature?(feature.spec.style||'posts'):printSupportNewDefaults.style;for(const key of keys){const legacy={bottomInterfaceLineWidth:'interfaceLineWidth',bottomInterfaceSpacing:'interfaceSpacing'}[key];$(key).value=values[key]??(legacy?values[legacy]??printSupportDefaults[legacy]:printSupportDefaults[key]);}for(const key of toggles)$(key).checked=['wallTies','autoReinforce'].includes(key)&&feature&&!restored?!!feature.spec[key]:values[key]??(key==='skipSmallExterior'?!restored:key==='skipSmallBores'?printSupportNewDefaults.skipSmallBores:printSupportDefaults[key]);$('mode').value=restored?values.mode:feature?feature.spec.mode:selectedFaces.length?'face':'auto';$('baseMode').value=restored?values.baseMode||'bed':feature?(feature.spec.baseMode||'bed'):values.baseMode;$('wallDirection').value=values.wallDirection||'auto';wallOffset=values.wallOffset||0;planPanel.open=false;clearRibEdits();ribLayoutTarget=$('target').value;excludedRibs=[...(values.excludedRibs||[])];excludedRibBlockers=[...(values.excludedRibBlockers||[])];faceOverrides=new Map();if(values.faceOverrides?.length)faceOverrides.set($('target').value,structuredClone(values.faceOverrides));batchEntries=new Map();batchIds=new Map();batchAdjustments=new Map();batchGroup=crypto.randomUUID();targetCount=ids.length;batchPanel.init(ids,initialTargets.filter(id=>ids.includes(id)).slice(0,12));coverageView.resetDisplay();$('rib-print-policies').checked=false;ribPicking=false;ribView.setDisplay();roofView.setSelected(null);busy=false;picking=false;cached=null;fitted=false;exportFocus=false;$('apply').textContent=feature?'変更を適用':'連結リブサポートを作成';lastFailure=null;materialInvalid=false;failurePanel.hidden=true;presets.reload();if(restored)for(const key of [...keys,...toggles,'style','mode','baseMode','wallDirection','target']){const value=restored.fields[key];if(value!==undefined){if(toggles.includes(key))$(key).checked=value===true;else if(key!=='target'||ids.includes(value))$(key).value=value;}}dialog.show();if(restored){invalidate();controls();retry.hidden=false;$('info').textContent='失敗した設定を復元しました。値を変更するか「この設定でプレビュー」を押してください。';$('error').textContent='';}else schedule();
+  $('target').replaceChildren(...ids.map(bodyId=>new Option(bodyName(bodyId),bodyId)));$('target').value=restored?.input.target||feature?.spec.target||target||ids[0];if(!$('target').value)$('target').value=ids[0];id=feature?.id||restored?.input.id||crypto.randomUUID();selectedFaces=structuredClone(restored?.input.faces||feature?.spec.faces||(selection?[selection]:[]));const values=restored?.input||feature?.spec||{...printSupportDefaults,...printSupportNewDefaults};$('style').value=restored?values.style||'posts':feature?(feature.spec.style||'posts'):printSupportNewDefaults.style;for(const key of keys){const legacy={bottomInterfaceLineWidth:'interfaceLineWidth',bottomInterfaceSpacing:'interfaceSpacing'}[key];$(key).value=values[key]??(legacy?values[legacy]??printSupportDefaults[legacy]:printSupportDefaults[key]);}for(const key of toggles)$(key).checked=['wallTies','autoReinforce'].includes(key)&&feature&&!restored?!!feature.spec[key]:values[key]??(key==='skipSmallExterior'?!restored:key==='skipSmallBores'?printSupportNewDefaults.skipSmallBores:printSupportDefaults[key]);$('mode').value=restored?values.mode:feature?feature.spec.mode:selectedFaces.length?'face':'auto';$('baseMode').value=restored?values.baseMode||'bed':feature?(feature.spec.baseMode||'bed'):values.baseMode;$('wallDirection').value=values.wallDirection||'auto';wallOffset=values.wallOffset||0;planPanel.open=false;clearRibEdits();ribLayoutTarget=$('target').value;excludedRibs=[...(values.excludedRibs||[])];excludedRibBlockers=[...(values.excludedRibBlockers||[])];faceOverrides=new Map();if(values.faceOverrides?.length)faceOverrides.set($('target').value,structuredClone(values.faceOverrides));batchEntries=new Map();batchIds=new Map();batchAdjustments=new Map();batchGroup=crypto.randomUUID();targetCount=ids.length;batchPanel.init(ids,initialTargets.filter(id=>ids.includes(id)).slice(0,12));coverageView.resetDisplay();$('rib-print-policies').checked=false;ribPicking=false;ribView.setDisplay();roofView.setSelected(null);busy=false;picking=false;cached=null;fitted=false;exportFocus=false;$('apply').textContent=feature?'変更を適用':'連結リブサポートを作成';lastFailure=null;materialInvalid=false;failurePanel.hidden=true;presets.reload();if(restored)for(const key of [...keys,...toggles,'style','mode','baseMode','wallDirection','target']){const value=restored.fields[key];if(value!==undefined){if(toggles.includes(key))$(key).checked=value===true;else if(key!=='target'||ids.includes(value))$(key).value=value;}}holeView.reset($('target').value,values.holeProtections);dialog.show();if(restored){invalidate();controls();retry.hidden=false;$('info').textContent='失敗した設定を復元しました。値を変更するか「この設定でプレビュー」を押してください。';$('error').textContent='';}else schedule();
  }
  quick.onclick=()=>{const selection=getFace();if(selection)open(selection.bodyId,null,selection);};
  return {open,restoreFailure(record,{fromFile=false}={}){const saved=readPrintSupportFailure(record),feature=getFeatures().find(f=>f.id===saved.featureId&&f.spec?.type==='printSupport')||null;open(saved.input.target,feature,null,saved);lastFailure=structuredClone(record);failurePanel.hidden=false;showFailureDetails(lastFailure);if(fromFile)$('failure-note').textContent='ファイルから失敗時のモデルと設定を復元しました。計算・出力は自動実行しません。';},openForExport(feature){open(feature.spec.target,feature);exportFocus=true;},close,sync(){coverageView.sync();clearanceView.sync();faceView.sync();ribView.sync();roofView.sync();removal.sync(busy||picking||ribPicking||ribBatch||contactView.active);if(dialog.open&&getFeatures()!==original)close();const face=getFace();quick.hidden=dialog.open||!!document.querySelector('dialog[open]')||!face||face.normal[2]>-.5;},get active(){return dialog.open;},get ribRangeActive(){return dialog.open&&ribBatch&&!!cached&&!busy&&!removal.active;},selectRibRange(rect){
@@ -1074,6 +1131,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   controls();
  },syncSavedExport,async pick(event){
   if(!dialog.open||busy||removal.active)return;
+  if(holeTarget){if(!selectionBusy)holeView.pick(event,pickingObjects());return;}
   if(coverageView.pick(event))return;
   if(!picking){
    if(!cached||inflight||contactView.active)return;

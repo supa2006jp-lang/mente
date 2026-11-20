@@ -32,7 +32,7 @@ function narrowsBand(triangles,band,axis){
 // The samples propose positions. Only the native landing actually made there
 // can reduce an uncovered span or be included in the saved support.
 export function fillSupportGaps({face,item,bounds,height,top,axis,bodies,settings:p,limits,prism,sideGap,
- footprint,reference,candidates,records,excludedCells,hold,onProgress,makeId,getBases,widthsApplied}){
+ footprint,reference,candidates,records,excludedCells,hold,onProgress,makeId,getBases,widthsApplied,protectionTools}){
  const ribs=[],columns=[],excluded=[],bases=new Set();
  if(!records.length||!item||!footprint||!reference)return {ribs,columns,excluded,bases};
  const other=1-axis,ceiling=supportMeshTriangles(reference),landings=[];
@@ -114,7 +114,7 @@ export function fillSupportGaps({face,item,bounds,height,top,axis,bodies,setting
   if(!positions.length)continue;
   for(const position of positions){
    const [column]=supportFallbackColumns({face,faceBounds:bounds,height,bodies,bases:getBases(),limit:1,
-    settings:{...p,noSupport:[...zones,...excludedBands]},positions:[position],onProgress});
+    settings:{...p,noSupport:[...zones,...excludedBands]},positions:[position],onProgress,protectionTools});
    if(!column)continue;
    column.blocker.delete();delete column.blocker;hold(column.shape);
    const box=supportRibBounds(column.shape);

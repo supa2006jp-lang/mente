@@ -120,6 +120,8 @@ test('a modeled large threaded opening does not grow ribs from its small entranc
   const threaded=hold(runInternalThreadShape(history,{type:'thread',id:'thread',target:'thread-body',profile:'metric60',threadVersion:2,pitch:2,
    threadFaceOffsets:[-.2,-.2,-.2,0],threadCylinderOffset:-.2,fullLength:true,surfacePoint:[29.7,15,30]}));
   const features=[{...history[0],outputs:[{id:'thread-body',brep:threaded.serialize()}]}];
+  const {openings}=runOperation(features,{type:'printSupportHoleOpenings',target:'thread-body'});
+  assert(openings.some(hole=>hole.axis[2]<-.9999&&Math.hypot(hole.center[0]-22,hole.center[1]-15)<1e-5));
   const output=runOperation(features,{...printSupportNewDefaults,type:'printSupport',id:'thread-ribs',target:'thread-body',mode:'auto',
    preview:true,keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true,
    wallRoof:false,wallTies:false,wallBottomSkin:false,contactLines:false});

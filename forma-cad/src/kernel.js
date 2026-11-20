@@ -18,6 +18,7 @@ import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-stat
 import {assemblyReference,assemblyPlan} from './assembly-mate.js';
 import {inspectAssemblyClearances,inspectAssemblyContact} from './assembly-contact.js';
 import {printSupportSteps,validatePrintSupport} from './print-support.js';
+import {listSupportHoleOpenings} from './print-support-hole-protection.js';
 import {finishCadSteps} from './cad-steps.js';
 import {gapRepairSpec} from './geometry-gap-repair.js';
 import {healthBudget,inspectShapeHealth,inspectOperationHealth,inspectGeometryHealth,diagnoseOutputHealth} from './geometry-health.js';
@@ -552,6 +553,14 @@ function* computeOperation(features,spec,onProgress,context={}){
  }
  if(spec.type==='slideLidTrial')return makeSlideLidTrials(spec.settings,spec.dimensions,onProgress,spec.comparison);
  if(spec.type==='printSupportTrial')return makeSupportContactTrials(spec.settings,onProgress);
+ if(spec.type==='printSupportHoleOpenings'){
+  const bodies=kernelBodies(features);
+  try{
+   const model=bodies.get(spec.target);
+   if(!model)throw Error('対象ボディが見つかりません');
+   return {openings:listSupportHoleOpenings(model)};
+  }finally{bodies.forEach(shape=>shape.delete());}
+ }
  if(spec.type==='printSupportSavedExport'){
   const bodies=kernelBodies(features);
   try{

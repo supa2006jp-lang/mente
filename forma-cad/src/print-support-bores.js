@@ -20,15 +20,20 @@ function sameCircle(a,b,heightTolerance=epsilon){
   a.center.every((value,axis)=>Math.abs(value-b.center[axis])<=(axis===2?heightTolerance:epsilon));
 }
 
-function roundOpenings(face){
+export function supportWireCircle(wire){
+ const edges=wire.edges;
+ try{
+  const circles=edges.map(circleOf),circle=circles[0];
+  return circle&&circles.every(candidate=>candidate&&sameCircle(candidate,circle))?circle:null;
+ }finally{edges.forEach(edge=>edge.delete());}
+}
+
+export function roundOpenings(face){
  const wires=face.clone().innerWires(),round=[];
  try{
   for(const wire of wires){
-   const edges=wire.edges;
-   try{
-    const circles=edges.map(circleOf),circle=circles[0];
-    if(circle&&circles.every(candidate=>candidate&&sameCircle(candidate,circle)))round.push(circle);
-   }finally{edges.forEach(edge=>edge.delete());}
+   const circle=supportWireCircle(wire);
+   if(circle)round.push(circle);
   }
   return round;
  }finally{wires.forEach(wire=>wire.delete());}
