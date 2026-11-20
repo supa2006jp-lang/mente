@@ -17,14 +17,18 @@ function singleSolidInput(shape){
 
 // Build one boolean operation for all inputs. Repeated pairwise fuses re-split
 // an ever larger result and retain native intermediate shapes until deleted.
-export function fuseSolids(shapes,{onProgress,verifyMesh=false,prepareResult=null}={}){
+export function fuseSolids(shapes,{onProgress,verifyMesh=false,prepareResult=null,verifyFinishedMesh=false}={}){
  const inputs=[];let raw;
  try{
-  for(const shape of shapes)inputs.push(singleSolidInput(shape));raw=fuseBatch(inputs,{onProgress,verifyMesh});
+  // In a support union, finish and audit the candidate inside the retry loop.
+  // Its detached mesh is checked once, after the coplanar seams are settled.
+  const finish=verifyFinishedMesh&&!prepareResult?(shape,alreadyValid)=>finalizeUnion(shape,{onProgress,alreadyValid}):null;
+  for(const shape of shapes)inputs.push(singleSolidInput(shape));
+  raw=fuseBatch(inputs,{onProgress,verifyMesh:verifyMesh&&!finish,finish});
   // Swept surfaces need their dedicated canonicalization before they are a
   // finished union. Isolate that stage too, then apply the common checks.
   if(prepareResult){let independent=R.deserializeShape(raw.serialize()).asShape3D();try{const prepared=prepareResult(independent);if(prepared===independent)independent=null;raw.delete();raw=prepared;}finally{independent?.delete();}}
-  if(shapes.length===1&&!prepareResult){const output=raw;raw=null;return output;}
+  if(finish||shapes.length===1&&!prepareResult){const output=raw;raw=null;return output;}
   return finalizeUnion(raw,{onProgress});
  }
  finally{raw?.delete();inputs.forEach((shape,i)=>{if(shape!==shapes[i])shape.delete();});}
@@ -40,7 +44,7 @@ function contactGroups(shapes){
   const groups=new Map();parts.forEach((p,i)=>{const key=root(i);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);});return [...groups.values()];
  }catch(error){parts.forEach(p=>p.delete());throw error;}
 }
-function fuseBatch(shapes,{onProgress,verifyMesh=false}={}){
+function fuseBatch(shapes,{onProgress,verifyMesh=false,finish=null}={}){
  if(!shapes.length)throw Error('結合するボディを選択してください');
  if(shapes.length===1)return shapes[0].clone();
  const oc=R.getOC(),volumes=shapes.map(shape=>Math.abs(R.measureVolume(shape))),sum=volumes.reduce((a,b)=>a+b,0),largest=Math.max(...volumes),eps=Math.max(MODEL_PRECISION.minVolume,sum*MODEL_PRECISION.relativeVolume)+MODEL_PRECISION.contact*shapes.reduce((n,s)=>n+R.measureArea(s),0);
@@ -48,7 +52,7 @@ function fuseBatch(shapes,{onProgress,verifyMesh=false}={}){
  const snapshots=verifyMesh?shapes.map(s=>s.serialize()):null;
  try{
  for(const tolerance of BOOLEAN_TOLERANCES){
-  if(tolerance){const groups=contactGroups(shapes);if(!groups)break;try{if(groups.length>1){const pieces=[];try{for(const group of groups)pieces.push(fuseBatch(group,{onProgress,verifyMesh}));return R.makeCompound(pieces);}finally{pieces.forEach(p=>p.delete());}}}finally{groups.flat().forEach(p=>p.delete());}}
+  if(tolerance){const groups=contactGroups(shapes);if(!groups)break;try{if(groups.length>1){const pieces=[];try{for(const group of groups)pieces.push(fuseBatch(group,{onProgress,verifyMesh,finish}));return R.makeCompound(pieces);}finally{pieces.forEach(p=>p.delete());}}}finally{groups.flat().forEach(p=>p.delete());}}
   const inputs=snapshots?snapshots.map(b=>R.deserializeShape(b).asShape3D()):shapes;const builder=new oc.BRepAlgoAPI_Fuse(),argumentsList=new oc.NCollection_List_TopoDS_Shape(),toolsList=new oc.NCollection_List_TopoDS_Shape();let result=null;
   try{
    argumentsList.Append(inputs[0].wrapped);for(const shape of inputs.slice(1))toolsList.Append(shape.wrapped);
@@ -58,11 +62,27 @@ function fuseBatch(shapes,{onProgress,verifyMesh=false}={}){
    onProgress?.({stage:'結合したソリッドを検査しています'});
    const check=new oc.BRepCheck_Analyzer(result.wrapped,true,false);let valid;
    try{const volume=R.measureVolume(result);valid=check.IsValid()&&Number.isFinite(volume)&&volume>=largest-eps&&volume<=sum+eps&&(!verifyMesh||solidMeshComplete(result));}finally{check.delete();}
-   if(valid){const parts=result.solids;let count;try{count=parts.length;}finally{parts.forEach(part=>part.delete());}if(count<bestCount){best?.delete();best=result;bestCount=count;result=null;}if(count===1){const output=best;best=null;return output;}}
-  }catch{}finally{result?.delete();builder.delete();argumentsList.delete();toolsList.delete();if(snapshots)inputs.forEach(s=>s.delete());}
+   if(valid){
+    const parts=result.solids;
+    let count;
+    try{count=parts.length;}finally{parts.forEach(part=>part.delete());}
+    if(count<bestCount){
+     const candidate=finish?finish(result,true):result;
+     best?.delete();
+     best=candidate;bestCount=count;
+     if(result===candidate)result=null;
+    }
+    if(count===1){const output=best;best=null;return output;}
+   }
+  }catch(error){if(finish&&error instanceof WebAssembly.RuntimeError)throw error;}
+  finally{result?.delete();builder.delete();argumentsList.delete();toolsList.delete();if(snapshots)inputs.forEach(s=>s.delete());}
  }
  if(best){const output=best;best=null;return output;}
- const contained=containedUnion(shapes,volumes,onProgress);if(contained)return contained;
+ const contained=containedUnion(shapes,volumes,onProgress);
+ if(contained){
+  if(!finish)return contained;
+  try{return finish(contained,true);}finally{contained.delete();}
+ }
  throw Error('正常なソリッドとして結合できませんでした。元のボディは変更していません');
  }finally{best?.delete();}
 }

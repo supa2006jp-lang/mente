@@ -12,14 +12,23 @@ function extrude(face,height){const vector=new R.Vector([0,0,height]);try{return
 // Only the first model-contacting layer is recessed. The carrier above it,
 // and any skin directly on the print bed, retain their full outline.
 export function bottomContactInsetMask(skin,z,top,distance){
- return contactOutlineBand(skin,z,top,distance,'lower').mask;
+ const {interior}=contactInterior(skin,z,top,distance,false);
+ let layer,slab;
+ try{
+  const box=skin.boundingBox;
+  let b;
+  try{b=box.bounds;}finally{box.delete();}
+  slab=R.makeBox([b[0][0]-.01,b[0][1]-.01,z],[b[1][0]+.01,b[1][1]+.01,top]);
+  layer=skin.intersect(slab);
+  return layer.cut(interior);
+ }finally{layer?.delete();slab?.delete();interior.delete();}
 }
-export function upperContactRimMask(skin,z,top,width){
- return contactOutlineBand(skin,z,top,width,'upper');
+export function upperContactRimInterior(skin,z,top,width){
+ return contactInterior(skin,z,top,width,true);
 }
-function contactOutlineBand(skin,z,top,distance,role){
- const upper=role==='upper';
- const faces=skin.faces,parts=[];let allowed=null,layer=null,preserved=0;
+function contactInterior(skin,z,top,distance,upper){
+ const faces=skin.faces,parts=[];
+ let preserved=0;
  try{
   for(const face of faces){if(face.geomType!=='PLANE'||(upper?tuple(face.normalAt())[2]<.999999:tuple(face.normalAt())[2]>-.999999)||Math.abs(tuple(face.center)[2]-(upper?top:z))>1e-5)continue;
    const outer=face.clone().outerWire();let inner=null;
@@ -35,7 +44,6 @@ function contactOutlineBand(skin,z,top,distance,role){
    }finally{inner?.delete();outer.delete();}
   }
   if(!parts.length&&!upper)throw Error('底面の端の逃げが大きすぎて接点が残りません。値を小さくするか0にしてください');
-  if(parts.length)allowed=R.makeCompound(parts);const box=skin.boundingBox;let b;try{b=box.bounds;}finally{box.delete();}const slab=R.makeBox([b[0][0]-.01,b[0][1]-.01,z],[b[1][0]+.01,b[1][1]+.01,top]);try{layer=skin.intersect(slab);}finally{slab.delete();}
-  return {mask:allowed?layer.cut(allowed):layer.clone(),preserved};
- }finally{allowed?.delete();layer?.delete();parts.forEach(s=>s.delete());faces.forEach(s=>s.delete());}
+  return {interior:parts.length?R.makeCompound(parts):null,preserved};
+ }finally{parts.forEach(s=>s.delete());faces.forEach(s=>s.delete());}
 }

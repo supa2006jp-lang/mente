@@ -13,9 +13,9 @@ function preserved(before,after){return after.solids===before.solids&&close(afte
 // Return an owned, independent result. A shallow clone shares native face and
 // triangulation caches with the inputs; even mesh verification must be isolated.
 // Never heal gaps, delete small parts or change modelling/contact tolerances.
-export function finalizeUnion(shape,{onProgress}={}){
+export function finalizeUnion(shape,{onProgress,alreadyValid=false}={}){
  const before=metrics(shape);
- if(!valid(shape)||!Number.isFinite(before.volume)||before.volume<=MODEL_PRECISION.minVolume||!before.solids)throw Error('結合結果に形状の不整合があります。元のボディは変更していません');
+ if((!alreadyValid&&!valid(shape))||!Number.isFinite(before.volume)||before.volume<=MODEL_PRECISION.minVolume||!before.solids)throw Error('結合結果に形状の不整合があります。元のボディは変更していません');
  const snapshot=shape.serialize();
  onProgress?.({stage:'結合面の継ぎ目を整理・検査しています'});
  for(const edges of [true,false]){

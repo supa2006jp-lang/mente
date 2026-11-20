@@ -32,12 +32,13 @@ export function supportSolidGroups(shapes){
  return [...groups.values()];
 }
 
-export function fuseSupportSolids(shapes,options){
+export function fuseSupportSolids(shapes,{onProgress}={}){
  const groups=supportSolidGroups(shapes);
- if(groups.length<=1)return fuseSolids(shapes,options);
+ const checks={onProgress,verifyFinishedMesh:true};
+ if(groups.length<=1)return fuseSolids(shapes,checks);
  const pieces=[];
  try{
-  for(const group of groups)pieces.push(fuseSolids(group.map(entry=>entry.shape),options));
+  for(const group of groups)pieces.push(fuseSolids(group.map(entry=>entry.shape),checks));
   return R.makeCompound(pieces).asShape3D();
  }finally{pieces.forEach(piece=>piece.delete());}
 }

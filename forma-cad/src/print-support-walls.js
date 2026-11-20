@@ -722,9 +722,9 @@ function prepareWallSupports(bodies,p,onProgress,cache,scopeCache){
   const missingPlacements=(faceNumber?upperEnabled:p.wallRoof)&&p.roofTabs?(p.roofTabPlacements||[]).filter(v=>!roofMatched.includes(v.sectionId)).map(v=>v.sectionId):[];roofManualInvalid+=missingPlacements.length;
   if(roofManualInvalid&&!p.preview)throw Error('指定した位置にタブを作成できません。プレビューで位置を選び直すか自動配置に戻してください');
   onProgress?.({stage:'各下面のリブと薄皮を結合しています'});
-  if(walls.length)shape=fuseSupportSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin||bottomSkins.length)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
+  if(walls.length)shape=fuseSupportSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
   if(columns.length){
-   const mixed=fuseSupportSolids([...(shape?[shape]:[]),...columns.map(column=>column.shape)],{onProgress,verifyMesh:true});
+   const mixed=fuseSupportSolids([...(shape?[shape]:[]),...columns.map(column=>column.shape)],{onProgress});
    shape?.delete();shape=mixed;
   }
   for(const candidate of candidateRibs)if(!candidate.excluded){const b=candidate.bounds;candidate.risk=supportRibRisk({height:b[1][2]-b[0][2],thickness:candidate.thickness??p.wallThickness,bottom:b[0][2],top:b[1][2],levels:tieAttachments.filter(a=>a.ribs.includes(candidate.id)).map(a=>a.z)});}

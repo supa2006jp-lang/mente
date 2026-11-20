@@ -1,6 +1,6 @@
 import {supportLocalPreview,supportNonDestructiveBoolean} from './print-support-local-preview.js';
 import {contactRoleSettings} from './print-support-contact-settings.js';
-import {bottomContactInsetMask,upperContactRimMask} from './print-support-contact-inset.js';
+import {bottomContactInsetMask,upperContactRimInterior} from './print-support-contact-inset.js';
 import * as R from 'replicad';
 import {supportAdjustmentError} from './print-support-adjustments.js';
 import {supportBoxesTouch,supportSolidGroups} from './print-support-solid-groups.js';
@@ -83,14 +83,23 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
      stripes.push(R.makeBox(a,c));
     }
     if(role==='lower'&&p.bottomContactInset>0){if(b[1][axis]-b[0][axis]<2*p.bottomContactInset+p.lineWidth||high-low<2*p.bottomContactInset+pitch+settings.width)throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');const rim=bottomContactInsetMask(shape,z,top,p.bottomContactInset);masks.push(rim);landings.push({shape,b,z,top,width:settings.width});analysis.bottomEndRelief={distance:p.bottomContactInset,count:(analysis.bottomEndRelief?.count||0)+1};}
-    if(!stripes.length)continue;compound=R.makeCompound(stripes);cut=shape.intersect(compound);
+    if(!stripes.length)continue;
+    compound=R.makeCompound(stripes);
     if(role==='upper'&&p.topContactRim){
-     const {mask,preserved}=upperContactRimMask(shape,z,top,p.topContactRimWidth);
-     try{const next=cut.cut(mask);cut.delete();cut=next;}finally{mask.delete();}
+     const {interior,preserved}=upperContactRimInterior(shape,z,top,p.topContactRimWidth);
+     let trimmed;
+     try{
+      if(interior){
+       // The grooves already lie within the contact layer. Restrict them
+       // to the interior instead of constructing a separate rim solid.
+       trimmed=shape.intersect(compound);
+       cut=trimmed.intersect(interior);
+      }
+     }finally{trimmed?.delete();interior?.delete();}
      analysis.topRim??={enabled:true,width:p.topContactRimWidth,count:0};analysis.topRim.count++;
      if(preserved)analysis.topRim.preserved=(analysis.topRim.preserved||0)+preserved;
-    }
-    if(volume(cut)>.0001){masks.push(cut);cut=null;analysis[role]++;}
+    }else cut=shape.intersect(compound);
+    if(cut&&volume(cut)>.0001){masks.push(cut);cut=null;analysis[role]++;}
    }finally{
     if(masks.length>start)groups.push({shape,role,offset,masks:masks.slice(start),slots:analysis.slots-slots,cut:analysis[role]-cutCount,relief:(analysis.bottomEndRelief?.count??0)-relief});
     cut?.delete();compound?.delete();stripes.forEach(s=>s.delete());
