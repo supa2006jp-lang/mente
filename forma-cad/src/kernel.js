@@ -76,6 +76,7 @@ import {chamferSolid} from './solid-chamfer.js';
 import {cadMesh} from './cad-mesh.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 import {createPrintSupportCache} from './print-support-cache.js';
+import {contactRoleSettings} from './print-support-contact-settings.js';
 import {savedSupportPackage} from './print-support-saved-export.js';
 import {inspectPrintSupportPackage} from './print-support-preflight.js';
 import {inspectSupportRemoval} from './print-support-removal.js';
@@ -292,6 +293,19 @@ if(f.hole&&f.operation==='cut'){const n=basisFor(f).n,margin=.001,sign=Math.sign
 const bodyTokens=new WeakMap();
 const printSupportPreviewCache=createPrintSupportCache(24_000_000,4);
 const printSupportBodyMeshes=createPrintSupportCache(12_000_000,6);
+
+function printSupportPreviewOptions(settings){
+ const inactive=new Set();
+ if(!contactRoleSettings(settings,'upper').enabled||
+    !(settings.wallRoof||settings.faceOverrides?.some(face=>face.wallRoof))){
+  for(const field of ['interfaceLineWidth','interfaceSpacing','topContactRim','topContactRimWidth'])inactive.add(field);
+ }
+ if(!contactRoleSettings(settings,'lower').enabled||
+    !(settings.wallBottomSkin||settings.faceOverrides?.some(face=>face.wallBottomSkin))){
+  for(const field of ['bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset'])inactive.add(field);
+ }
+ return Object.entries(settings).filter(([field])=>!inactive.has(field)).sort(([a],[b])=>a.localeCompare(b));
+}
 
 function printSupportBodyMesh(shape){
  const token=bodyTokens.get(shape),cached=token&&printSupportBodyMeshes.get(token);
@@ -641,15 +655,22 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(['coilJoint','enclose','shell','fillet','chamfer','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='printSupport'){
   if(typeof p.id!=='string'||!p.id||bodies.has(p.id))throw Error('サポートの作成先が不正です');
-  // The preview is already checked for this exact set of native bodies and settings.
-  const previewKey=p.preview===true&&p.style==='walls'&&p.batch!==true?JSON.stringify([
+  const previewSettings=p.preview===true&&p.style==='walls'&&p.batch!==true?validatePrintSupport(p):null;
+  // A disabled or absent contact layer cannot change this checked geometry.
+  const previewKey=previewSettings?JSON.stringify([
    [...bodies].map(([id,shape])=>[id,bodyTokens.get(shape)]),
-   Object.entries(validatePrintSupport(p)).sort(([a],[b])=>a.localeCompare(b)),
+   printSupportPreviewOptions(previewSettings),
   ]):null;
   const cachedPreview=previewKey&&printSupportPreviewCache.get(previewKey);
   if(cachedPreview){
    onProgress?.({stage:'検査済みのリブプレビューを再利用しています'});
-   return structuredClone(cachedPreview);
+   const result=structuredClone(cachedPreview),contact=result.analysis.printSupport.contactInterface;
+   contact.spacing=previewSettings.interfaceSpacing;
+   if(contact.settings){
+    contact.width=previewSettings.interfaceLineWidth;
+    contact.settings={upper:contactRoleSettings(previewSettings,'upper'),lower:contactRoleSettings(previewSettings,'lower')};
+   }
+   return result;
   }
   const previousSupports=new Set(p.batch===true?features.filter(f=>f.spec?.type==='printSupport').flatMap(f=>f.outputs.map(o=>o.id)):[]);
   previousSupports.delete(p.target);

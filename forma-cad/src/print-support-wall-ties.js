@@ -61,7 +61,8 @@ export function makeWallTies(records,prism,bodies,p,onProgress,sections=[]){
   addNeighbors(group,(left,right)=>left.local||right.local);
  };
  if(sections.length)for(const {span} of sections){
-  groupNeighbors(records.filter(record=>record.span===span||record.local&&record.span[0]<span[1]&&record.span[1]>span[0]));
+  groupNeighbors(records.filter(({span:row,local})=>row&&
+   (row[0]===span[0]&&row[1]===span[1]||local&&row[0]<span[1]&&row[1]>span[0])));
  }else groupNeighbors(records);
  const models=[...bodies.values()].map(shape=>({shape,box:bounds(shape)}));
  const ribBounds=new Map(records.map(record=>[record,bounds(record.shape)]));

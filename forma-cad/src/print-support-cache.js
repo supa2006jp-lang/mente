@@ -1,3 +1,5 @@
+import * as R from 'replicad';
+
 // These caches are local to the CAD worker. Account for large meshes and BREP
 // snapshots as well as the number of recently used entries.
 export function createPrintSupportCache(maxSize,maxEntries){
@@ -24,4 +26,24 @@ export function createPrintSupportCache(maxSize,maxEntries){
   },
   delete:remove,
  };
+}
+// Cache exact geometry as an independent snapshot. Boolean operations can
+// change the topology data shared by a native clone.
+export function cachedSupportGeometry(cache,key,build){
+ if(!cache)return build();
+ const entry=cache.get(key);
+ if(entry){
+  const {brep,...details}=entry;
+  try{return {...details,shape:brep?R.deserializeShape(brep).asShape3D():null,reused:true};}
+  catch(error){cache.delete(key);if(error instanceof WebAssembly.RuntimeError)throw error;}
+ }
+ const result=build();
+ const {shape,...details}=result;
+ try{
+  const brep=shape?.serialize()??null;
+  cache.set(key,{...details,brep},key.length+(brep?.length||0)+128);
+ }catch(error){
+  if(error instanceof WebAssembly.RuntimeError){shape?.delete();throw error;}
+ }
+ return result;
 }

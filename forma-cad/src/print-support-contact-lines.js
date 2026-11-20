@@ -5,6 +5,7 @@ import * as R from 'replicad';
 import {supportAdjustmentError} from './print-support-adjustments.js';
 import {supportBoxesTouch,supportSolidGroups} from './print-support-solid-groups.js';
 import {MODEL_PRECISION} from './model-precision.js';
+import {cachedSupportGeometry} from './print-support-cache.js';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 const displayMesh=shape=>shape.mesh({tolerance:.08,angularTolerance:.15});
 function validContactResult(shape,count){
@@ -60,49 +61,79 @@ function contactGrooveOffset(skin,spans,axis,height,settings){
  return nearestFreeGrooveOffset(alignments,maximum,clearance)??nearestFreeGrooveOffset(alignments,maximum,.002)??0;
 }
 
+function makeGrooveMask(shape,spans,{role,axis,z,top,b,settings,rimWidth,cache,skinKey}){
+ const other=1-axis,offset=contactGrooveOffset(shape,spans,other,role==='upper'?top:z,settings);
+ const stripes=[];
+ let compound,cut,interior,trimmed;
+ try{
+  for(const [from,to] of spans){
+   const low=[...b[0]],high=[...b[1]];
+   low[axis]-=.01;high[axis]+=.01;
+   low[other]=from+offset;high[other]=to+offset;
+   low[2]=z;high[2]=top;
+   stripes.push(R.makeBox(low,high));
+  }
+  compound=R.makeCompound(stripes);
+  let preserved=0;
+  if(rimWidth){
+   const rimKey=cache&&JSON.stringify(['rim',skinKey,z,top,rimWidth]);
+   const rim=cachedSupportGeometry(cache,rimKey,()=>{
+    const {interior,preserved}=upperContactRimInterior(shape,z,top,rimWidth);
+    return {shape:interior,preserved};
+   });
+   interior=rim.shape;preserved=rim.preserved;
+   if(interior){
+    // The grooves already lie within the contact layer.
+    trimmed=shape.intersect(compound);
+    cut=trimmed.intersect(interior);
+   }
+  }else cut=shape.intersect(compound);
+  if(!cut||volume(cut)<=.0001)return {shape:null,offset,preserved};
+  const result=cut;cut=null;
+  return {shape:result,offset,preserved};
+ }finally{
+  cut?.delete();trimmed?.delete();interior?.delete();compound?.delete();
+  stripes.forEach(stripe=>stripe.delete());
+ }
+}
+
 // One layer of grooves replaces a solid contact face with parallel landing
 // lines. Bottom grooves start on the model, not in air. Bed feet stay solid.
-export function supportContactLines(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false}={}){
+export function supportContactLines(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false,cache,meshCache}={}){
  const masks=[],landings=[],preview=[],ribPreview=[],groups=[],skipped=new Set();let result=null,local=null;const analysis={enabled:true,width:p.interfaceLineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
  try{
   for(const {shape,role,axis,supportFace}of regions){
    const settings=contactRoleSettings(p,role);if(!settings.enabled)continue;const b=bounds(shape),other=1-axis;if(role==='lower'&&b[0][2]<=p.bedZ+1e-6){analysis.bedPreserved++;continue;}const low=b[0][other],high=b[1][other],pitch=settings.width+settings.spacing;
    onProgress?.({stage:(role==='upper'?'上面':'底面')+'に線状の接触層を作成しています',supportFace});
-   const z=role==='upper'?Math.max(b[0][2],b[1][2]-p.layerHeight):b[0][2],top=role==='upper'?b[1][2]:Math.min(b[1][2],z+p.layerHeight),stripes=[],start=masks.length,slots=analysis.slots,cutCount=analysis[role],relief=analysis.bottomEndRelief?.count??0;
-   let compound,cut,offset=0;
+   const z=role==='upper'?Math.max(b[0][2],b[1][2]-p.layerHeight):b[0][2],top=role==='upper'?b[1][2]:Math.min(b[1][2],z+p.layerHeight),start=masks.length,slots=analysis.slots,cutCount=analysis[role],relief=analysis.bottomEndRelief?.count??0;
+   let offset=0;
    try{
     const spans=[];
     for(let at=low+settings.width;at<high-settings.width-1e-6;at+=pitch){
      if(++analysis.slots>1024)throw Error('接触層の線が多すぎます。線の隙間を広げるか対象面を絞ってください');
      spans.push([at,Math.min(at+settings.spacing,high-settings.width)]);
     }
-    offset=contactGrooveOffset(shape,spans,other,role==='upper'?top:z,settings);
-    for(const [from,to] of spans){
-     const a=[...b[0]],c=[...b[1]];
-     a[axis]-=.01;c[axis]+=.01;a[other]=from+offset;c[other]=to+offset;a[2]=z;c[2]=top;
-     stripes.push(R.makeBox(a,c));
+    const skinKey=cache&&shape.serialize(),rimWidth=role==='upper'&&p.topContactRim?p.topContactRimWidth:0;
+    if(role==='lower'&&p.bottomContactInset>0){
+     if(b[1][axis]-b[0][axis]<2*p.bottomContactInset+p.lineWidth||high-low<2*p.bottomContactInset+pitch+settings.width)
+      throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');
+     const insetKey=cache&&JSON.stringify(['inset',skinKey,z,top,p.bottomContactInset]);
+     const inset=cachedSupportGeometry(cache,insetKey,()=>({shape:bottomContactInsetMask(shape,z,top,p.bottomContactInset)}));
+     masks.push(inset.shape);landings.push({shape,b,z,top,width:settings.width});
+     analysis.bottomEndRelief={distance:p.bottomContactInset,count:(analysis.bottomEndRelief?.count||0)+1};
     }
-    if(role==='lower'&&p.bottomContactInset>0){if(b[1][axis]-b[0][axis]<2*p.bottomContactInset+p.lineWidth||high-low<2*p.bottomContactInset+pitch+settings.width)throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');const rim=bottomContactInsetMask(shape,z,top,p.bottomContactInset);masks.push(rim);landings.push({shape,b,z,top,width:settings.width});analysis.bottomEndRelief={distance:p.bottomContactInset,count:(analysis.bottomEndRelief?.count||0)+1};}
-    if(!stripes.length)continue;
-    compound=R.makeCompound(stripes);
-    if(role==='upper'&&p.topContactRim){
-     const {interior,preserved}=upperContactRimInterior(shape,z,top,p.topContactRimWidth);
-     let trimmed;
-     try{
-      if(interior){
-       // The grooves already lie within the contact layer. Restrict them
-       // to the interior instead of constructing a separate rim solid.
-       trimmed=shape.intersect(compound);
-       cut=trimmed.intersect(interior);
-      }
-     }finally{trimmed?.delete();interior?.delete();}
+    if(!spans.length)continue;
+    const grooveKey=cache&&JSON.stringify(['grooves',skinKey,role,axis,z,top,settings.width,settings.spacing,rimWidth]);
+    const groove=cachedSupportGeometry(cache,grooveKey,()=>makeGrooveMask(shape,spans,{role,axis,z,top,b,settings,rimWidth,cache,skinKey}));
+    offset=groove.offset;
+    if(rimWidth){
      analysis.topRim??={enabled:true,width:p.topContactRimWidth,count:0};analysis.topRim.count++;
-     if(preserved)analysis.topRim.preserved=(analysis.topRim.preserved||0)+preserved;
-    }else cut=shape.intersect(compound);
-    if(cut&&volume(cut)>.0001){masks.push(cut);cut=null;analysis[role]++;}
+     if(groove.preserved)analysis.topRim.preserved=(analysis.topRim.preserved||0)+groove.preserved;
+    }
+    if(groove.shape){masks.push(groove.shape);analysis[role]++;}
+    if(groove.reused)onProgress?.({stage:'計算済みの線状接触層を再利用しています',supportFace});
    }finally{
     if(masks.length>start)groups.push({shape,role,offset,masks:masks.slice(start),slots:analysis.slots-slots,cut:analysis[role]-cutCount,relief:(analysis.bottomEndRelief?.count??0)-relief});
-    cut?.delete();compound?.delete();stripes.forEach(s=>s.delete());
    }
   }
   onProgress?.({stage:'接触層をサポート全体に反映しています'});
@@ -118,6 +149,13 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
     const answer=cut;cut=null;return answer;
    }finally{cut?.delete();}
   }
+  function applyCachedMasks(source,tools){
+   if(!cache||!tools.length)return applySequentially(source,tools);
+   const key=JSON.stringify(['cut',allowPartial,source.serialize(),...tools.map(mask=>mask.serialize())]);
+   const {shape,reused}=cachedSupportGeometry(cache,key,()=>({shape:applySequentially(source,tools)}));
+   if(reused)onProgress?.({stage:'接触層を反映済みのリブを再利用しています'});
+   return shape;
+  }
   function applyIndependentMasks(source,tools){
    const solids=source.solids;
    const pieces=[];
@@ -128,7 +166,7 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
      const part=group.length===1?group[0].shape.clone():R.makeCompound(group.map(entry=>entry.shape)).asShape3D();
      try{
       const relevant=tools.filter(mask=>group.some(entry=>supportBoxesTouch(entry.box,maskBounds.get(mask))));
-      const cut=applySequentially(part,relevant);
+      const cut=applyCachedMasks(part,relevant);
       pieces.push(cut);
       if(parts(cut)!==group.length)return null;
      }finally{part.delete();}
@@ -163,6 +201,10 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
   if(grooveOffsets.length)analysis.grooveOffsets=grooveOffsets;
   for(const {shape,b,z,top,width}of landings){if(skipped.has(shape))continue;const box=R.makeBox([b[0][0],b[0][1],z],[b[1][0],b[1][1],top]);let layer,remaining;try{layer=shape.intersect(box);remaining=result.intersect(layer);if(volume(remaining)<p.lineWidth*width*(top-z))throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');}finally{remaining?.delete();layer?.delete();box.delete();}}
   if(p.preview)local=supportLocalPreview(original,activeMasks);analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};if(p.preview)for(const {shape,role,axis}of regions){if(skipped.has(shape)||!contactRoleSettings(p,role).enabled)continue;const b=bounds(shape);if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;const a=[...b[0]],c=[...b[1]];if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);else c[2]=Math.min(c[2],a[2]+p.layerHeight);const box=R.makeBox(a,c);let mask,display;try{mask=shape.intersect(box);display=local.clip(mask);if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,bounds:bounds(display),...displayMesh(display)});}finally{display?.delete();mask?.delete();box.delete();}}
-  if(p.preview)for(const [index,record]of ribRecords.entries()){onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）',supportFace:record.supportFace});const display=local.clip(record.shape,{contained:ribsAreContained});try{ribPreview.push({id:record.id,...displayMesh(display)});}finally{display.delete();}}analysis.removedVolume=Math.max(0,volume(original)-volume(result));const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:"flat"})):[];const shape=result;result=null;return {shape,analysis,preview,ribPreview,flatSkinPreview};
+  if(p.preview)for(const [index,record]of ribRecords.entries()){
+   onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）',supportFace:record.supportFace});
+   ribPreview.push({id:record.id,...local.mesh(record.shape,{contained:ribsAreContained,cache:meshCache,meshShape:displayMesh})});
+  }
+  analysis.removedVolume=Math.max(0,volume(original)-volume(result));const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:"flat"})):[];const shape=result;result=null;return {shape,analysis,preview,ribPreview,flatSkinPreview};
  }finally{local?.delete();result?.delete();masks.forEach(s=>s.delete());}
 }

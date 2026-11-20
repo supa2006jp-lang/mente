@@ -1,6 +1,7 @@
 import * as R from 'replicad';
 import {MODEL_PRECISION} from './model-precision.js';
 import {fuseSolids} from './solid-fuse.js';
+import {cachedSupportGeometry} from './print-support-cache.js';
 
 export function supportShapeBounds(shape){
  const box=shape.boundingBox;
@@ -32,13 +33,22 @@ export function supportSolidGroups(shapes){
  return [...groups.values()];
 }
 
-export function fuseSupportSolids(shapes,{onProgress}={}){
+function fuseSupportGroup(shapes,checks,cache){
+ if(!cache||shapes.length<2)return fuseSolids(shapes,checks);
+ // Exact ordered inputs, including their topology and tolerances.
+ const key=JSON.stringify(shapes.map(shape=>shape.serialize()));
+ const {shape,reused}=cachedSupportGeometry(cache,key,()=>({shape:fuseSolids(shapes,checks)}));
+ if(reused)checks.onProgress?.({stage:'結合済みのリブを再利用しています'});
+ return shape;
+}
+
+export function fuseSupportSolids(shapes,{onProgress,cache}={}){
  const groups=supportSolidGroups(shapes);
  const checks={onProgress,verifyFinishedMesh:true};
- if(groups.length<=1)return fuseSolids(shapes,checks);
+ if(groups.length<=1)return fuseSupportGroup(shapes,checks,cache);
  const pieces=[];
  try{
-  for(const group of groups)pieces.push(fuseSolids(group.map(entry=>entry.shape),checks));
+  for(const group of groups)pieces.push(fuseSupportGroup(group.map(entry=>entry.shape),checks,cache));
   return R.makeCompound(pieces).asShape3D();
  }finally{pieces.forEach(piece=>piece.delete());}
 }

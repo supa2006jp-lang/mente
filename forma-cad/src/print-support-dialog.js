@@ -895,7 +895,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(a.omittedThreadFaces)$('info').textContent+=' ねじ穴の入口の小面 '+a.omittedThreadFaces+'面を省きました。';
   if(a.omittedHoleFragments)$('info').textContent+=' 穴の縁の細いリブ片 '+a.omittedHoleFragments+'個を省きました。';
   if(a.reusedStructure)$('info').textContent+=' リブ本体と横つなぎを再利用しました。';
-  if(a.ceilingReuse)$('info').textContent+=' 下面 '+a.ceilingReuse.rebuilt+'面を再計算し、'+a.ceilingReuse.reused+'面を再利用しました。';
+  if(a.ceilingReuse)$('info').textContent+=' 下面 '+a.ceilingReuse.reused+'面分のリブと薄皮を再利用しました。';
   if(a.ceilingScopeReuse)$('info').textContent+=' 下面 '+a.ceilingScopeReuse.reused+'面の配置範囲と横すき間を再利用しました。';
  }
  function schedule(retryFailed=false,comparison=null,compareGap=false){

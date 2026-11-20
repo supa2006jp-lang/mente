@@ -104,6 +104,12 @@ test('an obstructed ceiling does not prevent automatic rib support under other c
   assert.ok(second.supportPreview.exportStatus.ok);
   assert.ok(stages.includes('リブ本体と横つなぎを再利用しています'));
   assert.ok(!stages.some(stage=>stage?.startsWith('薄壁サポートを作成しています')));
+  const inactiveStages=[];
+  const inactive=runOperation(partialFeatures,{...adjusted,bottomInterfaceSpacing:.9},update=>inactiveStages.push(update.stage));
+  assert.ok(inactiveStages.includes('検査済みのリブプレビューを再利用しています'));
+  assert.equal(inactive.analysis.printSupport.contactInterface.settings.lower.spacing,.9);
+  assert.equal(inactive.outputs[0].brep,second.outputs[0].brep);
+  assert.deepEqual(inactive.supportPackage,second.supportPackage);
   const changedGeometry=runOperation(features,{...adjusted,id:'other-support'});
   assert.equal(changedGeometry.analysis.printSupport.reusedStructure,undefined);
   assert.equal(changedGeometry.analysis.printSupport.faceCount,1);

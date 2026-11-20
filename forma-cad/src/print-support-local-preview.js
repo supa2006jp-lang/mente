@@ -13,7 +13,7 @@ export function supportNonDestructiveBoolean(kind,source,tool){
 // grooved faces to prepare a small contact/rib highlight. Final CAD is unchanged.
 export function supportLocalPreview(source,masks){
  const parts=cadSubshapes(source,'solid');let pieces,tools;try{pieces=parts.map(shape=>({shape,box:bounds(shape)}));tools=masks.map(shape=>({shape,box:bounds(shape)}));}catch(error){parts.forEach(p=>p.delete());throw error;}
- return {clip(tool,{contained=false}={}){
+ function clip(tool,{contained=false}={}){
   const box=bounds(tool),results=[];
   try{
    // An unwindowed rib is already a subset of the union.
@@ -27,5 +27,20 @@ export function supportLocalPreview(source,masks){
    }
    return results.length===1?results.pop():R.makeCompound(results);
   }finally{results.forEach(p=>p.delete());}
+ }
+ return {clip,mesh(tool,{contained=false,cache,meshShape}){
+  const box=contained&&cache?bounds(tool):null;
+  // For an unwindowed rib the rest of the assembly cannot affect its mesh.
+  // Only grooves whose bounds meet the rib are applied by clip().
+  const key=box?JSON.stringify([tool.serialize(),...tools.filter(mask=>overlaps(mask.box,box))
+   .map(mask=>mask.brep??=mask.shape.serialize())]):null;
+  const saved=key&&cache.get(key);
+  if(saved)return structuredClone(saved);
+  const shape=clip(tool,{contained});
+  try{
+   const mesh=meshShape(shape);
+   if(key)cache.set(key,structuredClone(mesh),key.length+8*(mesh.vertices.length+mesh.triangles.length+(mesh.normals?.length||0)));
+   return mesh;
+  }finally{shape.delete();}
  },delete(){parts.forEach(p=>p.delete());}};
 }
