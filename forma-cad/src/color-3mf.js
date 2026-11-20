@@ -17,10 +17,11 @@ export function colorMeshSnapshot(mesh,name){
  return {name,vertices,triangles,color:uniform?colors[0]:base,colors:uniform?null:colors};
 }
 
-export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
+export async function prepareColor3mfParts(parts,{remesh,isCurrent=()=>true}={}){
  if(!parts.length)throw Error('表示中のソリッドがありません');
- const objects=[],palette=new Map(),build=[],groups=new Map();
- for(const [index,part] of parts.entries()){
+ const prepared=[];
+ for(const part of parts){
+  if(!isCurrent())throw Error('モデルが変更されたため3MF出力を中止しました。');
   let mesh;
   try{mesh=indexedPrintSupportMesh(part);}catch(error){
    if(part.colors||!part.brep||!remesh)throw Error(part.name+' の3MF出力に失敗しました。'+error.message);
@@ -28,18 +29,27 @@ export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
    catch(failure){throw Error(part.name+' の3MF出力に失敗しました。'+failure.message);}
   }
   if(!isCurrent())throw Error('モデルが変更されたため3MF出力を中止しました。');
+  const {id,name,color,group}=part;
+  prepared.push({id,name,color,group,...mesh});
+ }
+ return prepared;
+}
+
+export function packColor3mf(parts){
+ const objects=[],palette=new Map(),build=[],groups=new Map();
+ for(const [index,part] of parts.entries()){
   function colorIndex(color){
    if(!palette.has(color))palette.set(color,palette.size);
    return palette.get(color);
   }
-  const defaultIndex=colorIndex(mesh.colors?.[0]??part.color),vertices=[],triangles=[];
-  for(let i=0;i<mesh.vertices.length;i+=3){
-   const [x,y,z]=mesh.vertices.slice(i,i+3);
+  const defaultIndex=colorIndex(part.colors?.[0]??part.color),vertices=[],triangles=[];
+  for(let i=0;i<part.vertices.length;i+=3){
+   const [x,y,z]=part.vertices.slice(i,i+3);
    vertices.push('<vertex x="'+x+'" y="'+y+'" z="'+z+'"/>');
   }
-  for(let i=0;i<mesh.triangles.length;i+=3){
-   const [a,b,c]=mesh.triangles.slice(i,i+3);
-   const paint=mesh.colors?colorIndex(mesh.colors[i/3]):defaultIndex;
+  for(let i=0;i<part.triangles.length;i+=3){
+   const [a,b,c]=part.triangles.slice(i,i+3);
+   const paint=part.colors?colorIndex(part.colors[i/3]):defaultIndex;
    triangles.push('<triangle v1="'+a+'" v2="'+b+'" v3="'+c+'" pid="1" p1="'+paint+'" p2="'+paint+'" p3="'+paint+'"/>');
   }
   objects.push('<object id="'+(index+2)+'" type="model" name="'+xmlAttribute(part.name)+'" pid="1" pindex="'+defaultIndex+'"><mesh><vertices>'+vertices.join('')+'</vertices><triangles>'+triangles.join('')+'</triangles></mesh></object>');
@@ -74,4 +84,8 @@ export async function createColor3mf(parts,{remesh,isCurrent=()=>true}={}){
  const plate='<plate>'+meta('plater_id',1)+build.map((item,index)=>'<model_instance>'+meta('object_id',item.id)+meta('instance_id',0)+meta('identify_id',index+1)+'</model_instance>').join('')+'</plate>';
  const config=groups.size?{'Metadata/model_settings.config':'<?xml version="1.0" encoding="UTF-8"?><config>'+objectsConfig+plate+'</config>'}:undefined;
  return {data:pack3mf(model,config),colorCount:palette.size};
+}
+
+export async function createColor3mf(parts,options){
+ return packColor3mf(await prepareColor3mfParts(parts,options));
 }

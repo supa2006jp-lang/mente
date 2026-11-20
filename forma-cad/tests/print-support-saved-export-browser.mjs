@@ -80,6 +80,14 @@ try{
  await loadProject(features,'two-ribs.forma.json');
  const choose=page.locator('#export'),picker=page.locator('#export-dialog');
  const format=page.locator('#export-format'),selected=page.locator('#export-target option:checked'),exportButton=page.locator('#export-confirm');
+ const viewport=page.locator('#export-viewport');
+ const part=id=>page.locator('#export-contents button[data-export-part="'+id+'"]');
+ async function selectPart(id){
+  const row=part(id);
+  await row.click();
+  assert.equal(await row.getAttribute('aria-pressed'),'true');
+  assert.equal(await viewport.getAttribute('data-selected-part'),id);
+ }
  async function chooseCombined(){
   await choose.click();
   await picker.waitFor();
@@ -90,17 +98,33 @@ try{
   assert.ok(contents.some(row=>row.includes('body-b')));
  }
  await chooseCombined();
+ const canvas=viewport.locator('canvas');
+ await canvas.waitFor();
+ const all=await canvas.screenshot();
+ await selectPart('ribs-b');
+ assert.notDeepEqual(await canvas.screenshot(),all,'selecting a rib changes the rendered view');
+ await page.locator('#export-preview-top').click();
+ assert.equal(await viewport.getAttribute('data-selected-part'),'ribs-b');
+ await page.locator('#export-preview-all').click();
+ assert.equal(await viewport.getAttribute('data-selected-part'),null);
  await exportButton.click();
  await page.waitForFunction(()=>!document.getElementById('export').disabled);
  assert.equal(await page.evaluate(()=>window.pickerActivated),true);
- assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[]);
+ assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds]);
  assert.equal(downloads.length,0);
+
+ await page.locator('#export-color-3mf').click();
+ await selectPart('body-b');
+ await format.selectOption('stl');
+ assert.ok(await page.locator('#export-preview').isHidden());
+ assert.equal(await page.locator('#export-contents button').count(),0);
+ await page.locator('#export-cancel').click();
 
  await page.evaluate(()=>window.showSaveFilePicker=undefined);
  await chooseCombined();
  const [download]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
  assert.match(download.suggestedFilename(),/\.3mf$/);
- assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds]);
+ assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds]);
  assert.equal(downloads.length,1);
  checkCombinedFile(await readFile(await download.path()));
 
@@ -140,9 +164,12 @@ try{
  await field('layerHeight').fill('0.24');
  await direct.click();
  assert.equal(await format.inputValue(),'support3mf');
+ await selectPart('ribs-a');
+ assert.match(await part('ribs-a').textContent(),/作成済みのリブ.*非表示/);
+ assert.equal(await previewedRibVisibility.getAttribute('aria-pressed'),'false');
  const [directDownload]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
  assert.match(directDownload.suggestedFilename(),/\.3mf$/);
- assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds]);
+ assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds,supportIds]);
  assert.equal(downloads.length,2);
  const bytes=await readFile(await directDownload.path());
  checkCombinedFile(bytes);
@@ -163,18 +190,24 @@ try{
  assert.ok(previewId);
  await together.click();
  assert.match(await page.locator('#export-contents').textContent(),/body-a.*body-b.*プレビュー中のリブ/);
+ await selectPart(previewId);
+ await selectPart('ribs-a');
  const [togetherDownload]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
  assert.match(togetherDownload.suggestedFilename(),/\.3mf$/);
- assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds,['ribs-a']]);
+ assert.deepEqual(await page.evaluate(()=>window.savedSupportRequests),[supportIds,supportIds,supportIds,['ribs-a']]);
  assert.equal(downloads.length,3);
  assert.equal(await page.locator('#body-count').textContent(),'3','3MF export does not create a body in the project');
  assert.equal(await page.locator('#feature-count').textContent(),'3');
  assert.equal(await dialog.isVisible(),true);
  const combinedBytes=await readFile(await togetherDownload.path());
  checkCombinedFile(combinedBytes,previewId);
+ await field('review3mf').click();
+ await selectPart(previewId);
+ assert.equal(await part('ribs-a').count(),0,'only the current preview is in this output');
+ await page.locator('#export-cancel').click();
  if(process.env.FORMA_TEST_3MF)await writeFile(process.env.FORMA_TEST_3MF,combinedBytes);
  assert.deepEqual(errors,[]);
- console.log('PASS saved supports from both routes, hidden parts, and one saved plus one preview in a single 3MF without changing the project');
+ console.log('PASS 3D selection for colored, saved, hidden and preview parts, correct 3MF contents, and unchanged project');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

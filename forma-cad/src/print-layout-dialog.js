@@ -4,7 +4,7 @@ import {centerPrintPlacements,movePrintPlacement,planPrintLayout,planPrintPlates
 import {comparePrintOrientations,inspectPrintLayoutPlate,printWarningSummary} from './print-layout-inspection.js';
 import {copyCadCoordinates} from './cad-coordinates.js';
 import {draggableDialog} from './draggable-dialog.js';
-export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,fitPreview,apply,exportPlates,openSupport,notify}){
+export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,fitPreview,apply,exportPlates,reviewPlates,openSupport,notify}){
  const plate=new THREE.Group();plate.name='print-plate-180';plate.visible=false;
  const surface=new THREE.Mesh(new THREE.PlaneGeometry(180,180),new THREE.MeshBasicMaterial({color:0x64cada,transparent:true,opacity:.13,side:THREE.DoubleSide,depthWrite:false}));surface.position.z=-.04;plate.add(surface);
  const corners=m=>[[-90+m,-90+m,.025],[90-m,-90+m,.025],[90-m,90-m,.025],[-90+m,90-m,.025],[-90+m,-90+m,.025]].map(p=>new THREE.Vector3(...p));
@@ -27,6 +27,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('warning-parts').after(Object.assign(document.createElement('div'),{id:'print-layout-warning-actions',hidden:true,innerHTML:'<div class="editor-actions"><button type="button" id="print-layout-warning-orient">向きを比較</button><button type="button" id="print-layout-warning-support">リブサポート</button><button type="button" id="print-layout-warning-recheck">この部品を再確認</button></div><p id="print-layout-warning-result" role="status"></p>'}));
  $('warning-status').before(Object.assign(document.createElement('label'),{innerHTML:'チェックのノズル径 (mm)<input type="number" min="0.1" max="2" step="any" value="0.6" id="print-layout-nozzle">'}));
  $('export').after(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-export-all',textContent:'全プレートを3MF出力（ZIP）',disabled:true}));
+ $('export').before(Object.assign(document.createElement('button'),{type:'button',id:'print-layout-review',textContent:'3MFの出力対象を確認',disabled:true}));
  $('plate-row').after(Object.assign(document.createElement('details'),{id:'print-layout-overview',innerHTML:'<summary>全プレートの確認</summary><button type="button" id="print-layout-check-all">全プレートを検査</button><ol id="print-layout-overview-rows"></ol>'}));
  $('orientations').after(Object.assign(document.createElement('div'),{id:'print-layout-orientation-review',hidden:true,innerHTML:'<strong id="print-layout-orientation-title"></strong><p id="print-layout-orientation-status" role="status"></p><div id="print-layout-orientation-candidates"></div><div class="editor-actions"><button type="button" id="print-layout-orientation-close">比較を閉じる</button><button type="button" id="print-layout-orientation-apply" class="accent" disabled>この向きに変更</button></div>'}));
  style.textContent+='#print-layout-overview{margin:10px 0}#print-layout-overview-rows{padding-left:24px;max-height:200px;overflow:auto}#print-layout-overview-rows button,#print-layout-warning-parts button,#print-layout-orientation-candidates button{text-align:left;margin:2px 0}#print-layout-orientation-review{margin:8px 0;padding:10px;border:1px solid #63849b;border-radius:6px}#print-layout-orientation-candidates button[aria-pressed=true]{outline:2px solid #46cbe0}';
@@ -45,6 +46,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
   $('center').disabled=unavailable||!!hasLocks;
   $('center').title=hasLocks?'中央に寄せるには、このプレートの位置固定を解除してください':'部品の間隔と向きを保ってプレート中央へ移動します';
   $('export').disabled=unavailable||checking;
+  $('review').disabled=$('export').disabled;
   $('export-all').disabled=$('check-all').disabled=unavailable;
  }
  function renderOverview(){
@@ -403,6 +405,7 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
  $('plate').onchange=()=>{focusNext=false;showCurrentPlate();};
  function updateMode(){
   $('orientations').hidden=$('plate-row').hidden=$('export').hidden=$('export-all').hidden=$('overview').hidden=$('inspection').hidden=$('placement-tools').hidden=legacy();
+  $('review').hidden=legacy()||!reviewPlates;
   $('apply').textContent=editing?.spec.copy?'印刷用コピーの配置を更新':editsModel()?'モデルの配置を更新':'印刷配置を保存';
   $('apply-model').hidden=$('copy-model').hidden=editsModel();
   $('apply-model').style.marginTop=$('copy-model').style.marginTop='8px';
@@ -429,6 +432,16 @@ export function printLayoutDialog({scene,host,canvas,camera,meshes,kernel,getFea
   finally{if(current===version&&dialog.open)setBusy(false);}
  }
  $('export').onclick=()=>checkOrExport({exportFiles:true});
+ $('review').onclick=()=>{
+  if($('review').disabled||!reviewPlates)return;
+  if(!$('nozzle').value||!$('nozzle').checkValidity()){
+   $('error').textContent='ノズル径を0.1〜2 mmで指定してください。';return;
+  }
+  const currentVersion=version,currentLayout=layoutRevision,features=original,entries=plateEntries();
+  const isCurrent=()=>currentVersion===version&&currentLayout===layoutRevision&&dialog.open&&getFeatures()===features&&
+   entries.every(({plate,index})=>plates[index]===plate);
+  reviewPlates(entries,entries.findIndex(({index})=>index===Number($('plate').value)),features,isCurrent);
+ };
  $('export-all').onclick=()=>checkOrExport({all:true,exportFiles:true});
  $('check-all').onclick=()=>checkOrExport({all:true});
  $('form').addEventListener('input',event=>{if(event.target===$('nozzle')){

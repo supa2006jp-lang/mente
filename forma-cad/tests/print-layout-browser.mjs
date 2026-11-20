@@ -36,6 +36,20 @@ try{
  await page.locator('#print-layout-gap').fill('5');await ready();await page.locator('#print-layout-rotation').uncheck();await ready();preview=await page.locator('#canvas-host').evaluate(el=>JSON.parse(el.dataset.printLayout));assert.ok(preview.placements.every(p=>p.rotation===0));assert.equal(preview.gap,5);await page.locator('#print-layout-cancel').click();assert.deepEqual((await save()).features,before.features);assert.equal(await page.locator('#print-plate-toggle').getAttribute('aria-pressed'),'false');
  await page.locator('#print-layout-tool').click();await ready();await page.locator('[data-print-orientation=part0]').selectOption('x+');
  await ready();const appliedPlan=JSON.parse(await page.locator('#canvas-host').getAttribute('data-print-layout'));
+ await page.locator('#print-layout-review').click();
+ const partZero=page.locator('#export-contents [data-export-part="part0"]');
+ await partZero.click();
+ assert.equal(await page.locator('#export-viewport').getAttribute('data-selected-part'),'part0');
+ await page.locator('#export-preview-top').click();
+ const [reviewed]=await Promise.all([page.waitForEvent('download'),page.locator('#export-confirm').click()]);
+ const reviewedModel=strFromU8(unzipSync(await fs.readFile(await reviewed.path()))['3D/3dmodel.model']);
+ const firstIndex=appliedPlan.placements.findIndex(placement=>placement.id==='part0');
+ const data=reviewedModel.split('<object id="'+(firstIndex+2)+'"')[1].split('</object>')[0];
+ const vertices=[...data.matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].flatMap(match=>match.slice(1).map(Number));
+ assert.ok(vertices.length);
+ const [written]=bounds([{vertices}]),placement=appliedPlan.placements[firstIndex];
+ for(const side of ['min','max'])for(let axis=0;axis<3;axis++)assert.ok(Math.abs(written[side][axis]-placement[side][axis]-(axis<2?90:0))<.08);
+ assert.ok(await page.locator('#print-layout-dialog').isVisible());
  await page.locator('#print-layout-apply-model').click();await page.waitForFunction(()=>!document.getElementById('print-layout-dialog').open);const saved=await save(),feature=saved.features.at(-1);assert.equal(feature.spec.type,'printLayout');assert.equal(feature.outputs.length,5);assert.equal(saved.features.length,7);assert.equal(await page.locator('#body-count').textContent(),'6');assert.equal(await page.locator('#print-plate-toggle').getAttribute('aria-pressed'),'true');for(const [index,b] of bounds(feature.outputs).entries()){const placement=appliedPlan.placements.find(p=>p.id===feature.outputs[index].id); for(const side of ['min','max'])for(let axis=0;axis<3;axis++)assert.ok(Math.abs(b[side][axis]-placement[side][axis])<.08);assert.ok(Math.abs(b.min[2])<1e-4);assert.ok(b.min[0]>=-88-1e-4&&b.min[1]>=-88-1e-4&&b.max[0]<=88+1e-4&&b.max[1]<=88+1e-4);}
  // STL must contain the final positions, with no preview plate geometry.
  await page.evaluate(()=>{window.showSaveFilePicker=undefined;});const download=page.waitForEvent('download');await confirmOutput(page);const stl=await fs.readFile(await(await download).path()),count=stl.readUInt32LE(80);assert.equal(stl.length,84+count*50);for(let i=0;i<count;i++)for(let j=0;j<3;j++){const off=84+i*50+12+j*12,x=stl.readFloatLE(off),y=stl.readFloatLE(off+4),z=stl.readFloatLE(off+8);assert.ok(x>=-88-1e-4&&x<=88+1e-4&&y>=-88-1e-4&&y<=88+1e-4&&z>=-1e-4&&z<=61,'STL vertices stay on the plate');}
@@ -84,6 +98,12 @@ try{
  const mfEvent=copyPage.waitForEvent('download');await copyPage.locator('#print-copy-3mf').click();
  const model=strFromU8(unzipSync(await fs.readFile(await(await mfEvent).path()))['3D/3dmodel.model']);
  assert.equal((model.match(/<item\s/g)||[]).length,2);assert.match(model,/印刷用コピー/);
+ await copyPage.locator('#print-copy-review').click();
+ const copyPart=copyPage.locator('#export-contents button').first();
+ await copyPart.click();
+ assert.equal(await copyPart.getAttribute('aria-pressed'),'true');
+ assert.ok(await copyPage.locator('#export-viewport').getAttribute('data-selected-part'));
+ await copyPage.locator('#export-cancel').click();
  await copyPage.locator('#undo').click();assert.equal(await copyPage.locator('#body-count').textContent(),'2');
  await copyPage.locator('#redo').click();assert.equal(await copyPage.locator('#body-count').textContent(),'4');
  await copyContext.close();

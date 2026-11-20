@@ -10,7 +10,7 @@ import {createAutoColorDialog,createBodyColorDialog} from './body-color-dialog.j
 import {automaticColorPlan} from './automatic-body-colors.js';
 import {colorChoiceLabel,colorChoiceRgb,isClearColor} from './color-choice.js';
 import {setSlideLidTransparency} from './slide-lid-transparency.js';
-import {colorMeshSnapshot,createColor3mf} from './color-3mf.js';
+import {colorMeshSnapshot,packColor3mf,prepareColor3mfParts} from './color-3mf.js';
 import {installProjectDrafts} from './project-drafts.js';
 import {readNamedDimensions,namedDimensionBinding,linkedDimensionFields,planNamedDimensionChange} from './named-dimensions.js';
 import {installFavoriteCommands} from './favorite-commands.js';
@@ -50,8 +50,9 @@ import {edgeBodyRevolveOptions} from './edge-body-revolve.js';
 import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
 import {printSupportExportCandidates,savedSupportExportGroups,savedSupportExportIds} from './print-support-export-choice.js';
 import {createExportDialog} from './export-dialog.js';
+import {createExport3mfPreview} from './export-3mf-preview.js';
 import {createCadWorkflow} from './cad-workflow.js';
-const outputDialog=createExportDialog();
+const outputDialog=createExportDialog({createPreview:createExport3mfPreview});
 import {createPrintSupportDialog} from './print-support-dialog.js';
 import {mergeSupportPackages,supportHistoryFeature} from './print-support-batch.js';
 import {savePrintSupport3mf} from './print-support-3mf.js';
@@ -183,7 +184,7 @@ import {createPointDistance} from './point-distance.js';
 import {allMeshHits,screenEdgeCandidates,screenMidpointCandidates,selectionCandidates,edgeCandidateKey} from './selection-candidates.js';
 import {createSelectionPicker} from './selection-picker.js';
 import {printLayoutDialog} from './print-layout-dialog.js';
-import {printPlacementMatrix} from './print-layout.js';
+import {PRINT_PLATE_SIZE,printPlacementMatrix} from './print-layout.js';
 import {installHistoryReferenceRepair} from './history-reference-repair.js';
 import {createPrintDimensionsView} from './print-dimensions-view.js';
 let printDimensionsView=null;
@@ -1856,25 +1857,40 @@ async function chooseProjectFile(){
 $('load').onclick=chooseProjectFile;
 $('file').onchange=async()=>{legacyRebuild.cancel();const file=$('file').files[0];if(!file||projectFileTarget.busy)return;const request=toolCancelRevision,read=++projectReadRevision;projectLoadPreview.cancel();try{await previewProjectFile(file,null,request,read);}finally{if(read===projectReadRevision)$('file').value='';}};
 stlInspection=createStlInspectionView({scene,host,meshes,getFeatures:()=>features,getBodyName:bodyDisplayName,onTrace:options=>workspaceImprovements?.historyTrace.open(options)});
-async function exportColor3mf(ids,{copies=false}={}){
- if(color3mfBusy||!canSwitchSketchNumber()||stage!=='model')return;
- const original=features,records=currentBodyMeshRecords(original),button=$('export-color-3mf');
+function color3mfBodyParts(original,ids,isCurrent){
+ const records=currentBodyMeshRecords(original),parts=[];
+ for(const id of ids){
+  const mesh=meshes.get(id),record=records.get(id),volumes=volumeParts(record,id),name=bodyDisplayName(id);
+  if(!mesh)throw Error('出力するボディが見つかりません。'+name);
+  if(volumes?.length)for(const [i,part] of volumes.entries())parts.push({...part,id:id+'-material-'+i,name:name+' · '+colorChoiceLabel(part.color),group:{id,name}});
+  else parts.push({...colorMeshSnapshot(mesh,name),id,brep:record?.output?.brep});
+ }
+ return prepareColor3mfParts(parts,{isCurrent,remesh:remesh3mfPart});
+}
+async function remesh3mfPart(part){
+ const result=await kernelClient.run([],{type:'stlMeshes',bodies:[{id:part.id,brep:part.brep}]});
+ if(!result.inspection?.ok||result.outputs.length!==1)throw Error('出力用メッシュの検査に合格しませんでした。');
+ return result.outputs[0];
+}
+function colorOutputEntry(ids,label,loadParts,run,{plateSize}={}){
+ const rows=ids.map(id=>({id,label:bodyDisplayName(id)}));
+ return {label,rows,run,async load(isCurrent){
+  const data=await loadParts(isCurrent),colors=new Map();
+  const parts=data.map(part=>{
+   const id=part.group?.id??part.id,color=colorChoiceRgb(part.color);
+   if(!colors.has(id))colors.set(id,color);
+   return {id,color,vertices:part.vertices,triangles:part.triangles};
+  });
+  return {rows:rows.map(row=>({...row,color:colors.get(row.id)})),parts,plateSize,data};
+ }};
+}
+function saveColor3mf(parts,original,{copies=false}={}){
+ if(color3mfBusy||features!==original||!canSwitchSketchNumber()||stage!=='model')return;
+ const button=$('export-color-3mf');
  const fileName=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'');
  color3mfBusy=true;button.disabled=true;
  try{
-  const parts=[];
-  for(const [id,mesh] of meshes)if(ids?ids.has(id):mesh.visible){const record=records.get(id),volumes=volumeParts(record,id),name=bodyDisplayName(id);
-   if(volumes?.length)for(const [i,part] of volumes.entries())parts.push({...part,id:id+'-material-'+i,name:name+' · '+colorChoiceLabel(part.color),group:{id,name}});
-   else parts.push({...colorMeshSnapshot(mesh,name),id,brep:record?.output?.brep});
-  }
-  const isCurrent=()=>features===original;
-  const remesh=async part=>{
-   const result=await kernelClient.run([],{type:'stlMeshes',bodies:[{id:part.id,brep:part.brep}]});
-   if(!result.inspection?.ok||result.outputs.length!==1)throw Error('出力用メッシュの検査に合格しませんでした。');
-   return result.outputs[0];
-  };
-  const {data,colorCount}=await createColor3mf(parts,{isCurrent,remesh});
-  if(!isCurrent())return;
+  const {data,colorCount}=packColor3mf(parts);
   download(data,fileName+(copies?'-print-copies':'')+'.3mf','model/3mf');
   notify('色付き3MFを出力しました。'+colorCount+'色を含みます。'+(parts.some(part=>part.group)?' 色ごとの立体は別パーツです。':''));
  }catch(error){notify(error.message);}
@@ -1893,40 +1909,49 @@ async function exportCheckedStl(original,ids,{copies=false}={}){
   if(message)notify(message+'（出力メッシュ検査済み）');
  }catch(error){if(token!==null)stlInspection.error(token,error);throw error;}
 }
-function exportSavedPrintSupports(original,ids,{isCurrent=()=>features===original,previewPackages=[]}={}){
- const createPackage=async()=>{
-  const saved=await kernelClient.run(original,{type:'printSupportSavedExport',ids},{document:original});
-  return previewPackages.length?mergeSupportPackages([saved,...previewPackages]):saved;
- };
- return savePrintSupport3mf(createPackage,download,isCurrent);
-}
 const printSupport3mfLabel='3MF（連結リブサポートの設定付き）';
-function supportOutputEntry(original,ids,previewPackages,run,label){
- const entries=ids.map(id=>original.find(feature=>feature.id===id));
- const knownBodies=new Map();
- const bases=feature=>feature.analysis?.supportExport?.baseBodyIds??feature.analysis?.printSupport?.baseBodyIds;
- const add=(id,name,type)=>{
-  if(!knownBodies.has(id))knownBodies.set(id,{label:name,detail:type});
- };
- for(const feature of entries){
+const supportBlockersId=Symbol('support-blockers');
+function supportOutputEntry({original,ids=[],previews=[],run,label='本体とリブ'}){
+ const bodyNames=new Map(),targets=new Set(),savedRibs=new Set(),previewRibs=new Map();
+ const include=id=>{if(!bodyNames.has(id))bodyNames.set(id,bodyDisplayName(id));};
+ for(const id of ids){
+  const feature=original.find(item=>item.id===id);
   const spec=feature.spec;
-  add(spec.target,bodyDisplayName(spec.target),'本体');
-  add(spec.id||feature.id,bodyDisplayName(spec.id||feature.id),'作成済みのリブ');
-  for(const id of bases(feature)??[])add(id,bodyDisplayName(id),'土台');
+  targets.add(spec.target);include(spec.target);
+  const rib=spec.id||id;savedRibs.add(rib);include(rib);
+  for(const base of feature.analysis?.supportExport?.baseBodyIds??feature.analysis?.printSupport?.baseBodyIds??[])include(base);
  }
- const previewRibs=[...new Set(previewPackages.flatMap(pkg=>pkg.bodies.filter(body=>!meshes.has(body.id)).map(body=>body.id)))];
- const previewNames=new Map(previewRibs.map((id,index)=>[id,'プレビュー中のリブ '+(index+1)]));
- for(const pkg of previewPackages)for(const body of pkg.bodies){
-  const name=previewNames.get(body.id);
-  add(body.id,name??bodyDisplayName(body.id),name?'未確定のプレビュー':'本体・土台');
+ for(const [index,{target,id,pkg}] of previews.entries()){
+  targets.add(target);
+  previewRibs.set(id,previews.length===1?'プレビュー中のリブ':'プレビュー中のリブ '+(index+1));
+  for(const body of pkg.bodies)include(body.id);
  }
- const rows=()=>[...knownBodies.values(),{label:'自動サポートの除外範囲'}];
- const load=entries.some(feature=>!Array.isArray(bases(feature)))?async()=>{
-  const saved=await kernelClient.run(original,{type:'printSupportSavedExport',ids},{document:original});
-  for(const body of saved.bodies)add(body.id,bodyDisplayName(body.id),'土台');
-  return rows();
- }:undefined;
- return {label,rows:rows(),load,detail:'Bambu Studioで「プロジェクト」として開きます。',run};
+ const blocker={id:supportBlockersId,label:'自動サポートの除外範囲',color:'#8f6bd2'};
+ function bodyRow(id){
+  const [kind,color]=savedRibs.has(id)?['作成済みのリブ','#d47a20']:previewRibs.has(id)?['未確定のプレビュー','#b468cb']:
+   targets.has(id)?['本体','#3e8bc2']:['土台','#3b9a83'];
+  const hidden=meshes.has(id)&&!previewRibs.has(id)&&!bodyDisplay.isVisible(id);
+  const name=previewRibs.has(id)&&!savedRibs.has(id)?previewRibs.get(id):bodyNames.get(id);
+  return {id,label:name,detail:kind+(hidden?' ／ 非表示':''),
+   color};
+ }
+ return {label,rows:[...[...bodyNames.keys()].map(bodyRow),blocker],detail:'Bambu Studioで「プロジェクト」として開きます。',run,
+  async load(isCurrent){
+   const packages=previews.map(({pkg})=>pkg);
+   if(ids.length){
+    const saved=await kernelClient.run(original,{type:'printSupportSavedExport',ids},{document:original});
+    if(!isCurrent())return {};
+    packages.unshift(saved);
+   }
+   const data=packages.length===1?packages[0]:mergeSupportPackages(packages);
+   for(const {id} of data.bodies)include(id);
+   const byId=new Map(data.bodies.map(body=>[body.id,body]));
+   const rows=[...bodyNames.keys()].filter(id=>byId.has(id)).map(bodyRow);
+   const parts=rows.map(({id,color})=>({...byId.get(id),color}));
+   parts.push(...data.blockers.map(mesh=>({...mesh,id:blocker.id,color:blocker.color,overlay:true})));
+   return {rows:[...rows,{...blocker,detail:data.blockers.length+'範囲'}],parts,data};
+  }
+ };
 }
 function openOutput(initial='stl'){
  if(!meshes.size||outputDialog.active||stlExportBusy||color3mfBusy)return;
@@ -1957,10 +1982,10 @@ function openOutput(initial='stl'){
   configurations.push({ids:saved,label:'非表示のリブも含めてまとめる（'+saved.length+'件）'});
  const visibleSnapshot=JSON.stringify(visible);
  const valid=()=>features===original&&JSON.stringify(bodyDisplay.visibleIds())===visibleSnapshot;
- const supportEntries=configurations.map(({ids,label})=>supportOutputEntry(original,ids,[],async()=>{
-  try{if(await exportSavedPrintSupports(original,ids))notify('現在の配置で3MFを出力しました');}
+ const supportEntries=configurations.map(({ids,label})=>supportOutputEntry({original,ids,label,async run(pkg){
+  try{if(await savePrintSupport3mf(pkg,download,valid))notify('現在の配置で3MFを出力しました');}
   catch(error){if(error.code!=='cancelled')notify('3MFを保存できませんでした。'+error.message);}
- },label));
+ }}));
  for(const {feature,index,later} of printSupportExportCandidates(original,visible)){
   supportEntries.push({label:'工程 '+(index+1)+' の形状を使う',rows:[{label:bodyDisplayName(feature.spec.target),detail:'この工程の本体とリブ'}],
    detail:later?'このリブを作成した時点の形状でプレビューします。':'本体・薄壁と除外範囲をプレビューします。',
@@ -1974,7 +1999,8 @@ function openOutput(initial='stl'){
    catch(error){if(error.code!=='cancelled')notify('STL保存に失敗しました。'+error.message);}
    finally{stlExportBusy=false;$('export').disabled=!meshes.size;}
   }).map(entry=>({...entry,detail:saved.length?'形状を保存します。自動サポートの除外範囲は設定付き3MFで保存できます。':''}))},
-  {id:'color3mf',label:'3MF（色付き）',entries:stage==='model'?bodyEntries(exportColor3mf):[]},
+  {id:'color3mf',label:'3MF（色付き）',entries:stage==='model'?groups.map(({ids,label})=>colorOutputEntry(ids,label,
+   isCurrent=>color3mfBodyParts(original,ids,isCurrent),parts=>saveColor3mf(parts,original))):[]},
   {id:'support3mf',label:printSupport3mfLabel,entries:supportEntries},
   {id:'pdf',label:'PDF（図面）',entries:visible.length?[{label:'図面のページ',rows:[],
    detail:'図面でページ構成を確認してから保存できます。',action:'図面を開く',run:()=>drawingController.openForPDF()}]:[]},
@@ -1984,7 +2010,7 @@ $('export').onclick=()=>openOutput();
 $('export-color-3mf').onclick=()=>openOutput('color3mf');
 const printCopyActions=document.createElement('details');
 printCopyActions.id='print-copy-actions';printCopyActions.hidden=true;
-printCopyActions.innerHTML='<summary>印刷用コピー</summary><select id="print-copy-group" aria-label="印刷用コピーの作成工程"></select><div class="body-display-tools"><button type="button" id="print-copy-select">まとめて選択</button><button type="button" id="print-copy-stl">コピーをSTL出力</button><button type="button" id="print-copy-3mf">コピーを3MF出力</button></div>';
+printCopyActions.innerHTML='<summary>印刷用コピー</summary><select id="print-copy-group" aria-label="印刷用コピーの作成工程"></select><div class="body-display-tools"><button type="button" id="print-copy-select">まとめて選択</button><button type="button" id="print-copy-stl">コピーをSTL出力</button><button type="button" id="print-copy-3mf">コピーを3MF出力</button><button type="button" id="print-copy-review">3MFの出力対象を確認</button></div>';
 $('bodies').before(printCopyActions);
 let printCopyGroups=new Map(),printCopyExportBusy=false;
 function updatePrintCopyActions(){
@@ -2009,6 +2035,14 @@ $('print-copy-select').onclick=()=>{
  for(const id of ids){hiddenBodies.delete(id);meshes.get(id).visible=true;}
  commitBodySelection(new Set(ids));sectionControl?.refresh();renderTree();
 };
+$('print-copy-review').onclick=()=>{
+ const ids=printCopyTargets();if(!ids||stlExportBusy||color3mfBusy)return;
+ const original=features;
+ outputDialog.open({initial:'color3mf',isCurrent:()=>features===original,choices:[
+  {id:'color3mf',label:'3MF（色付き）',entries:[colorOutputEntry(ids,'印刷用コピー',
+   isCurrent=>color3mfBodyParts(original,ids,isCurrent),parts=>saveColor3mf(parts,original,{copies:true}))]},
+ ]});
+};
 for(const format of ['stl','3mf'])$('print-copy-'+format).onclick=async()=>{
  const ids=printCopyTargets();if(!ids||stlExportBusy||color3mfBusy)return;
  printCopyExportBusy=true;
@@ -2016,7 +2050,10 @@ for(const format of ['stl','3mf'])$('print-copy-'+format).onclick=async()=>{
  $('print-copy-stl').disabled=$('print-copy-3mf').disabled=true;
  try{
   if(format==='stl')await exportCheckedStl(features,new Set(ids),{copies:true});
-  else await exportColor3mf(new Set(ids),{copies:true});
+  else{
+   const original=features,parts=await color3mfBodyParts(original,ids,()=>features===original);
+   saveColor3mf(parts,original,{copies:true});
+  }
  }catch(error){if(error.code!=='cancelled')notify('印刷用コピーを保存できませんでした。'+error.message);}
  finally{if(format==='stl')stlExportBusy=false;printCopyExportBusy=false;$('print-copy-stl').disabled=$('print-copy-3mf').disabled=false;}
 };
@@ -5477,7 +5514,7 @@ function openCylinderHinge(){if(stage!=='model'||document.querySelector('dialog[
 cylinderHingeButton.onclick=openCylinderHinge;
 
 
-async function createLayoutPlateFile(plate,records,isCurrent){
+function layoutColor3mfParts(plate,records,isCurrent){
  const parts=[],transforms=new Map(),point=new THREE.Vector3();
  function transformed(part,matrix){
   const vertices=[];
@@ -5499,12 +5536,23 @@ async function createLayoutPlateFile(plate,records,isCurrent){
    parts.push(transformed({...colorMeshSnapshot(mesh,name),id,brep:record?.output?.brep},matrix));
   }
  }
- const remesh=async part=>{
-  const result=await kernelClient.run([],{type:'stlMeshes',bodies:[{id:part.id,brep:part.brep}]});
-  if(!result.inspection?.ok||result.outputs.length!==1)throw Error('出力用メッシュの検査に合格しませんでした');
-  return transformed(result.outputs[0],transforms.get(part.id));
- };
- return (await createColor3mf(parts,{isCurrent,remesh})).data;
+ const remesh=async part=>transformed(await remesh3mfPart(part),transforms.get(part.id));
+ return prepareColor3mfParts(parts,{isCurrent,remesh});
+}
+const plate3mfFilename=(name,index)=>name.replace(/[\\/:*?"<>|\x00-\x1f]/g,'_')+'-plate-'+(index+1)+'.3mf';
+function reviewLayout3mf(entries,initialIndex,original,isCurrent){
+ const name=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,''),records=currentBodyMeshRecords(original);
+ outputDialog.open({initial:'color3mf',initialTarget:initialIndex,isCurrent,choices:[
+  {id:'color3mf',label:'3MF（印刷プレート）',entries:entries.map(({plate,index})=>colorOutputEntry(
+   plate.placements.map(part=>part.id),'プレート '+(index+1)+'（'+plate.placements.length+'部品）',
+   active=>layoutColor3mfParts(plate,records,active),parts=>{
+    if(!isCurrent())return;
+    try{
+     download(packColor3mf(parts).data,plate3mfFilename(name,index),'model/3mf');
+     notify('プレート '+(index+1)+' を3MF出力しました');
+    }catch(error){notify('3MFを保存できませんでした。'+error.message);}
+   },{plateSize:PRINT_PLATE_SIZE}))},
+ ]});
 }
 async function exportLayoutPlates(entries,original,isCurrent,onProgress,batch=false){
  const name=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'');
@@ -5513,10 +5561,10 @@ async function exportLayoutPlates(entries,original,isCurrent,onProgress,batch=fa
   if(!isCurrent())return;
   onProgress(i+1,entries.length);
   let data;
-  try{data=await createLayoutPlateFile(plate,records,isCurrent);}
+  try{data=packColor3mf(await layoutColor3mfParts(plate,records,isCurrent)).data;}
   catch(error){throw Error('プレート '+(index+1)+' の3MFを作成できませんでした。'+error.message);}
   if(!isCurrent())return;
-  const file=name.replace(/[\\/:*?"<>|\x00-\x1f]/g,'_')+'-plate-'+(index+1)+'.3mf';
+  const file=plate3mfFilename(name,index);
   if(!batch){download(data,file,'model/3mf');notify('プレート '+(index+1)+' を3MF出力しました');return;}
   files[file]=data;
  }
@@ -5529,7 +5577,7 @@ historyReferenceRepair=installHistoryReferenceRepair({
  onStart(){cancelAllTools();finishSketch(false);selected=null;stage='model';dropPreview();syncFields();},
  onApply(next,original,dimensions){if(features!==original)throw Error('モデルが変更されました');setProject(next,{dimensions:dimensions??namedDimensions});selected=null;stage='model';syncFields();}
 });
-const printLayoutController=printLayoutDialog({scene,host,canvas:renderer.domElement,camera,meshes,kernel:kernelClient,getFeatures:()=>features,bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,exportPlates:exportLayoutPlates,
+const printLayoutController=printLayoutDialog({scene,host,canvas:renderer.domElement,camera,meshes,kernel:kernelClient,getFeatures:()=>features,bodyName:bodyDisplayName,fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},notify,exportPlates:exportLayoutPlates,reviewPlates:reviewLayout3mf,
  openSupport(bodyId){
   $('print-layout-dialog').addEventListener('close',()=>{
    const before=features,dialog=$('print-support-dialog');
@@ -5553,9 +5601,9 @@ printLayoutButton.onclick=()=>{if(stage!=='model'||document.querySelector('dialo
 function supportSelectedFace(){if(stage!=='model'||sketch||pendingExtrude||extrusionBusy||moveTool?.active)return null;const face=selectedFace,point=face?.cadFace?.point,normal=face?.cadFace?.normal||face?.frame?.n;return face?.bodyId&&point&&normal?{bodyId:face.bodyId,point:[...point],normal:[...normal]}:null;}
 printSupportController=createPrintSupportDialog({getControls:()=>controls,scene,host,canvas:renderer.domElement,camera,meshes,kernel:new KernelClient(),getFeatures:()=>features,bodyName:bodyDisplayName,getFace:supportSelectedFace,notify,download,recordFailure:(context,error)=>failureRecovery?.capture(context,error),
  getSavedExportIds:visibleOnly=>savedSupportExportIds(features,visibleOnly?bodyDisplay.visibleIds():meshes.keys()),
- getBodyVisibility:id=>bodyDisplay.isVisible(id),exportSaved:exportSavedPrintSupports,
- confirmOutput:(original,ids,previewPackages,isCurrent,run)=>outputDialog.open({initial:'support3mf',isCurrent,choices:[
-  {id:'support3mf',label:printSupport3mfLabel,entries:[supportOutputEntry(original,ids,previewPackages,run,'本体とリブ')]},
+ getBodyVisibility:id=>bodyDisplay.isVisible(id),
+ confirmOutput:({isCurrent,...entry})=>outputDialog.open({initial:'support3mf',isCurrent,choices:[
+  {id:'support3mf',label:printSupport3mfLabel,entries:[supportOutputEntry(entry)]},
  ]}),
  onStart:()=>{cancelAllTools();finishSketch(false);clearEdgeSelection();clearFaceSelection();clearBodySelection();selected=null;selectedFace=null;selectedSurface=null;chosenRegion=null;pendingExtrude=false;stage='model';dropPreview();syncFields();$('measurement').hidden=true;},
  fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},

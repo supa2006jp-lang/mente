@@ -813,6 +813,7 @@ button.form-control-point.invalid { background:#bc2634; }
 #drawing-page-count{width:65px}
 
 #export-dialog{width:min(490px,calc(100vw - 32px));padding:22px}
+#export-dialog.has-model-preview{width:min(1030px,calc(100vw - 32px));box-sizing:border-box}
 #export-dialog h2{margin:0 0 16px}
 #export-dialog h3{font-size:1rem;margin:18px 0 6px}
 #export-dialog label[hidden]{display:none}
@@ -821,6 +822,23 @@ button.form-control-point.invalid { background:#bc2634; }
 #export-contents li{padding:8px 12px;overflow-wrap:anywhere}
 #export-contents li+li{border-top:1px solid var(--border)}
 #export-contents small{display:block;color:inherit;opacity:.78;margin-top:2px}
+#export-dialog.has-model-preview .export-review{display:grid;grid-template-columns:minmax(180px,270px) minmax(0,1fr);gap:16px;margin-top:14px}
+.export-review section{min-width:0}
+#export-dialog.has-model-preview h3{margin-top:0}
+#export-dialog.has-model-preview #export-contents{max-height:clamp(240px,49vh,420px)}
+#export-contents li:has(button){padding:0}
+#export-contents button{display:block;width:100%;border:0;border-inline-start:4px solid var(--part-color,transparent);border-radius:0;padding:8px 12px;background:transparent;color:inherit;text-align:start;white-space:normal;overflow-wrap:anywhere}
+#export-contents button:hover,#export-contents button[aria-pressed="true"]{background:#14556a;color:#fff}
+#export-contents button:focus-visible{outline-offset:-3px}
+.export-preview-controls{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+#export-viewport{height:clamp(240px,46vh,410px);min-width:0;overflow:hidden;border:1px solid var(--border);border-radius:6px;background:#eef4f8}
+#export-viewport canvas{display:block;width:100%;height:100%;touch-action:none}
+#export-preview-status{margin:6px 0 0;font-size:.87rem;line-height:1.4;overflow-wrap:anywhere}
+@media(max-width:720px){
+ #export-dialog.has-model-preview .export-review{grid-template-columns:1fr;gap:12px}
+ #export-dialog.has-model-preview #export-contents{max-height:24vh}
+ #export-viewport{height:clamp(180px,37vh,320px)}
+}
 #export-detail:empty{display:none}
 #export-detail{line-height:1.5}
 .export-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:14px}
