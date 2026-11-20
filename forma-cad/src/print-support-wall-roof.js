@@ -5,12 +5,13 @@ const overlap=(a,b)=>{const common=a.intersect(b);try{return R.measureVolume(com
 
 // Bridge only between the outermost fins: the roof must not cantilever beyond
 // them. Intersect with the original inset prism to preserve its outline/holes.
-export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial=false,trimToRibs=false}={}){
+export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial=false,trimToRibs=false,span}={}){
  if(new Set(records.map(record=>record.center)).size<2)return null;
  const thickness=p.roofLayers*p.layerHeight,b=bounds(prism),axis=records[0].axis;
  if(top-thickness<=p.bedZ+p.layerHeight)throw skinClearanceError('薄皮を置く高さが足りません。薄皮の層数を減らしてください','upper',top,thickness);
  const low=[b[0][0]-1,b[0][1]-1,top-thickness],high=[b[1][0]+1,b[1][1]+1,top+1];
  low[axis]=Math.min(...records.map(r=>r.center))-p.wallThickness/2;high[axis]=Math.max(...records.map(r=>r.center))+p.wallThickness/2;
+ if(span)[low[1-axis],high[1-axis]]=span;
  const slab=R.makeBox(low,high);let roof;
  try{
   onProgress?.({stage:'リブ上面の薄皮を作成しています'});roof=prism.intersect(slab);

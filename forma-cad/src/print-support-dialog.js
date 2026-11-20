@@ -430,9 +430,9 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }
  function ribControls(walls,roof){
   planPanel.hidden=!walls||batching();
-  const aligned=cached?.result.analysis.printSupport.sideGapAlignedCeilings;
+  const {sideGapAlignedCeilings:aligned,sideGapSections:sections}=cached?.result.analysis.printSupport||{};
   const offset=wallOffset?(wallOffset>0?'+':'')+Number((wallOffset*100).toFixed(1)):0;
-  $('rib-active-offset').textContent=aligned?'設定したずらし '+offset+'% ／ 側壁に沿う面は等間隔':'現在のずらし '+offset+'%';
+  $('rib-active-offset').textContent=aligned?'設定したずらし '+offset+'% ／ '+(sections?'側壁の形に合わせた '+sections+' 区画で等間隔':'側壁に沿う面は等間隔'):'現在のずらし '+offset+'%';
   $('rib-compare').disabled=busy||picking||!cached||ribPicking||ribBatch||!!ribReview.length;
   for(const button of $('rib-plan-list').querySelectorAll('button'))button.disabled=$('rib-compare').disabled;
   printOptions.hidden=!walls;for(const key of ['lineWidth','wallLines','fitLineWidth'])$(key).closest('label').hidden=!walls||(key==='wallLines'&&!$('fitLineWidth').checked);$('wallThickness').readOnly=walls&&$('fitLineWidth').checked;
@@ -483,7 +483,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }
  $('wallDirection').onchange=()=>{resetStructure();schedule();};$('rib-rotate').onclick=()=>{const axis=cached?.result.supportPreview?.ribs[0]?.axis,current=$('wallDirection').value;$('wallDirection').value=axis===0?'x':axis===1?'y':current==='x'?'y':'x';resetStructure();schedule();};
  $('rib-pick').onclick=()=>{if(!cached)return;endRibBatch();ribPicking=!ribPicking;$('error').textContent='';controls();};$('rib-reset').onclick=()=>{rememberRibEdit();endRibBatch();excludedRibs=[];excludedRibBlockers=[];ribReview=[];reviewSource=null;schedule();};
- const spec=()=>({type:'printSupport',id,style:$('style').value,...($('style').value==='walls'&&Number($('sideGap').value)>0?{keepRibThickness:true,alignSideGapRibs:true}:{}),target:$('target').value,mode:$('mode').value,...(editing?.spec.batch===true?{batch:true,...(editing.spec.batchGroup?{batchGroup:editing.spec.batchGroup}:{})}:{}),...(overridesFor($('target').value).length?{faceOverrides:overridesFor($('target').value)}:{}),baseMode:$('baseMode').value,faces:$('mode').value==='face'?selectedFaces.map(f=>structuredClone(f)):[],wallDirection:$('wallDirection').value,...(wallOffset?{wallOffset}:{}),excludedRibs:[...excludedRibs],excludedRibBlockers:[...excludedRibBlockers],roofTabs:false,roofTabPlacements:[],...Object.fromEntries(keys.filter(key=>!$(key).closest('label').hidden).map(key=>[key,$(key).value.trim()?Number($(key).value):NaN])),...Object.fromEntries(toggles.map(key=>[key,$(key).checked])),...Object.fromEntries(['interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','topContactRimWidth'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))});
+ const spec=()=>({type:'printSupport',id,style:$('style').value,...($('style').value==='walls'&&Number($('sideGap').value)>0?{keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true}:{}),target:$('target').value,mode:$('mode').value,...(editing?.spec.batch===true?{batch:true,...(editing.spec.batchGroup?{batchGroup:editing.spec.batchGroup}:{})}:{}),...(overridesFor($('target').value).length?{faceOverrides:overridesFor($('target').value)}:{}),baseMode:$('baseMode').value,faces:$('mode').value==='face'?selectedFaces.map(f=>structuredClone(f)):[],wallDirection:$('wallDirection').value,...(wallOffset?{wallOffset}:{}),excludedRibs:[...excludedRibs],excludedRibBlockers:[...excludedRibBlockers],roofTabs:false,roofTabPlacements:[],...Object.fromEntries(keys.filter(key=>!$(key).closest('label').hidden).map(key=>[key,$(key).value.trim()?Number($(key).value):NaN])),...Object.fromEntries(toggles.map(key=>[key,$(key).checked])),...Object.fromEntries(['interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','topContactRimWidth'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))});
  function exportControls(phase='unavailable'){
   exportState.hidden=$('style').value!=='walls';const report=cached?.result.supportPreview?.exportStatus,state=report?.state||phase;exportState.dataset.state=state;host.dataset.supportExportStatus=JSON.stringify(report||{ok:false,state});exportState.replaceChildren();
   const title=document.createElement('strong');title.textContent=state==='ready'?'3MF：出力可能':state==='blocked'?'3MF：要確認':state==='checking'?'3MF：面の接続を検査中…':'3MF：未検査';title.style.color=state==='ready'?'#14704f':state==='blocked'?'#b43b24':'#31566b';exportState.append(title);
@@ -576,8 +576,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(input.style!=='walls')return run(input);
   let sourceLayout=ribLayout;
   const previous=editing?.spec;
-  if(input.alignSideGapRibs&&input.excludedRibs.length&&!sourceLayout.length&&
-     previous?.target===input.target&&previous.sideGap>0&&!previous.alignSideGapRibs){
+  if(input.sectionSideGapRibs&&input.excludedRibs.length&&!sourceLayout.length&&
+     previous?.target===input.target&&previous.sideGap>0&&!previous.sectionSideGapRibs){
    const result=await run(previous);
    if(!isCurrent())return result;
    const legacyLayout=result.supportPreview?.ribs||[];

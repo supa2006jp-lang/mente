@@ -13,8 +13,10 @@ import {ribReference,supportPrintSettings} from './print-support-print-settings.
 import {supportRibRisk} from './print-support-strength.js';
 import {supportMaterialEstimate} from './print-support-material.js';
 import {supportRibPlacement} from './print-support-rib-placement.js';
+import {supportRibSections} from './print-support-rib-sections.js';
+import {supportSkinLayer,refreshSupportSkinLayer} from './print-support-skin-layer.js';
 import {makeSupportBottomSkins} from './print-support-bottom-skin.js';
-import {createSupportSideGap} from './print-support-side-gap.js';
+import {createSupportSideGap,sideGapFootprint} from './print-support-side-gap.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
 function previewSkin(shape,axis,side,records){
@@ -63,7 +65,8 @@ function prepareWallSupports(bodies,settings,onProgress){
  let omittedExterior=0,omittedRibPieces=0;
  const manualBlockers=[],skinPreview=[],exclusionPreview=[];
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,owned=[],hold=s=>(owned.push(s),s),walls=[],wallRecords=[],candidateRibs=[],ribIssues=[],excludedScope=[],ties=[],roofs=[],roofTabs=[],roofPreview=[],roofPlacements=[],roofMatched=[],tieLevels=new Set(),blockers=[],baseBodyIds=new Set();let omitted=0,faceCount=0,shape=null,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0,windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
- let sideGap,sideGapLimited=false,alignedCeilings=0;
+ const skinChecks=[];
+ let sideGap,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
  try{
   if(p.sideGap){
    const scope=[[...modelBounds[0]],[...modelBounds[1]]];
@@ -137,33 +140,49 @@ function prepareWallSupports(bodies,settings,onProgress){
     }
     const protectWidth=keepThickness&&gapTrimmed,pb=protectWidth?bounds(prism):originalBounds;
     const axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1;
-    const wallsAtEdge=protectWidth&&p.alignSideGapRibs?sideGap.placement(beforeGap,originalBounds,axis,p.wallThickness):{};
+    const other=1-axis,top=z-p.topGap,nominalSpan=originalBounds[1][axis]-originalBounds[0][axis];
+    const placementOptions={...p,keepThickness,nominalSpan,
+     edgeRibs:p.edgeRibs||p.edgeAssist,ribAxis:axis,noSupport:manualZones.map(item=>item.zone)};
+    const sectionBudget=Math.floor((96-candidateRibs.length-(p.localRibs?.length||0))/
+     Math.max(2,1+Math.ceil(nominalSpan/p.wallPitch)+(p.edgeAssist?2*manualZones.length:0)));
+    const clearCap=protectWidth&&(coverage||p.sectionSideGapRibs&&sectionBudget>=2)?
+     sideGapFootprint(prism,bodies,top):null;
+    const sections=clearCap&&p.sectionSideGapRibs&&sectionBudget>=2?
+     supportRibSections(supportHorizontalCap(beforeGap,top),
+      [clearCap,...sideGap.sectionLevels(originalBounds,top).map(level=>sideGapFootprint(prism,bodies,level,false)).filter(Boolean)],
+      axis,p,sectionBudget):[];
+    const wallsAtEdge=protectWidth&&p.alignSideGapRibs&&!sections.length?sideGap.placement(beforeGap,originalBounds,axis,p.wallThickness):{};
     const anchorLow=wallsAtEdge.low!==undefined,anchorHigh=wallsAtEdge.high!==undefined;
     if(anchorLow)pb[0][axis]=Math.max(pb[0][axis],wallsAtEdge.low);
     if(anchorHigh)pb[1][axis]=Math.min(pb[1][axis],wallsAtEdge.high);
-    const placement=supportRibPlacement(pb[0][axis],pb[1][axis],{...p,keepThickness,anchorLow,anchorHigh,nominalSpan:originalBounds[1][axis]-originalBounds[0][axis],
-     edgeRibs:p.edgeRibs||p.edgeAssist,ribAxis:axis,noSupport:manualZones.map(item=>item.zone)});
-    if(!placement.count){
+    const stripes=(sections.length?sections:[{low:pb[0][axis],high:pb[1][axis],anchorLow,anchorHigh,nominalSpan}]).flatMap(section=>{
+     const {span,low,high,anchorLow,anchorHigh,nominalSpan}=section;
+     // An exclusion boundary belongs to the sections it actually crosses.
+     const noSupport=span?placementOptions.noSupport.filter(zone=>zone[other]<span[1]&&zone[other+2]>span[0]):placementOptions.noSupport;
+     const placement=supportRibPlacement(low,high,{...placementOptions,noSupport,anchorLow,anchorHigh,nominalSpan});
+     return placement.centers.map((center,i)=>({center,span,band:[
+      i===0?originalBounds[0][axis]-1:placement.cells[i][0],
+      i===placement.count-1?originalBounds[1][axis]+1:placement.cells[i][1]],foot:placement.cells[i]}));
+    });
+    if(!stripes.length){
      skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
      sideGapLimited||=keepThickness;
      break;
     }
-    const stripes=placement.centers.map((center,i)=>({center,band:[
-     i===0?originalBounds[0][axis]-1:placement.cells[i][0],
-     i===placement.count-1?originalBounds[1][axis]+1:placement.cells[i][1]],foot:placement.cells[i]}));
     for(const rib of p.localRibs||[]){
-     const center=rib.at[axis],half=p.wallThickness/2,other=1-axis;
-     if(center-half<pb[0][axis]-1e-6||center+half>pb[1][axis]+1e-6||rib.at[other]+rib.length/2<=pb[0][other]||rib.at[other]-rib.length/2>=pb[1][other])continue;
-     if(stripes.some(item=>Math.abs(center-item.center)<p.wallThickness&&(!item.rib||Math.abs(rib.at[other]-item.rib.at[other])<(rib.length+item.rib.length)/2)))continue;
-     stripes.push({center,band:[center-half,center+half],foot:[center-half,center+half],rib});
+     const center=rib.at[axis],half=p.wallThickness/2,span=[rib.at[other]-rib.length/2,rib.at[other]+rib.length/2];
+     if(center-half<pb[0][axis]-1e-6||center+half>pb[1][axis]+1e-6||span[1]<=pb[0][other]||span[0]>=pb[1][other])continue;
+     if(stripes.some(item=>Math.abs(center-item.center)<p.wallThickness&&
+      (!item.span||span[0]<item.span[1]-1e-6&&span[1]>item.span[0]+1e-6)))continue;
+     stripes.push({center,band:[center-half,center+half],foot:[center-half,center+half],rib,span});
     }
-    stripes.sort((a,b)=>a.center-b.center);
+    stripes.sort((a,b)=>a.center-b.center||(a.span?.[0]??0)-(b.span?.[0]??0));
     const records=[],excludedCells=[],faceCandidates=[],faceBases=new Set();if(candidateRibs.length+stripes.length>96)throw Error('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
     let faceOmittedPieces=0;
     const localPlaced=new Set();
-    for(const {center,band,foot,rib} of stripes){
-     onProgress?.({stage:'薄壁サポートを作成しています（'+(walls.length+records.length+1)+'枚目）'});const other=1-axis,a=[pb[0][0]-1,pb[0][1]-1,p.bedZ-1],b=[pb[1][0]+1,pb[1][1]+1,z+1];a[axis]=center-p.wallThickness/2;b[axis]=center+p.wallThickness/2;
-     if(rib){a[other]=rib.at[other]-rib.length/2;b[other]=rib.at[other]+rib.length/2;}
+    for(const {center,band,foot,rib,span} of stripes){
+     onProgress?.({stage:'薄壁サポートを作成しています（'+(walls.length+records.length+1)+'枚目）'});const a=[pb[0][0]-1,pb[0][1]-1,p.bedZ-1],b=[pb[1][0]+1,pb[1][1]+1,z+1];a[axis]=center-p.wallThickness/2;b[axis]=center+p.wallThickness/2;
+     if(span)[a[other],b[other]]=span;
      const stripe=hold(R.makeBox(a,b));
      let wall=hold((protectWidth?beforeGap:prism).intersect(stripe));
      if(R.measureVolume(wall)<.001)continue;
@@ -189,7 +208,7 @@ function prepareWallSupports(bodies,settings,onProgress){
      }
      if(R.measureVolume(wall)<.001)continue;
      if(rib)localPlaced.add(rib);
-     const ribId=ribReference(axis,center,z,pb)+(rib?'@'+JSON.stringify([rib.at[other],rib.length]):'');
+     const ribId=ribReference(axis,center,z,pb)+(rib?'@'+JSON.stringify([rib.at[other],rib.length]):span?'~'+JSON.stringify(span):'');
      const low=[...a],high=[...b];[low[axis],high[axis]]=band;
      const solids=wall.solids;
      if(solids.length>1)solids.forEach(hold);else solids.forEach(s=>s.delete());
@@ -205,7 +224,7 @@ function prepareWallSupports(bodies,settings,onProgress){
        band:[Math.max(low[axis],originalBounds[0][axis]),Math.min(high[axis],originalBounds[1][axis])],autoBlocked:p.excludedRibBlockers.includes(exclusionId)};
       if(p.preview&&(!p.contactLines||excluded)){const display=piece.shape.intersect(stripe);try{Object.assign(candidate,cadMesh(display));}finally{display.delete();}}
       faceCandidates.push(candidate);
-      if(!excluded){records.push({id:partId,shape:piece.shape,axis,center,local:!!rib});continue;}
+      if(!excluded){records.push({id:partId,shape:piece.shape,axis,center,local:!!rib,span});continue;}
       if(!whole){
        const start=[...low],end=[...high],ceiling=piece.bounds[1][2]>=z-p.topGap-1e-5;
        if(pieces.length>1){
@@ -223,7 +242,20 @@ function prepareWallSupports(bodies,settings,onProgress){
       skinPrism=hold(skinPrism.cut(hold(R.makeBox(low,high))));
      }
      if(p.wallBottomSkin&&records.length){bottom=makeSupportBottomSkins(records,skinPrism,bodies,p,onProgress);bottom.shapes.forEach(hold);}
-     if(p.wallRoof){const made=makeWallRoof(records,skinPrism,bodies,p,z-p.topGap,onProgress,{allowPartial:!!(zoneTools.length||excludedCells.length||gapTrimmed),trimToRibs:!!(excludedCells.length||gapTrimmed)});if(made)roof=hold(made);}
+     if(p.wallRoof){
+      if(sections.length){
+       const parts=[];
+       for(const {span} of sections){
+        const nearby=records.filter(record=>record.span===span||record.local&&record.span[0]<span[1]&&record.span[1]>span[0]);
+        const made=makeWallRoof(nearby,skinPrism,bodies,p,top,onProgress,{allowPartial:true,trimToRibs:true,span});
+        if(made)parts.push(hold(made));
+       }
+       if(parts.length)roof=parts.length===1?parts[0]:hold(fuseSolids(parts));
+      }else{
+       const made=makeWallRoof(records,skinPrism,bodies,p,top,onProgress,{allowPartial:!!(zoneTools.length||excludedCells.length||gapTrimmed),trimToRibs:!!(excludedCells.length||gapTrimmed)});
+       if(made)roof=hold(made);
+      }
+     }
       if(cutouts.length&&(!records.length||p.wallRoof&&!roof&&!excludedCells.length))throw initialFailure;
     }catch(error){
      if(p.mode!=='auto'){
@@ -251,8 +283,8 @@ function prepareWallSupports(bodies,settings,onProgress){
     if(coverage){
      coverage.axis=axis;
      coverage.item.localRibsSkipped=(p.localRibs?.length||0)-localPlaced.size;
-     coverage.item.bridgePlacement={bounds:pb,margin:p.edgeMargin,
-      stripes:stripes.map(({center,rib})=>rib?{center,rib}:{center})};
+     coverage.item.bridgePlacement={bounds:pb,margin:p.edgeMargin,footprint:clearCap,
+      stripes:stripes.map(({center,span})=>span?{center,span}:{center})};
     }
     if(p.preview&&records.length){
      const skins=[...(bottom?.shapes||[]).flatMap(s=>previewSkin(s,axis,'lower',records)),...(roof?previewSkin(roof,axis,'upper',records):[])];
@@ -285,14 +317,20 @@ function prepareWallSupports(bodies,settings,onProgress){
     walls.push(...records.map(record=>record.shape));
     wallRecords.push(...records);
     if(bottom){bottomSkins.push(...bottom.shapes);if(p.contactLines)for(const s of bottom.shapes)contactRegions.push({shape:s,role:'lower',axis});bottomHeights.push(...bottom.heights);for(const key of ['count','skipped','sections'])bottomSeams[key]+=bottom.seams[key];if(bottomSeams.count>128)throw Error('底面薄皮の分割数が多すぎます');}
-    if(p.wallTies&&records.length>1){const made=makeWallTies(records,skinPrism,bodies,p,onProgress);if(ties.length+made.shapes.length>512){made.shapes.forEach(s=>s.delete());throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');}made.shapes.forEach(s=>ties.push(hold(s)));made.levels.forEach(z=>tieLevels.add(z));made.intervals.forEach(v=>tieIntervals.add(v));tieAttachments.push(...made.attachments);skippedTies+=made.skipped;}
+    if(p.wallTies&&records.length>1){const made=makeWallTies(records,skinPrism,bodies,p,onProgress,sections);if(ties.length+made.shapes.length>512){made.shapes.forEach(s=>s.delete());throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');}made.shapes.forEach(s=>ties.push(hold(s)));made.levels.forEach(z=>tieLevels.add(z));made.intervals.forEach(v=>tieIntervals.add(v));tieAttachments.push(...made.attachments);skippedTies+=made.skipped;}
     if(roof){if(p.contactLines)contactRegions.push({shape:hold(roof.clone()),role:'upper',axis});
      if(p.roofSeams||p.roofTabs||p.preview){const detail=roofRemovalDetails(roof,records,shifted,bodies,p,z-p.topGap,onProgress,{seams:128-roofCuts,tabs:64-roofTabs.length,sideGap});roofs.push(hold(detail.roof));detail.tabs.forEach(tab=>roofTabs.push(hold(tab)));roofPreview.push(...detail.preview);roofPlacements.push(...detail.placements);roofMatched.push(...detail.matched);roofManualInvalid+=detail.manualInvalid;roofCuts+=detail.seams.count;roofSkippedCuts+=detail.seams.skipped;roofSections+=detail.seams.sections;roofSkippedTabs+=detail.tabInfo.skipped;}
      else roofs.push(roof);
+     if(coverage){
+      const finished=roofs.at(-1);
+      coverage.item.skinSupport=supportSkinLayer(finished,records,axis,top,p);
+      if(coverage.item.skinSupport&&p.contactLines&&p.roofLayers===1)skinChecks.push({item:coverage.item,shape:finished});
+     }
     }
     if(records.length){
      faceCount++;const blocker=scopedBlocker(face,p,z,zoneTools.map(tool=>{const [low,high]=bounds(tool);return {low,high};}));
-     if(anchorLow||anchorHigh)alignedCeilings++;
+     if(anchorLow||anchorHigh||sections.length)alignedCeilings++;
+     sectionCount+=sections.length;
      if(R.measureVolume(blocker)>.001){
       if(coverage){
        coverage.index=blockers.length;
@@ -348,6 +386,7 @@ function prepareWallSupports(bodies,settings,onProgress){
   const analysis={style:'walls',edgeMargin:p.edgeMargin,count:walls.length,contacts:[],topGap:p.topGap,bottomGap:0,baseMode:p.baseMode,baseBodyIds:[...baseBodyIds],modelBasedCount:baseBodyIds.size?walls.length:0,bedBasedCount:baseBodyIds.size?0:walls.length,footDiameter:p.footDiameter,postDiameter:p.wallThickness,reinforcements:ties.length,skipped:omitted,omittedReinforcement:skippedTies,limited:false,bedZ:p.bedZ,wallPitch:p.wallPitch,wallThickness:p.wallThickness,layerHeight:p.layerHeight,faceCount,blockerCount:blockers.length,complete:omitted===0&&!ribIssues.length,wallTies:{enabled:p.wallTies,interval:p.tieInterval,count:ties.length,levels:[...tieLevels].sort((a,b)=>a-b),thickness:2*p.layerHeight,neckWidth:Math.min(Math.max(1.6,Math.min(3,2*p.wallThickness)),Math.max(.6,p.wallThickness))}};
   if(p.sideGap)analysis.sideGap=p.sideGap;
   if(alignedCeilings)analysis.sideGapAlignedCeilings=alignedCeilings;
+  if(sectionCount)analysis.sideGapSections=sectionCount;
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
   if(omittedExterior||omittedRibPieces)analysis.omittedExterior={faces:omittedExterior,ribPieces:omittedRibPieces};
   if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;
@@ -355,6 +394,7 @@ function prepareWallSupports(bodies,settings,onProgress){
   analysis.roof={enabled:!!p.wallRoof,count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};if(p.wallRoof&&p.roofSeams)analysis.roof.seams={enabled:true,count:roofCuts,skipped:roofSkippedCuts,sections:roofSections,spacing:p.roofSectionLength,width:p.roofSeamWidth};if(p.wallRoof&&p.roofTabs)analysis.roof.tabs={enabled:true,count:roofTabs.length,skipped:roofSkippedTabs,length:p.roofTabLength,width:4,...((p.roofTabPlacements||[]).length?{manualInvalid:roofManualInvalid}:{})};if(roofManualInvalid)analysis.complete=false;analysis.windows=windows;analysis.printSettings=supportPrintSettings(p);analysis.ribs={total:candidateRibs.length,excluded:candidateRibs.filter(r=>r.excluded).length,direction:p.wallDirection,edgeAligned:!!p.edgeRibs,issues:[...new Set(ribIssues)],missing:missingRibs};analysis.selection={mode:p.mode,count:selection?.faces.length||0};const result={shape,analysis,blockers,coverage,selectedFaces:selectedFacePreview,
    wallRecords:p.preview&&p.contactLines?wallRecords.map(record=>({...record,shape:record.shape.clone()})):[],
    contactRegions:contactRegions.map(region=>({...region,shape:region.shape.clone()})),
+   skinChecks:skinChecks.map(({item,shape})=>({index:coverage.indexOf(item),shape:shape.clone()})),
    ribPreview:candidateRibs,skinPreview,exclusionPreview,roofPreview:{contactLines:!!p.contactLines,parts:roofPreview,placements:roofPlacements,missing:missingPlacements}};
   shape=null;return result;
  }catch(e){[...blockers,...manualBlockers].forEach(s=>s.delete());throw e;}finally{shape?.delete();owned.forEach(s=>s.delete());faces.forEach(f=>f.delete());sideGap?.dispose();}
@@ -383,7 +423,7 @@ function structureKey(bodies,p,bodyKey){
 function mapStructureShapes(prepared,map){
  const mapRecords=records=>records.map(record=>({...record,shape:map(record.shape)}));
  return {...prepared,shape:prepared.shape&&map(prepared.shape),blockers:prepared.blockers.map(map),
-  wallRecords:mapRecords(prepared.wallRecords),contactRegions:mapRecords(prepared.contactRegions)};
+  wallRecords:mapRecords(prepared.wallRecords),contactRegions:mapRecords(prepared.contactRegions),skinChecks:mapRecords(prepared.skinChecks)};
 }
 
 function reuseWallStructure(key){
@@ -403,7 +443,7 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
  const key=structureKey(bodies,p,bodyKey),reused=reuseWallStructure(key);
  if(reused)onProgress?.({stage:'リブ本体と横つなぎを再利用しています'});
  const prepared=reused||prepareWallSupports(bodies,p,onProgress);
- const {analysis,blockers,wallRecords,contactRegions,ribPreview,skinPreview,exclusionPreview,roofPreview,selectedFaces,coverage}=prepared;
+ const {analysis,blockers,wallRecords,contactRegions,skinChecks,ribPreview,skinPreview,exclusionPreview,roofPreview,selectedFaces,coverage}=prepared;
  let shape=prepared.shape,accepted=false,contactPreview=[],flatSkinPreview=[];
  try{
   if(key&&!reused){
@@ -415,6 +455,10 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
   if(shape&&p.contactLines){
    const cut=supportContactLines(shape,contactRegions,p,onProgress,{ribRecords:wallRecords,ribsAreContained:!p.wallWindows,allowPartial:ribPreview.some(rib=>rib.excluded&&rib.id!==rib.ribId)});
    shape.delete();shape=cut.shape;contactAnalysis=cut.analysis;contactPreview=cut.preview;flatSkinPreview=cut.flatSkinPreview;
+   if(contactAnalysis.upper)for(const check of skinChecks){
+    const row=coverage[check.index],finished=check.shape.intersect(shape);
+    try{row.skinSupport=refreshSupportSkinLayer(row.skinSupport,finished);}finally{finished.delete();}
+   }
    const meshesById=new Map(cut.ribPreview.map(mesh=>[mesh.id,mesh]));
    for(const rib of ribPreview)Object.assign(rib,meshesById.get(rib.id));
    if(windows.enabled){
@@ -442,6 +486,6 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
    printRegions:[...exclusionPreview,...flatSkinPreview]}:{})};
  }finally{
   if(!accepted){shape?.delete();blockers.forEach(s=>s.delete());}
-  for(const record of [...wallRecords,...contactRegions])record.shape.delete();
+  for(const record of [...wallRecords,...contactRegions,...skinChecks])record.shape.delete();
  }
 }

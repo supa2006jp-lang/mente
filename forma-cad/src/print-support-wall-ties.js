@@ -5,7 +5,7 @@ const overlap=(a,b)=>{const s=a.intersect(b);try{return R.measureVolume(s);}fina
 
 // Short horizontal bridges join neighboring fins. Narrow ends leave a place to
 // cut them after printing, while the middle restrains motion across the fins.
-export function makeWallTies(records,prism,bodies,p,onProgress){
+export function makeWallTies(records,prism,bodies,p,onProgress,sections=[]){
  const shapes=[],levels=new Set(),intervals=new Set(),attachments=[],thickness=2*p.layerHeight,width=Math.max(1.6,Math.min(3,2*p.wallThickness)),neckWidth=Math.min(width,Math.max(.6,p.wallThickness));let skipped=0,attempts=0;
  const neighboringPairs=new Map();
  function addNeighbors(rows,accept){
@@ -18,8 +18,13 @@ export function makeWallTies(records,prism,bodies,p,onProgress){
    if(accept(left,right))neighboringPairs.set(JSON.stringify([left.id,right.id]),[left,right]);
   }
  }
- addNeighbors(records.filter(record=>!record.local),()=>true);
- addNeighbors(records,(left,right)=>left.local||right.local);
+ const groupNeighbors=group=>{
+  addNeighbors(group.filter(record=>!record.local),()=>true);
+  addNeighbors(group,(left,right)=>left.local||right.local);
+ };
+ if(sections.length)for(const {span} of sections){
+  groupNeighbors(records.filter(record=>record.span===span||record.local&&record.span[0]<span[1]&&record.span[1]>span[0]));
+ }else groupNeighbors(records);
  try{
   for(const [left,right] of neighboringPairs.values()){
    const axis=left.axis,other=1-axis;

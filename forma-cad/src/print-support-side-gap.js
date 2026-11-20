@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {supportHorizontalCap} from './print-support-coverage.js';
 
 const tolerance=1e-6;
 function bounds(shape){
@@ -9,6 +10,22 @@ const intersects=(a,b,margin=0)=>a[0].every((low,i)=>{
  const pad=i<2?margin:0;
  return low-pad<b[1][i]-tolerance&&a[1][i]+pad>b[0][i]+tolerance;
 });
+
+export function sideGapFootprint(prism,bodies,top,isTop=true){
+ const [low,high]=bounds(prism);
+ const from=[low[0]-1,low[1]-1,top-.02],to=[high[0]+1,high[1]+1,top];
+ const models=[...bodies.values()].filter(body=>intersects(bounds(body),[from,to]));
+ if(!models.length&&isTop)return supportHorizontalCap(prism,top);
+ const slab=R.makeBox(from,to);
+ let section;
+ try{
+  section=prism.intersect(slab);
+  for(const model of models){
+   const free=section.cut(model);section.delete();section=free;
+  }
+  return supportHorizontalCap(section,top);
+ }finally{section?.delete();slab.delete();}
+}
 
 function planeGuard(face,box,gap){
  const normal=face.normalAt();
@@ -89,6 +106,19 @@ export function createSupportSideGap(bodies,scope,gap){
   }
  }catch(error){dispose();throw error;}
  return {
+  sectionLevels(prismBounds,top){
+   const levels=new Set();
+   for(const {box} of tools){
+    const [low,high]=box;
+    if(high[2]>=top-tolerance||!intersects(box,prismBounds))continue;
+    const floor=Math.max(low[2],prismBounds[0][2]);
+    if(high[2]-floor<.04)continue;
+    levels.add(Math.round((high[2]-.01)*10000)/10000);
+   }
+   const sorted=[...levels].sort((a,b)=>a-b);
+   // Prioritize distinct elevations without repeating the same wall slice.
+   return sorted.length<=6?sorted:Array.from({length:6},(_,i)=>sorted[Math.round(i*(sorted.length-1)/5)]);
+  },
   placement(prism,prismBounds,axis,thickness){
    const [lo,hi]=prismBounds.map(row=>row[axis]),result={};
    // An edge beside a partial wall still needs a continuous first rib.

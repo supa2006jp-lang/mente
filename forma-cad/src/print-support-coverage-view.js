@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {clipTriangle} from './box-selection.js';
-import {bridgeRibSuggestion,supportMeshTriangles} from './print-support-bridges.js';
+import {bridgeRibSuggestion,nearestRibLanding,supportMeshTriangles} from './print-support-bridges.js';
 
 export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyName,onSave,onReset}){
  const panel=document.createElement('details');panel.dataset.id='support-coverage';
@@ -17,16 +17,26 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  host.append(labels,placement);anchor.before(panel);
  const display=get('show'),select=get('face'),edit=get('edit'),reset=get('reset'),warning=get('warning'),zones=get('zones'),projected=new THREE.Vector3();
  const bridgeLabel=document.createElement('label'),bridgeToggle=document.createElement('input'),bridgeSummary=document.createElement('small');
+ const skinLabel=document.createElement('label'),skinToggle=document.createElement('input'),skinSummary=document.createElement('small');
  bridgeToggle.type='checkbox';bridgeToggle.dataset.coverage='bridges';
  bridgeLabel.append(bridgeToggle,'天井の橋渡し幅を色分け');
- display.closest('label').after(bridgeLabel,bridgeSummary);
- bridgeToggle.onchange=()=>{if(!bridgeToggle.checked&&draw?.mode==='proposal')stopDrawing();showBridgeSummary();visibility();};
- const bridgeMeshes=[],comparisonMeshes=[];
+ skinToggle.type='checkbox';skinToggle.dataset.coverage='skin';
+ skinLabel.append(skinToggle,'上面の薄皮の支え不足を色分け');
+ display.closest('label').after(bridgeLabel,bridgeSummary,skinLabel,skinSummary);
+ function changeOverlay(toggle,other){
+  if(toggle.checked)other.checked=false;
+  if(draw?.mode==='proposal')stopDrawing();
+  showBridgeSummary();visibility();
+ }
+ bridgeToggle.onchange=()=>changeOverlay(bridgeToggle,skinToggle);
+ skinToggle.onchange=()=>changeOverlay(skinToggle,bridgeToggle);
+ const bridgeMeshes=[],skinMeshes=[],comparisonMeshes=[];
  let comparisonBefore=false;
  const ray=new THREE.Raycaster(),plane=new THREE.Plane(new THREE.Vector3(0,0,1)),corner=new THREE.Vector3(),cursor=new THREE.Vector3();
  const contourLines=new Map();
- let group=null,areas=null,rows=[],markers=[],faceMeshes=[],muted=false,target=null,busy=false,focused=null,draw=null,outline=null;
+ let group=null,areas=null,rows=[],markers=[],faceMeshes=[],muted=false,target=null,busy=false,focused=null,draw=null,outline=null,measurement=null;
  let pointSize=[2,2],localLength=12;
+ const mm=value=>Number(value.toFixed(2))+' mm';
  const fields=[['wallPitch','薄壁の間隔 (mm)',2,15,'any'],['roofLayers','上面の薄皮 (層)',1,6,1],['bottomSkinLayers','底面の薄皮 (層)',1,6,1]];
  function visibility(){
   const placing=draw&&draw.mode!=='proposal';
@@ -37,13 +47,14 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   }
   labels.hidden=!display.checked||muted||!!draw;
   for(const mesh of bridgeMeshes)mesh.visible=!comparisonBefore&&bridgeToggle.checked&&!placing&&(!focused||mesh.userData.row.selection===focused);
+  for(const mesh of skinMeshes)mesh.visible=!comparisonBefore&&skinToggle.checked&&!placing&&(!focused||mesh.userData.row.selection===focused);
   for(const mesh of comparisonMeshes)mesh.visible=comparisonBefore&&!placing;
   placement.hidden=!draw;
  }
  function clear(){
   stopDrawing();
   if(group){group.removeFromParent();group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}
-  group=areas=null;rows=[];markers=[];faceMeshes=[];bridgeMeshes.length=comparisonMeshes.length=0;comparisonBefore=false;contourLines.clear();labels.replaceChildren();select.replaceChildren(new Option('自動判定（画面で指定）',''));edit.hidden=warning.hidden=zones.hidden=true;edit.replaceChildren();warning.replaceChildren();zones.replaceChildren();showBridgeSummary();
+  group=areas=null;rows=[];markers=[];faceMeshes=[];bridgeMeshes.length=skinMeshes.length=comparisonMeshes.length=0;comparisonBefore=false;contourLines.clear();labels.replaceChildren();select.replaceChildren(new Option('自動判定（画面で指定）',''));edit.hidden=warning.hidden=zones.hidden=true;edit.replaceChildren();warning.replaceChildren();zones.replaceChildren();showBridgeSummary();
  }
  function showBridgeSummary(){
   const spans=rows.filter(row=>!focused||row.selection===focused).map(row=>row.bridges).filter(Boolean);
@@ -51,11 +62,19 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   const mm=value=>Number(value.toFixed(1))+' mm';
   const max=Math.max(0,...spans.map(s=>s.max)),edge=Math.max(0,...spans.map(s=>s.unbraced));
   bridgeSummary.textContent='両側に支えがある幅の最大 '+mm(max)+' ／ 片側または両側に支えがない幅の最大 '+mm(edge)+'。黄は8 mm以下、橙は8 mm超、紫は片側または両側に支えなし。幅は目安です。橙・紫をクリックすると補強案を確認できます。';
+  const layers=rows.filter(row=>!focused||row.selection===focused).map(row=>row.skinSupport).filter(Boolean);
+  skinSummary.hidden=!skinToggle.checked;
+  skinSummary.textContent=!layers.length?'この下面には上面の薄皮がありません。':
+   layers.some(layer=>layer.bands.length)?
+    '薄皮1層目の目安です。橙は両側のリブ間が8 mm超、紫は片側または両側のリブが届かない範囲です。色の付いた箇所をクリックすると、最寄りのリブまでの横の距離を確認できます。':
+    '薄皮1層目に表示対象の支え不足はありません。';
  }
- function addBridgeMesh(row,destination=bridgeMeshes){
-  if(!row.bridges?.bands.length)return;
-  const triangles=supportMeshTriangles(row.face).map(triangle=>triangle.map(([x,y])=>({x,y})));
-  const {axis,bands}=row.bridges,z=row.selection.point[2];
+ function addBridgeMesh(row,destination=bridgeMeshes,skin=false){
+  const spans=skin?row.skinSupport:row.bridges;
+  if(!spans?.bands.length)return;
+  const face=skin?spans.face:row.face;
+  const triangles=supportMeshTriangles(face).map(triangle=>triangle.map(([x,y])=>({x,y})));
+  const {axis,bands}=spans,z=face.vertices[2];
   const colors={bridge:0xe4bb39,wide:0xe66c23,edge:0xa24cd5};
   const groups={bridge:[],wide:[],edge:[]};
   const slices=new Map(),across=axis===0?'y':'x';
@@ -149,6 +168,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   proposalChoices.replaceChildren();
   delete host.dataset.supportZonePicking;
   if(outline){outline.removeFromParent();outline.geometry.dispose();outline.material.dispose();outline=null;}
+  if(measurement){measurement.removeFromParent();measurement.geometry.dispose();measurement.material.dispose();measurement=null;}
   visibility();
  }
  function showPlacement(message){
@@ -299,9 +319,9 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   }
   return closest;
  }
- function showOutline({row,zone:[x0,y0,x1,y1]},color){
+ function showOutline({row,zone:[x0,y0,x1,y1],height=row.selection.point[2]},color){
   if(draw.activeRow!==row){draw.activeRow=row;visibility();}
-  const z=row.selection.point[2];
+  const z=height;
   const points=[[x0,y0,z],[x1,y0,z],[x1,y1,z],[x0,y1,z]];
   if(!outline){
    outline=new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(12),3)),
@@ -326,29 +346,44 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  canvas.addEventListener('pointerleave',()=>{if(outline&&!draw?.zone)outline.visible=false;});
  function pickBridge(event){
   if(comparisonBefore)return true;
-  if(busy||muted||!bridgeToggle.checked||!pointRay(event))return false;
-  const hit=ray.intersectObjects(bridgeMeshes.filter(mesh=>mesh.visible),false)[0];
+  const skin=skinToggle.checked;
+  if(busy||muted||!(skin||bridgeToggle.checked)||!pointRay(event))return false;
+  const hit=ray.intersectObjects((skin?skinMeshes:bridgeMeshes).filter(mesh=>mesh.visible),false)[0];
   if(!hit)return false;
   const {row,risk}=hit.object.userData;
   if(risk==='bridge'){if(draw)stopDrawing();return true;}
-  const suggestion=bridgeRibSuggestion(row,hit.point.toArray(),risk);
-  if(!suggestion)return true;
+  const point=hit.point.toArray();
+  const suggestion=bridgeRibSuggestion(skin?{...row,bridges:row.skinSupport}:row,point,risk);
   stopDrawing();
   draw={row:focused?row:null,activeRow:row,mode:'proposal',zone:null};
   host.dataset.supportZonePicking='proposal';visibility();
-  const mm=value=>Number(value.toFixed(1))+' mm';
-  if(!canPlace(row,'rib')||!suggestion.rib){
-   showPlacement(row.editable&&(row.override.localRibs?.length||0)>=8?'この下面に追加できる短いリブは8本までです。':'この区間に収まる短いリブを提案できませんでした。');
+  let detail=faceLabel(row);
+  if(skin){
+   const nearest=nearestRibLanding(row.skinSupport.landings,point);
+   detail='薄皮1層目 ／ X '+mm(point[0])+'・Y '+mm(point[1])+'・高さ '+mm(point[2])+
+    (nearest?' ／ 最寄りのリブまで '+mm(nearest.distance):' ／ この薄皮の直下にリブがありません');
+   if(nearest){
+    const z=point[2],ends=[point.slice(0,2),nearest.point];
+    const vertices=[...point,...nearest.point,z];
+    for(const [x,y] of ends)vertices.push(x-.3,y,z,x+.3,y,z,x,y-.3,z,x,y+.3,z);
+    measurement=new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(vertices,3)),
+     new THREE.LineBasicMaterial({color:0x12354c,depthTest:false,depthWrite:false}));
+    measurement.renderOrder=26;group.add(measurement);
+   }
+  }
+  if(!canPlace(row,'rib')||!suggestion?.rib){
+   showPlacement(detail+' ／ '+(row.editable&&(row.override.localRibs?.length||0)>=8?'この下面に追加できる短いリブは8本までです。':'この区間に収まる短いリブの案はありません。'));
    return true;
   }
   const {band,after,combined}=suggestion;
   const kind=band.both?'橋渡し幅':'支えがない幅';
   function choose(plan){
-   Object.assign(draw,{rib:plan.rib,zone:plan.zone,comparisonBands:plan.comparisonBands||[band]});
-   showOutline({row,zone:plan.zone},0x087b60);
-   const widest=Math.max(...draw.comparisonBands.map(item=>item.width));
+   const bands=plan.comparisonBands||[band];
+   Object.assign(draw,{rib:plan.rib,zone:plan.zone,comparisonBands:skin?null:bands});
+   showOutline({row,zone:plan.zone,height:skin?point[2]:undefined},0x087b60);
+   const widest=Math.max(...bands.map(item=>item.width));
    const [x,y]=plan.rib.at;
-   showPlacement(faceLabel(row)+' ／ 短いリブ '+mm(plan.rib.length)+' ／ この区間の'+kind+' 約 '+mm(band.width)+' → 約 '+mm(after)+'（目安）'+
+   showPlacement(detail+' ／ 短いリブ '+mm(plan.rib.length)+' ／ この区間の'+kind+' 約 '+mm(band.width)+' → 約 '+mm(after)+'（目安）'+
     (plan.sections>1?' ／ 2区間の最大幅 約 '+mm(widest)+' → 約 '+mm(plan.maxAfter):'')+' ／ 中心 X '+mm(x)+'・Y '+mm(y));
    for(const button of proposalChoices.children)button.setAttribute('aria-pressed',String(button.dataset.plan===String(plan.sections)));
   }
@@ -426,6 +461,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    add(row.caution,0xffbb2f,2);
    for(const area of row.manualExcluded||[])add(area,0xcc4e9a,2);
    addBridgeMesh(row);
+   addBridgeMesh(row,skinMeshes,true);
    const lines=(row.boundaryWarnings||[]).map(item=>{
     const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(item.segments,3));
     const line=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:0xff7900,depthTest:false,depthWrite:false,transparent:true,opacity:.85}));
@@ -453,11 +489,12 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    if(row&&group&&!comparisonMeshes.length)addBridgeMesh(row,comparisonMeshes);
    comparisonBefore=showBefore;visibility();
   },
-  resetDisplay(){focused=null;display.checked=false;bridgeToggle.checked=false;panel.open=false;visibility();},
+  resetDisplay(){focused=null;display.checked=false;bridgeToggle.checked=false;skinToggle.checked=false;panel.open=false;visibility();},
   controls({available,blocked,masked,activeTarget,hasOverrides}){
    panel.hidden=!available;busy=blocked;muted=masked||!available;target=activeTarget;
    display.disabled=busy||!rows.length;select.disabled=busy||select.options.length<2;reset.disabled=busy||!hasOverrides;
    bridgeToggle.disabled=busy||!bridgeMeshes.length;
+   skinToggle.disabled=busy||!rows.some(row=>row.skinSupport);
    if(draw&&(busy||muted))focus(rows.indexOf(draw.row));
    for(const control of [...edit.querySelectorAll('input,button'),...warning.querySelectorAll('button,select')])
     control.disabled=busy;

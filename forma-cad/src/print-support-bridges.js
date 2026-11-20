@@ -31,7 +31,7 @@ export function supportIntervals(triangles,axis,at){
 }
 
 // Sample across the rib rows, keeping holes and separate ceiling islands apart.
-export function supportBridgeSpans(ceiling,landings,axis,limit,{regions=false}={}){
+export function supportBridgeSpans(ceiling,landings,axis,limit,{regions=false,stations=[]}={}){
  if(!ceiling.length)return null;
  const other=1-axis;
  let low=Infinity,high=-Infinity;
@@ -40,9 +40,11 @@ export function supportBridgeSpans(ceiling,landings,axis,limit,{regions=false}={
  }
  if(high-low<=epsilon)return null;
  const samples=Math.min(100,Math.max(1,Math.ceil((high-low)/1.5)),Math.max(12,Math.floor(180000/(ceiling.length+landings.length)))),step=(high-low)/samples;
+ const edges=[low,...stations.filter(at=>at>low+epsilon&&at<high-epsilon),...Array.from({length:samples-1},(_,i)=>low+(i+1)*step),high]
+  .sort((a,b)=>a-b).filter((at,i,values)=>i===0||at-values[i-1]>epsilon);
  const bands=[];let max=0,unbraced=0;
- for(let i=0;i<samples;i++){
-  const from=low+i*step,to=from+step;
+ for(let i=1;i<edges.length;i++){
+  const from=edges[i-1],to=edges[i];
   const at=(from+to)/2,covered=supportIntervals(landings,other,at);
   for(const [start,end] of supportIntervals(ceiling,other,at)){
    let last=start,anchored=false;
@@ -63,6 +65,26 @@ export function supportBridgeSpans(ceiling,landings,axis,limit,{regions=false}={
  return {axis,max,unbraced,bands};
 }
 
+export function nearestRibLanding(mesh,point){
+ if(!mesh)return null;
+ const [x,y]=point;
+ let best=null,nearest=Infinity;
+ for(const triangle of supportMeshTriangles(mesh)){
+  let positive=false,negative=false,area=0;
+  for(const [i,a] of triangle.entries()){
+   const b=triangle[(i+1)%3],dx=b[0]-a[0],dy=b[1]-a[1],length=dx*dx+dy*dy;
+   if(!length)continue;
+   const px=x-a[0],py=y-a[1],cross=dx*py-dy*px;
+   positive||=cross>epsilon;negative||=cross< -epsilon;area+=a[0]*b[1]-a[1]*b[0];
+   const t=Math.max(0,Math.min(1,(px*dx+py*dy)/length));
+   const distance=(px-t*dx)**2+(py-t*dy)**2;
+   if(distance<nearest){nearest=distance;best=[a[0]+t*dx,a[1]+t*dy];}
+  }
+  if(Math.abs(area)>epsilon&&(!positive||!negative))return {point:[x,y],distance:0};
+ }
+ return best?{point:best,distance:Math.sqrt(nearest)}:null;
+}
+
 export function bridgeRibSuggestion(row,point,risk){
  const {axis,bands}=row.bridges,other=1-axis;
  const band=bands.find(item=>(!risk||item.risk===risk)&&point[other]>=item.from-epsilon&&point[other]<=item.to+epsilon&&
@@ -70,21 +92,22 @@ export function bridgeRibSuggestion(row,point,risk){
  if(!band||band.risk==='bridge')return null;
  const {wallThickness:thickness,bridgePlacement:placement}=row;
  if(!placement||band.width<thickness+.2)return {band};
- const {bounds,margin,stripes}=placement,half=thickness/2;
+ const {bounds,margin,stripes,footprint}=placement,half=thickness/2;
  const center=Number(((band.start+band.end)/2).toFixed(4));
  if(center<bounds[0][axis]+half-epsilon||center>bounds[1][axis]-half+epsilon)return {band};
 
- const ceiling=supportMeshTriangles(row.face);
+ const ceiling=supportMeshTriangles(footprint||row.face),inset=footprint?0:margin;
  let ranges=[[band.from-40,band.to+40]];
- for(const offset of [-half-margin,0,half+margin]){
+ for(const offset of [-half-inset,0,half+inset]){
   const line=Math.min(bounds[1][axis],Math.max(bounds[0][axis],center+offset));
   const spans=supportIntervals(ceiling,axis,line);
-  ranges=ranges.flatMap(([lo,hi])=>spans.map(([a,b])=>[Math.max(lo,a+margin),Math.min(hi,b-margin)]).filter(([a,b])=>b-a>=2));
+  ranges=ranges.flatMap(([lo,hi])=>spans.map(([a,b])=>[Math.max(lo,a+inset),Math.min(hi,b-inset)]).filter(([a,b])=>b-a>=2));
  }
  const blocked=[];
  for(const stripe of stripes)if(Math.abs(center-stripe.center)<thickness+.001){
-  if(!stripe.rib)return {band};
-  blocked.push([stripe.rib.at[other]-stripe.rib.length/2,stripe.rib.at[other]+stripe.rib.length/2]);
+  const span=stripe.span||(stripe.rib&&[stripe.rib.at[other]-stripe.rib.length/2,stripe.rib.at[other]+stripe.rib.length/2]);
+  if(!span)return {band};
+  blocked.push(span);
  }
  for(const zone of row.override.noSupport||[])if(center+half>zone[axis]&&center-half<zone[axis+2])blocked.push([zone[other],zone[other+2]]);
  for(const [lo,hi] of blocked){
