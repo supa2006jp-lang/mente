@@ -2,6 +2,7 @@ import {supportLocalPreview,supportNonDestructiveBoolean} from './print-support-
 import {contactRoleSettings} from './print-support-contact-settings.js';
 import {bottomContactInsetMask,upperContactRimMask} from './print-support-contact-inset.js';
 import * as R from 'replicad';
+import {supportAdjustmentError} from './print-support-adjustments.js';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 const displayMesh=shape=>shape.mesh({tolerance:.08,angularTolerance:.15});
 function validContactResult(shape,count){
@@ -49,7 +50,8 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
   let activeMasks=masks;
   result=applyMasks(original,masks);
   if(allowPartial?!validContactResult(result,count):parts(result)!==count){
-   if(!allowPartial)throw Error('接触層でサポートが分断されます。薄皮を2層以上にするか、線の隙間を狭くしてください');
+   if(!allowPartial)throw supportAdjustmentError('接触層でサポートが分断されます。薄皮を2層以上にするか、線の隙間を狭くしてください',
+    {kind:'contact-split',roles:[...new Set(groups.map(group=>group.role))]});
    result.delete();result=original.clone();activeMasks=[];
    for(const group of groups){
     const next=applyMasks(result,group.masks);

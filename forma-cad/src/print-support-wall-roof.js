@@ -8,7 +8,9 @@ const overlap=(a,b)=>{const common=a.intersect(b);try{return R.measureVolume(com
 export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial=false,trimToRibs=false,span}={}){
  if(new Set(records.map(record=>record.center)).size<2)return null;
  const thickness=p.roofLayers*p.layerHeight,b=bounds(prism),axis=records[0].axis;
- if(top-thickness<=p.bedZ+p.layerHeight)throw skinClearanceError('薄皮を置く高さが足りません。薄皮の層数を減らしてください','upper',top,thickness);
+ if(top-thickness<=p.bedZ+p.layerHeight)throw Object.assign(
+  skinClearanceError('薄皮を置く高さが足りません。薄皮の層数を減らしてください','upper',top,thickness),
+  {available:Math.max(0,top-p.bedZ-p.layerHeight-1e-5)});
  const low=[b[0][0]-1,b[0][1]-1,top-thickness],high=[b[1][0]+1,b[1][1]+1,top+1];
  low[axis]=Math.min(...records.map(r=>r.center))-p.wallThickness/2;high[axis]=Math.max(...records.map(r=>r.center))+p.wallThickness/2;
  if(span)[low[1-axis],high[1-axis]]=span;
@@ -37,7 +39,7 @@ export function makeWallRoof(records,prism,bodies,p,top,onProgress,{allowPartial
       try{const clipped=part.intersect(span);trimmed.push(clipped);anchored.push(clipped);}finally{span.delete();}
      }else anchored.push(part);
     }
-    else if(!allowPartial)throw Object.assign(Error('薄皮を両側から支えるリブがありません。薄壁の間隔を狭くするか薄皮をオフにしてください'),{code:'support-skin-anchor'});
+    else if(!allowPartial)throw Object.assign(Error('薄皮を両側から支えるリブがありません。薄壁の間隔を狭くするか薄皮をオフにしてください'),{code:'support-skin-anchor',role:'upper'});
    }
    if(allowPartial&&(trimToRibs||!parts.length||anchored.length!==parts.length)){
     if(!anchored.length)return null;

@@ -1,5 +1,6 @@
 import * as R from 'replicad';
 import {supportTieInterval} from './print-support-strength.js';
+import {supportAdjustmentError} from './print-support-adjustments.js';
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
 const overlap=(a,b)=>{const s=a.intersect(b);try{return R.measureVolume(s);}finally{s.delete();}};
 
@@ -37,7 +38,7 @@ export function makeWallTies(records,prism,bodies,p,onProgress,sections=[]){
    for(let k=1;bottom+k*interval+thickness<=top+1e-6;k++){
     const z=p.bedZ+Math.ceil((bottom+k*interval-p.bedZ)/p.layerHeight-1e-7)*p.layerHeight;if(z+thickness>top+1e-6)break;
     for(const row of rows){
-     if(++attempts>512)throw Error('横つなぎが多すぎます。高さの間隔を広げてください');
+     if(++attempts>512)throw supportAdjustmentError('横つなぎが多すぎます。高さの間隔を広げてください',{kind:'tie-limit'});
      onProgress?.({stage:'薄壁の横つなぎを作成しています（'+(shapes.length+1)+'箇所目）'});
      const points=[[from,-neckWidth/2],[from+neck,-neckWidth/2],[from+neck,-width/2],[to-neck,-width/2],[to-neck,-neckWidth/2],[to,-neckWidth/2],[to,neckWidth/2],[to-neck,neckWidth/2],[to-neck,width/2],[from+neck,width/2],[from+neck,neckWidth/2],[from,neckWidth/2]].map(([x,y])=>axis===0?[x,row+y]:[row+y,x]);
      let drawing=R.draw(points[0]);for(const point of points.slice(1))drawing=drawing.lineTo(point);let tie=drawing.close().sketchOnPlane('XY',z).extrude(thickness);

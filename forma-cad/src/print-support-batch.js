@@ -63,6 +63,7 @@ export function createSupportBatchPanel({anchor,bodyName,onChange,onRetry,onAdju
    const sizes=[...new Set(regions.filter(region=>Number.isFinite(region.available)).map(region=>
     (region.role==='upper'?'上面':'底面')+'は '+mm(region.available)+' 確保、必要な厚さ '+mm(region.thickness)))];
    note.textContent=entry?.error?'要確認：'+entry.error+(sizes.length?' '+sizes.slice(0,3).join(' ／ '):''):entry?.result?(entry.result.supportPreview?.exportStatus?.ok?'配置・3MF準備完了':'配置完了（3MF要確認）'):'';
+   if(entry?.adjustment)note.textContent+='。自動調整 '+entry.adjustment.changes.join(' ／ ');
    const local=adjustments.get(id)||{};
    editor.hidden=!available||!entry||!entry.error&&!Object.keys(local).length;
    if(row.entry!==entry){

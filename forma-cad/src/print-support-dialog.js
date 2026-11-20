@@ -25,6 +25,7 @@ import {cadPosition} from './cad-coordinates.js';
 import {createSupportFastPreview} from './print-support-fast-preview.js';
 import {cadFaceGroup} from './face-selection.js';
 import {compareBridgeWidths} from './print-support-bridges.js';
+import {adjustSupportPreview,supportAdjustmentFields} from './print-support-adjustments.js';
 export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,getFace,onStart,apply,applyBatch,notify,fitPreview,download,getSavedExportIds=()=>[],getBodyVisibility=()=>undefined,confirmOutput,recordFailure=(job,error)=>failureRecord({...job,error})}){
  const dialog=document.createElement('dialog');dialog.id='print-support-dialog';dialog.style.cssText='position:fixed;inset:80px 12px auto auto;margin:0;width:355px;max-width:calc(100vw - 48px);max-height:calc(100vh - 135px);overflow:auto;padding:18px;z-index:120;background:#f5fbff;color:#193a50;border:1px solid #83a8b9;border-radius:12px;box-shadow:0 8px 28px #152c4940';
  const fields=[['interfaceLineWidth','上面の接触線の幅',.4,1.5],['interfaceSpacing','上面の線の隙間',.1,1.5],['topContactRimWidth','上面の輪郭の帯の幅',.4,2],['edgeMargin','外周からの余白',.1,2],['sideGap','側壁との横すき間',0,2],['lineWidth','印刷の線幅',.2,1],['wallLines','薄壁の線数',1,8],['roofLayers','薄皮の層数',1,6],['roofSectionLength','分割の間隔の目安',10,60],['roofSeamWidth','分割線の幅',.4,1.2],['tieInterval','横つなぎの高さ間隔',8,60],['wallPitch','薄壁の間隔',2,15],['wallThickness','薄壁の厚み',.4,2],['layerHeight','積層ピッチ',.06,.4],['spacing','支柱の間隔の目安',8,100],['footDiameter','足の直径',6,50],['footThickness','足の厚み',.4,3],['postDiameter','支柱の直径',2,12],['tipDiameter','先端の直径',.6,6],['topGap','上面との縦すき間',.05,1.5],['bottomGap','モデル上の接点の縦すき間',.05,1.5],['braceDiameter','斜め補強の直径',1,5],['bedZ','ベッド高さ',-10000,10000],['maxSupports','生成する本数の上限',1,36]];
@@ -59,6 +60,11 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const material=document.createElement('details');material.dataset.id='material-estimate';material.innerHTML='<summary>フィラメント量の概算</summary><p data-id="material-info"></p><small>CAD体積を全充填した場合の換算です。材料の密度は製品仕様に合わせて変更してください。実際の使用量・時間は、インフィル・壁数・流量などを設定したスライサーで確認してください。</small>';$('info').before(material);material.querySelector('summary').after($('filamentDiameter').closest('label'),$('materialDensity').closest('label'));$('materialDensity').closest('label').firstChild.textContent='材料の密度 (g/cm³)';
  const failurePanel=document.createElement('div');failurePanel.dataset.id='support-failure';failurePanel.hidden=true;failurePanel.innerHTML='<small data-id="failure-note">失敗時のモデルと設定を記録しました。上部の「失敗時の記録」からも復元できます。</small><small data-id="failure-calculation" role="status" hidden></small><button type="button" data-id="failure-save">失敗時のモデルと設定を保存</button>';$('error').after(failurePanel);
  const retry=document.createElement('button');retry.type='button';retry.dataset.id='preview-retry';retry.textContent='この設定でプレビュー';retry.hidden=true;$('info').before(retry);
+ const autoSettings=document.createElement('div');
+ autoSettings.innerHTML='<label><input type="checkbox" data-id="auto-adjust" checked>作成できる設定に自動調整</label>'+
+  '<small data-id="auto-adjust-status" role="status"></small><button type="button" data-id="auto-adjust-undo" hidden>自動調整前の設定に戻す</button>';
+ $('baseMode').closest('label').after(autoSettings);
+ let autoAdjustment=null;
  const previewHint=document.createElement('small');previewHint.hidden=true;$('info').after(previewHint);
  const exportState=document.createElement('div');exportState.dataset.id='export-state';exportState.setAttribute('role','status');exportState.style.cssText='padding:10px;border:1px solid #8aaaba;border-radius:6px;margin:10px 0';$('export3mf').before(exportState);
  const autoFaceButton=document.createElement('button');
@@ -227,6 +233,9 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  savedAndPreviewButton.onclick=()=>confirmSavedSelection(true);
  savedExportButton.onclick=()=>confirmSavedSelection(false);
  function controls(){const walls=$('style').value==='walls',roof=walls&&$('wallRoof').checked;$('sideGap').closest('label').hidden=!walls;$('roof-removal').hidden=!roof;$('roofSeams').closest('label').hidden=!roof;for(const key of ['roofSectionLength','roofSeamWidth'])$(key).closest('label').hidden=!roof||!$('roofSeams').checked;$('wallRoof').closest('label').hidden=!walls;$('roofLayers').closest('label').hidden=!walls||!$('wallRoof').checked;$('roof-note').hidden=!walls||!$('wallRoof').checked;$('roof-note').textContent='厚さ '+Number((Number($('roofLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mm。本体との上側のすき間は維持し、両端のリブの間だけをつなぎます。';$('wallWindows').closest('label').hidden=!walls;$('windows-note').hidden=!walls;$('wallTies').closest('label').hidden=!walls;$('tieInterval').closest('label').hidden=!walls||!$('wallTies').checked;for(const key of ['edgeMargin','wallPitch','wallThickness','layerHeight'])$(key).closest('label').hidden=!walls;for(const key of ['spacing','footDiameter','postDiameter','tipDiameter','bottomGap','braceDiameter','maxSupports'])$(key).closest('label').hidden=walls;$('braces').closest('label').hidden=walls;$('wall-note').hidden=$('export3mf').hidden=!walls;for(const el of dialog.querySelectorAll('input,select,button'))el.disabled=busy;$('apply').disabled=busy||!cached;$('export3mf').disabled=busy||!cached?.result.supportPackage?.complete;$('face-row').hidden=$('mode').value!=='face';$('braceDiameter').disabled=busy||!$('braces').checked;$('bottomGap').disabled=busy||$('baseMode').value==='bed';faceControls();placementControls(roof);ribControls(walls,roof);presets.sync(busy);failurePanel.hidden=!lastFailure;exportControls();improvementControls(walls);exteriorLabel.hidden=!walls||$('mode').value!=='auto';
+  autoSettings.hidden=!walls;
+  $('auto-adjust').disabled=busy||picking;
+  $('auto-adjust-undo').hidden=!autoAdjustment;
   const batch=batching();
   batchPanel.sync({available:batchAvailable(),disabled:busy||picking,entries:batchEntries,calculating:batch&&batchPending,adjustments:batchAdjustments});
   const coverageTarget=$('target').value;
@@ -235,6 +244,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   comparisonControls();
   const blocked=busy||picking||inflight||batchPending;
   const masked=removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length;
+  $('auto-adjust-undo').disabled=blocked||masked;
   autoFaceButton.disabled=blocked||masked;
   gapComparison.controls({blocked,masked});
   $('target').disabled=busy||batch;
@@ -572,13 +582,29 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   removal.reset();if(!cached||inflight||busy){schedule();return;}try{const input=validatePrintSupport({...cached.input,...Object.fromEntries(['filamentDiameter','materialDensity'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))}),a=cached.result.analysis.printSupport,m=a.material;if(!m){schedule();return;}cached={input,result:{...cached.result,analysis:{...cached.result.analysis,printSupport:{...a,material:supportMaterialEstimate(m.volume,input,m.beforeWindows.volume)}}}};materialInvalid=false;$('error').textContent='';host.dataset.printSupport=JSON.stringify(cached.result.analysis.printSupport);}catch(e){materialInvalid=true;$('error').textContent=e.message;}controls();
  }
  dialog.addEventListener('forma-preview-retry',()=>schedule(false,reinforcementComparison));
+ $('auto-adjust').onchange=()=>{if($('auto-adjust').checked||inflight||batchPending||batching())schedule();else controls();};
+ function applyAutoSettings(before,after){
+  for(const key of supportAdjustmentFields)if(before[key]!==after[key]){
+   const field=$(key);
+   if(field.type==='checkbox')field.checked=after[key];
+   else field.value=after[key];
+  }
+  if(JSON.stringify(before.faceOverrides??[])!==JSON.stringify(after.faceOverrides??[]))
+   faceOverrides.set(after.target,structuredClone(after.faceOverrides??[]));
+ }
+ $('auto-adjust-undo').onclick=()=>{
+  if(!autoAdjustment||busy||inflight||picking)return;
+  applyAutoSettings(autoAdjustment.after,autoAdjustment.before);
+  $('auto-adjust').checked=false;
+  resetStructure();schedule();
+ };
  function scheduleBatch(request,retryFailed){
   batchPending=true;
   const targets=[...batchPanel.selected],source=spec();
   const tasks=targets.map(target=>{
    if(!batchIds.has(target))batchIds.set(target,crypto.randomUUID());
    const input={...source,...batchAdjustments.get(target),id:batchIds.get(target),target,batch:true,batchGroup,faces:[],excludedRibs:[],excludedRibBlockers:[],faceOverrides:overridesFor(target)};
-   return {input,key:JSON.stringify(Object.keys(input).sort().map(key=>[key,input[key]]))};
+   return {input,key:JSON.stringify([$('auto-adjust').checked,Object.keys(input).sort().map(key=>[key,input[key]])])};
   });
   const keys=new Map(tasks.map(({input,key})=>[input.target,key]));
   for(const [target,entry] of batchEntries)if(keys.get(target)!==entry.key||retryFailed&&entry.error)batchEntries.delete(target);
@@ -595,18 +621,19 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
      try{
       const previous=currentBatch().map(entry=>supportHistoryFeature(entry.input,entry.result));
       const checked=validatePrintSupport(input);
-      const result=await runSupportPreview(checked,request,previous.length?[...history,...previous]:history);
+      const preview=await prepareSupportPreview(checked,request,previous.length?[...history,...previous]:history);
       if(!current())return;
+      const {result,adjustment}=preview;
       const issues=result.analysis.printSupport.ribs?.issues||[];
       if(!result.outputs.length||issues.length)throw Error(issues.join('。')||'リブを配置できませんでした');
-      batchEntries.set(input.target,{input:checked,key,result});
+      batchEntries.set(input.target,{input:preview.input,key,result,adjustment});
      }catch(error){
       if(!current())return;
       batchEntries.set(input.target,{input,key,error:error.message,coverage:error.supportCoverage||[],clearance:error.supportClearanceRegions||[]});
      }
      controls();
     }
-    const results=currentBatch().map(entry=>entry.result),failedCoverage=[...batchEntries.values()].flatMap(entry=>entry.coverage||[]);
+    const prepared=currentBatch(),results=prepared.map(entry=>entry.result),failedCoverage=[...batchEntries.values()].flatMap(entry=>entry.coverage||[]);
     const failedClearance=[...batchEntries.values()].flatMap(entry=>entry.clearance||[]);
     if(results.length){
      show({outputs:results.flatMap(result=>result.outputs),supportPreview:{
@@ -617,12 +644,14 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
       analysis:{printSupport:{contacts:[],clearanceRegions:[...results.flatMap(result=>result.analysis.printSupport.clearanceRegions||[]),...failedClearance]}}});
     }else{coverageView.show(failedCoverage);clearanceView.show(failedClearance,scene);}
     updateGapComparison(currentBatch());
+    const adjusted=prepared.filter(entry=>entry.adjustment).length;
+    $('auto-adjust-status').textContent=adjusted?adjusted+'ボディを自動調整しました。「複数ボディに一括配置」で変更内容を確認できます。':'';
     $('info').textContent=results.length?'橙色：作成できた連結リブサポート。ボディごとの結果は「複数ボディに一括配置」で確認できます。':'連結リブサポートを作成できませんでした。各ボディの結果を確認してください。';
    }finally{if(activeRun===job){activeRun=null;inflight=false;batchPending=false;if(dialog.open)controls();}}
   };
   timer=setTimeout(calculate,450);
  }
- async function runSupportPreview(input,request,requestHistory=history){
+ async function runSupportPreview(input,request,requestHistory,failures){
   const current=()=>request===revision&&dialog.open&&getFeatures()===original;
   const previewSpec={...input,preview:true};
   let calculation;
@@ -635,12 +664,34 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
     rememberFailure('preview',cadErrorAdvice(calculation.retry.message,previewSpec),input,result,{calculation,requestHistory});
    return result;
   }catch(error){
-   if(current()&&error.code!=='preview-manual')rememberFailure('preview',error,input,null,{calculation,requestHistory});
+   failures.set(error,{input,calculation});
    throw error;
   }
  }
- async function calculateRibPreview(input,request){
-  const run=fields=>runSupportPreview(fields,request);
+ async function prepareSupportPreview(input,request,requestHistory=history,remap=false){
+  const current=()=>request===revision&&dialog.open&&getFeatures()===original;
+  const failures=new Map(),run=settings=>runSupportPreview(settings,request,requestHistory,failures);
+  let attempts=0;
+  try{
+   return await adjustSupportPreview(input,{
+    initial:remap?settings=>calculateRibPreview(settings,request,run):run,
+    run:settings=>run(validatePrintSupport(settings)),
+    enabled:$('auto-adjust').checked,current:()=>current()&&(!remap||!ribReview.length),
+    onTrial:number=>{
+     attempts=number;
+     $('auto-adjust-status').textContent='作成できる設定を試しています（'+number+'回目）';
+    },
+   });
+  }catch(error){
+   if(current()){
+    const failure=failures.get(error);
+    if(attempts&&!batching())$('auto-adjust-status').textContent='試した設定では改善を確認できませんでした。';
+    if(failure&&error?.code!=='preview-manual')rememberFailure('preview',error,failure.input,null,{calculation:failure.calculation,requestHistory});
+   }
+   throw error;
+  }
+ }
+ async function calculateRibPreview(input,request,run){
   const isCurrent=()=>request===revision&&dialog.open&&getFeatures()===original;
   if(input.style!=='walls')return run(input);
   let sourceLayout=ribLayout;
@@ -686,6 +737,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   reinforcementComparison=comparison;
   endRibBatch();layoutPlans=[];$('rib-plan-list').replaceChildren();materialInvalid=false;
   if(busy||picking)return;
+  autoAdjustment=null;$('auto-adjust-status').textContent='';
   if(compareGap){
    const entries=batching()?currentBatch():cached?[cached]:[];
    if(entries.length)gapBaseline={entries,value:entries[0].input.sideGap};
@@ -708,8 +760,15 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    const job={};
    activeRun=job;inflight=true;
    try{
-    const result=await calculateRibPreview(input,request);
+    const prepared=await prepareSupportPreview(input,request,history,true);
     if(request!==revision||!dialog.open||getFeatures()!==original)return;
+    const {result,adjustment}=prepared;
+    input=prepared.input;
+    if(adjustment){
+     applyAutoSettings(adjustment.before,input);
+     autoAdjustment={...adjustment,after:input};
+     $('auto-adjust-status').textContent='自動調整しました。'+adjustment.changes.join(' ／ ');
+    }else if(prepared.attempts)$('auto-adjust-status').textContent='試した設定では改善を確認できませんでした。';
     if(result.supportPreview?.ribs){ribLayout=result.supportPreview.ribs;ribLayoutTarget=input.target;}
     show(result);
     if(input.mode==='face')input.faces=selectedFaces.map(f=>structuredClone(f));
@@ -782,6 +841,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
  function open(target=null,feature=null,selection=null,restored=null,initialTargets=[]){
   gapBaseline=null;
+  autoAdjustment=null;$('auto-adjust').checked=true;$('auto-adjust-status').textContent='';
   restoredBatch=restored?.input?.batch===true?{batch:true,batchGroup:restored.input.batchGroup}:null;
   includeHidden.checked=true;
   savedExportStatus.textContent='';

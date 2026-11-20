@@ -35,7 +35,7 @@ export function makeSupportBottomSkins(records,prism,bodies,p,onProgress){
     }}finally{parts.forEach(part=>part.delete());}
    }
    if(regions.length)throw Object.assign(Error('底面の薄皮を置く高さが足りません。層数や配置を調整してください'),{code:'support-skin-clearance',role:'lower',regions});
-   throw Object.assign(Error('底面の薄皮を置ける水平な土台がありません。土台とサポートの高さを確認してください'),{code:'support-skin-anchor'});
+   throw Object.assign(Error('底面の薄皮を置ける水平な土台がありません。土台とサポートの高さを確認してください'),{code:'support-skin-anchor',role:'lower'});
   }
   return {shapes:skins,heights,thickness,seams};
  }catch(error){skins.forEach(s=>s.delete());throw error;}finally{faces.forEach(f=>f.delete());free.delete();}

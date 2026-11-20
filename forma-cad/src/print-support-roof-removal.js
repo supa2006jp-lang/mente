@@ -2,6 +2,7 @@ import * as R from 'replicad';
 import {fuseSolids} from './solid-fuse.js';
 import {cadMesh} from './cad-mesh.js';
 import {roofSectionDescriptor} from './print-support-roof-sections.js';
+import {supportAdjustmentError} from './print-support-adjustments.js';
 const bounds=s=>{const box=s.boundingBox;try{return box.bounds;}finally{box.delete();}};
 const overlap=(a,b)=>{const common=a.intersect(b);try{return R.measureVolume(common);}finally{common.delete();}};
 function anchored(shape,records){const parts=shape.solids;try{return parts.length>0&&parts.every(part=>records.filter(r=>overlap(part,r.shape)>.0001).length>=2);}finally{parts.forEach(p=>p.delete());}}
@@ -33,7 +34,8 @@ export function roofRemovalDetails(original,records,profile,bodies,p,top,onProgr
  try{
   const axis=records[0].axis,other=1-axis;
   if(p.roofSeams){
-   const b=bounds(roof),span=b[1][other]-b[0][other],count=Math.max(1,Math.ceil(span/p.roofSectionLength));if(count>24||count-1>seams)throw Error('薄皮の分割数が多すぎます。分割の間隔を広げてください');
+   const b=bounds(roof),span=b[1][other]-b[0][other],count=Math.max(1,Math.ceil(span/p.roofSectionLength));
+   if(count>24||count-1>seams)throw supportAdjustmentError('薄皮の分割数が多すぎます。分割の間隔を広げてください',{kind:'roof-seams'});
    for(let i=1;i<count;i++){
     onProgress?.({stage:'薄皮の分割線を作成しています'});const at=b[0][other]+span*i/count,low=[b[0][0]-1,b[0][1]-1,top-p.roofLayers*p.layerHeight-.01],high=[b[1][0]+1,b[1][1]+1,top+.01];low[other]=at-p.roofSeamWidth/2;high[other]=at+p.roofSeamWidth/2;const tool=R.makeBox(low,high);let cut;
     try{cut=roof.cut(tool);if(R.measureVolume(roof)-R.measureVolume(cut)<.0001||!anchored(cut,records)){skippedCuts++;continue;}roof.delete();roof=cut;cut=null;cuts++;}finally{cut?.delete();tool.delete();}

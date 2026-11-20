@@ -1,4 +1,5 @@
 import * as R from 'replicad';
+import {supportAdjustmentError} from './print-support-adjustments.js';
 const bounds=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 const solidCount=shape=>{const solids=shape.solids;try{return solids.length;}finally{solids.forEach(s=>s.delete());}};
 const overlaps=(a,b)=>a[0].every((v,i)=>v<b[1][i]-1e-6&&a[1][i]>b[0][i]+1e-6);
@@ -43,7 +44,7 @@ export function makeWallWindows(shape,records,ties,p,onProgress,protectedShapes=
   }
   if(tools.length){
    const compound=R.makeCompound(tools);try{result=shape.cut(compound);}finally{compound.delete();}
-   if(solidCount(result)!==solidCount(shape))throw Error('窓抜きでリブが分断されるため中止しました。窓抜きをオフにしてください');
+   if(solidCount(result)!==solidCount(shape))throw supportAdjustmentError('窓抜きでリブが分断されるため中止しました。窓抜きをオフにしてください',{kind:'window-split'});
   }else result=shape.clone();
   const removedVolume=Math.max(0,originalVolume-R.measureVolume(result)),analysis={enabled:true,count:tools.length,skipped,limited,originalVolume,removedVolume,savedPercent:originalVolume?100*removedVolume/originalVolume:0};
   const answer=result;result=null;return {shape:answer,analysis};

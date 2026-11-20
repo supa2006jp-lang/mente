@@ -17,6 +17,7 @@ import {supportRibSections} from './print-support-rib-sections.js';
 import {supportSkinLayer,refreshSupportSkinLayer} from './print-support-skin-layer.js';
 import {makeSupportBottomSkins} from './print-support-bottom-skin.js';
 import {createSupportSideGap,sideGapFootprint} from './print-support-side-gap.js';
+import {supportAdjustmentError} from './print-support-adjustments.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
 function previewSkin(shape,axis,side,records){
@@ -168,7 +169,8 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
    stripes.sort((a,b)=>a.center-b.center||(a.span?.[0]??0)-(b.span?.[0]??0));
    const records=[],excludedCells=[],faceCandidates=[],faceBases=new Set();
    part.minRibs=Math.max(part.minRibs,stripes.length);
-   if(stripes.length>limits.ribs)throw Error('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
+   if(stripes.length>limits.ribs)throw supportAdjustmentError('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください',
+    {kind:'rib-limit',total:96-limits.ribs+stripes.length});
    let faceOmittedPieces=0;
    const localPlaced=new Set();
    for(const {center,band,foot,rib,span} of stripes){
@@ -207,7 +209,8 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
      x.bounds[0][other]-y.bounds[0][other]||x.bounds[0][2]-y.bounds[0][2]||x.bounds[1][other]-y.bounds[1][other]||x.bounds[1][2]-y.bounds[1][2]);
     const whole=p.excludedRibs.includes(ribId);
     part.minRibs=Math.max(part.minRibs,faceCandidates.length+pieces.length);
-    if(faceCandidates.length+pieces.length>limits.ribs)throw Error('薄壁の片数が多すぎます。壁の間隔を広げるか対象面を絞ってください');
+    if(faceCandidates.length+pieces.length>limits.ribs)throw supportAdjustmentError('薄壁の片数が多すぎます。壁の間隔を広げるか対象面を絞ってください',
+     {kind:'rib-limit',total:96-limits.ribs+faceCandidates.length+pieces.length});
     if(whole)excludedCells.push({low,high,autoBlocked:p.excludedRibBlockers.includes(ribId),blockHeight:z});
     for(const [part,piece] of pieces.entries()){
      const partId=pieces.length===1?ribId:ribId+'#'+JSON.stringify(piece.bounds.flat().map(n=>Number(n.toFixed(6))))+':'+part;
@@ -251,6 +254,12 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
     }
      if(cutouts.length&&(!records.length||p.wallRoof&&!roof&&!excludedCells.length))throw initialFailure;
    }catch(error){
+    if(error?.role&&(error.code==='support-skin-clearance'||error.code==='support-skin-anchor')){
+     const values=[error.available,...(error.regions||[]).map(region=>region.available)].filter(Number.isFinite);
+     const selection=override?.selection??item?.selection;
+     error.supportAdjustmentHints=[{kind:error.code==='support-skin-clearance'?'skin-clearance':'skin-anchor',role:error.role,
+      ...(selection?{selection}:{}),...(values.length?{available:Math.min(...values)}:{})}];
+    }
     if(p.mode!=='auto'){
      if(error?.code==='support-skin-clearance')error.supportClearanceRegions=clearanceDetails(error,b,z);
      throw error;
@@ -355,7 +364,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
 }
 
 function prepareWallSupports(bodies,p,onProgress,cache){
- const coverageRows=[],trimmedBlockers=new Set(),usedOverrides=new Set(),autoSupportFaces=[];
+ const coverageRows=[],trimmedBlockers=new Set(),usedOverrides=new Set(),autoSupportFaces=[],adjustmentHints=[];
  const contactRegions=[],bottomSeams={enabled:!!p.bottomSeams,count:0,skipped:0,sections:0,spacing:p.bottomSectionLength,width:p.bottomSeamWidth};
  const tieIntervals=new Set(),tieAttachments=[],bottomSkins=[],bottomHeights=[],skippedCeilings=[],skippedScopes=[],clearanceRegions=[];
  const model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
@@ -437,7 +446,10 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    if(cache&&!cached&&!part.skinFailure)cache.put(partKey,part);
    if(part.coverage)coverageRows.push(part.coverage);
    if(part.skippedScope)skippedScopes.push(part.skippedScope);
-   if(part.skippedCeiling)skippedCeilings.push(part.skippedCeiling);
+   if(part.skippedCeiling){
+    skippedCeilings.push(part.skippedCeiling);
+    adjustmentHints.push(...(part.skinFailure?.supportAdjustmentHints||[]));
+   }
    firstSkinFailure??=part.skinFailure;
    sideGapLimited||=part.sideGapLimited;
    if(part.omittedExterior)omittedExterior++;
@@ -462,9 +474,10 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    if(part.bottomSeams){
     bottomHeights.push(...part.bottomHeights);
     for(const key of ['count','skipped','sections'])bottomSeams[key]+=part.bottomSeams[key];
-    if(bottomSeams.count>128)throw Error('底面薄皮の分割数が多すぎます');
+    if(bottomSeams.count>128)throw supportAdjustmentError('底面薄皮の分割数が多すぎます',{kind:'bottom-seams'});
    }
-   if(ties.length+part.ties.length>512)throw Error('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください');
+   if(ties.length+part.ties.length>512)throw supportAdjustmentError('横つなぎが多すぎます。高さの間隔を広げるか対象面を絞ってください',
+    {kind:'tie-limit'});
    ties.push(...part.ties);
    if(part.tieInfo){
     for(const height of part.tieInfo.levels)tieLevels.add(height);
@@ -513,10 +526,15 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   for(let i=blockers.length-1;i>=0;i--)if(R.measureVolume(blockers[i])<.001){blockers[i].delete();blockers.splice(i,1);}
   blockers.push(...manualBlockers.splice(0));
   if(p.mode==='auto'&&usedOverrides.size!==(p.faceOverrides?.length||0))throw Error('個別設定の下面が見つかりません。設定する下面を選び直してください');
+  if(faceNumber===1)for(const hint of adjustmentHints)if(hint.selection)hint.onlyCeiling=true;
+  if(omitted&&p.baseMode==='bed')adjustmentHints.push({kind:'base-blocked'});
   if(!candidateRibs.length){
    const error=firstSkinFailure||Error(sideGapLimited?(p.keepRibThickness?'指定した厚みと':'')+'側壁との横すき間を確保できる場所がありません。すき間を小さくするか、対象面を選び直してください':omittedExterior?'外側の細い張り出しを省きました。支える場合は対象面を選ぶか、外側の小片を省く設定を外してください':'薄壁を置ける水平な下面がありません。土台と高さを確認してください');
    if(firstSkinFailure)error.supportClearanceRegions=clearanceRegions;
    if(coverage.length)error.supportCoverage=coverage;
+   if(sideGapLimited)adjustmentHints.push({kind:'no-width'});
+   if(omittedExterior)adjustmentHints.push({kind:'exterior-only'});
+   if(adjustmentHints.length)error.supportAdjustmentHints=adjustmentHints;
    throw error;
   }
   const missingRibs=p.excludedRibs.filter(id=>!candidateRibs.some(r=>r.id===id||r.ribId===id));if(missingRibs.length)ribIssues.push('リブの配置が変わったため古い除外指定を使えません。除外をすべて解除してください');if(!walls.length)ribIssues.push('すべてのリブが除外されています。1枚以上戻してください');
@@ -541,7 +559,7 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    contactRegions:contactRegions.map(region=>({...region,shape:region.shape.clone()})),
    skinChecks:skinChecks.map(({item,shape})=>({index:coverage.indexOf(item),shape:shape.clone()})),
    ribPreview:candidateRibs,skinPreview,exclusionPreview,roofPreview:{contactLines:!!p.contactLines,parts:roofPreview,placements:roofPlacements,missing:missingPlacements}};
-  shape=null;return result;
+  shape=null;return {...result,adjustmentHints};
  }catch(e){[...blockers,...manualBlockers].forEach(s=>s.delete());throw e;}finally{shape?.delete();owned.forEach(s=>s.delete());faces.forEach(f=>f.delete());sideGap?.dispose();}
 }
 
@@ -647,7 +665,7 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
  const key=context&&p.contactLines?JSON.stringify([context,p.faceOverrides??[]]):null,reused=reuseWallStructure(key);
  if(reused)onProgress?.({stage:'リブ本体と横つなぎを再利用しています'});
  const prepared=reused||prepareWallSupports(bodies,p,onProgress,wallCeilingCache(context));
- const {analysis,blockers,wallRecords,contactRegions,skinChecks,ribPreview,skinPreview,exclusionPreview,roofPreview,selectedFaces,coverage,autoSupportFaces}=prepared;
+ const {analysis,blockers,wallRecords,contactRegions,skinChecks,ribPreview,skinPreview,exclusionPreview,roofPreview,selectedFaces,coverage,autoSupportFaces,adjustmentHints}=prepared;
  let shape=prepared.shape,accepted=false,contactPreview=[],flatSkinPreview=[];
  try{
   if(key&&!reused){
@@ -687,7 +705,7 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
   analysis.material=supportMaterialEstimate(volume,p,windows.enabled?windows.originalVolume:volume);
   if(reused){delete analysis.ceilingReuse;analysis.reusedStructure=true;}
   accepted=true;
-  return {shape,analysis,blockers,autoSupportFaces,...(selectedFaces?{selectedFaces}:{}),...(p.preview?{contactPreview,ribPreview,skinPreview,roofPreview,coverage,
+  return {shape,analysis,blockers,autoSupportFaces,...(selectedFaces?{selectedFaces}:{}),...(p.preview?{contactPreview,ribPreview,skinPreview,roofPreview,coverage,adjustmentHints,
    printRegions:[...exclusionPreview,...flatSkinPreview]}:{})};
  }finally{
   if(!accepted){shape?.delete();blockers.forEach(s=>s.delete());}
