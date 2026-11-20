@@ -3,7 +3,8 @@ import * as R from 'replicad';
 import {validateSupportFaces,validateSupportFaceOverrides,resolveSupportFaces,supportSelectedFaceMeshes} from './print-support-faces.js';
 import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
-import {makeWallSupports} from './print-support-walls.js';
+import {makeWallSupportSteps} from './print-support-walls.js';
+import {finishCadSteps} from './cad-steps.js';
 import {supportMaterialEstimate} from './print-support-material.js';
 export const printSupportDefaults={style:'posts',fallbackPosts:false,fillGaps:false,fallbackDiameter:1.2,contactLines:false,topContactLines:true,bottomContactLines:true,topContactRim:false,topContactRimWidth:.6,interfaceLineWidth:.6,interfaceSpacing:.5,bottomContactInset:0,edgeMargin:.5,sideGap:0,bottomSeams:false,bottomSectionLength:25,bottomSeamWidth:.6,wallBottomSkin:false,bottomSkinLayers:2,edgeRibs:false,autoReinforce:false,filamentDiameter:1.75,materialDensity:1.24,lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',wallOffset:0,excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
@@ -94,14 +95,19 @@ function links(points){
 function rail(a,b,width,height,z){const dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);let shape=R.makeBox([0,-width/2,z],[length,width/2,z+height]);try{const rotated=shape.rotate(Math.atan2(dy,dx)*180/Math.PI,[0,0,0],[0,0,1]);if(rotated!==shape)shape.delete();shape=rotated;return shape.translate([a[0],a[1],0]);}finally{shape.delete();}}
 function diagonal(a,b,z,radius){const d=[b[0]-a[0],b[1]-a[1],Math.hypot(b[0]-a[0],b[1]-a[1])],length=Math.hypot(...d);return R.makeCylinder(radius,length,[a[0],a[1],z],d.map(v=>v/length));}
 export function makePrintSupport(bodies,input,onProgress,options){
+ return finishCadSteps(printSupportSteps(bodies,input,onProgress,options));
+}
+
+export function* printSupportSteps(bodies,input,onProgress,options){
  const p=validatePrintSupport(input),model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
- if(p.style==='walls')return makeWallSupports(bodies,p,onProgress,options);
+ if(p.style==='walls')return yield* makeWallSupportSteps(bodies,p,onProgress,options);
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,bounds=new Map([...bodies].map(([id,shape])=>[id,box(shape)])),candidates=[],seen=new Set(),posts=[],extras=[];
  let bases,selectedFacePreview=null;
  let skipped=0,omittedReinforcement=0,shape=null;
  try{
   selectedFacePreview=p.preview&&selection?supportSelectedFaceMeshes(selection):null;if(p.baseMode==='bedOrModel')bases=supportBaseSurfaces(bodies);
   for(const face of faces){
+   yield;
    if(face.geomType!=='PLANE')continue;const normal=vector(face.normalAt()),center=vector(face.center);if(normal[2]>-.5){if(p.mode==='face')throw Error('下向きの平面を選択してください（水平から60°以内）。');continue;}
    const bounds=box(face),xs=[],ys=[];if((bounds[1][0]-bounds[0][0])*(bounds[1][1]-bounds[0][1])/(p.spacing*p.spacing)>512)throw Error('配置候補が多すぎます。間隔を広げるか、対象の面を絞ってください。');for(let x=bounds[0][0]+1;x<=bounds[1][0]-1+.00001;x+=p.spacing)xs.push(x);for(let y=bounds[0][1]+1;y<=bounds[1][1]-1+.00001;y+=p.spacing)ys.push(y);
    const samples=[[center[0],center[1]],...xs.flatMap(x=>ys.map(y=>[x,y]))];
@@ -115,6 +121,7 @@ export function makePrintSupport(bodies,input,onProgress,options){
   }
   const totalCandidates=candidates.length;
   while(candidates.length&&posts.length<p.maxSupports){
+   yield;
    if(posts.length)candidates.sort((a,b)=>Math.min(...posts.map(s=>Math.hypot(b.point[0]-s.point[0],b.point[1]-s.point[1])))-Math.min(...posts.map(s=>Math.hypot(a.point[0]-s.point[0],a.point[1]-s.point[1]))));
    const candidate=candidates.shift(),base=bases?.find(candidate.point,p.bedZ)||{kind:'bed',point:[candidate.point[0],candidate.point[1],p.bedZ],normal:[0,0,1]};if(posts.some(s=>Math.hypot(s.point[0]-candidate.point[0],s.point[1]-candidate.point[1])<Math.max(p.postDiameter*2,p.spacing*.6)&&base.point[2]<s.tip[2]&&s.base.point[2]<candidate.point[2]-p.topGap)){skipped++;continue;}
    onProgress?.({stage:'連結リブサポートを配置しています（'+(posts.length+1)+'本目）'});let post=postAt(candidate.point,candidate.normal,p,base);

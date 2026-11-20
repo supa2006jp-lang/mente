@@ -5,6 +5,20 @@ import {supportMeshTriangles} from './print-support-bridges.js';
 
 const distanceEpsilon=1e-5,scale=1e5;
 const overlap=(low,high,from,to)=>Math.min(high,to)-Math.max(low,from);
+const settingKinds={
+ sideGap:['gap'],
+ wallRoof:['upperSkin'],roofLayers:['upperSkin'],roofSeams:['upperSkin'],roofSectionLength:['upperSkin'],roofSeamWidth:['upperSkin'],
+ wallBottomSkin:['lowerSkin'],bottomSkinLayers:['lowerSkin'],bottomSeams:['lowerSkin'],bottomSectionLength:['lowerSkin'],bottomSeamWidth:['lowerSkin'],
+ contactLines:['upperContact','lowerContact'],
+ topContactLines:['upperContact'],interfaceLineWidth:['upperContact'],interfaceSpacing:['upperContact'],
+ topContactRim:['upperContact'],topContactRimWidth:['upperContact'],
+ bottomContactLines:['lowerContact'],bottomInterfaceLineWidth:['lowerContact'],bottomInterfaceSpacing:['lowerContact'],bottomContactInset:['lowerContact'],
+ wallWindows:['windows'],
+};
+
+export function supportComparisonKinds(fields){
+ return [...new Set(fields.flatMap(field=>settingKinds[field]||[]))];
+}
 
 function removedRibs(before,after,pitch){
  const possible=[];
@@ -111,14 +125,58 @@ export function compareSupportGap(before,after){
  return {beforeCount:oldRibs.length,afterCount:newRibs.length,removed,skins,spans};
 }
 
+function meshSignature({vertices,triangles}){
+ const positions=new Set();
+ for(let i=0;i<vertices.length;i+=3)positions.add(vertices.slice(i,i+3).map(v=>Math.round(v*scale)).join(','));
+ // The same surface may use a different triangle order or diagonal.
+ let area=0;
+ for(let i=0;i<triangles.length;i+=3){
+  const a=triangles[i]*3,b=triangles[i+1]*3,c=triangles[i+2]*3;
+  const [x,y,z]=[0,1,2].map(k=>vertices[b+k]-vertices[a+k]);
+  const [u,v,w]=[0,1,2].map(k=>vertices[c+k]-vertices[a+k]);
+  area+=Math.hypot(y*w-z*v,z*u-x*w,x*v-y*u)/2;
+ }
+ return JSON.stringify([Math.round(area*scale),[...positions].sort()]);
+}
+
+function finishSignatures(preview,kinds){
+ const byCeiling=new Map();
+ function add(kind,pieces,signature){
+  if(!kinds.includes(kind))return;
+  for(const piece of pieces){
+   if(!piece.ceilingId)continue;
+   if(!byCeiling.has(piece.ceilingId))byCeiling.set(piece.ceilingId,[]);
+   byCeiling.get(piece.ceilingId).push(kind+':'+signature(piece));
+  }
+ }
+ add('upperSkin',preview.roof?.parts||[],meshSignature);
+ add('lowerSkin',(preview.skins||[]).flat().filter(piece=>piece.side==='lower'),meshSignature);
+ add('upperContact',(preview.contact||[]).filter(piece=>piece.role==='upper'),meshSignature);
+ add('lowerContact',(preview.contact||[]).filter(piece=>piece.role==='lower'),meshSignature);
+ add('windows',preview.windowCuts||[],({axis,center,x,z0,z1,width})=>
+  JSON.stringify([axis,...[center,x,z0,z1,width].map(v=>Math.round(v*scale))]));
+ return byCeiling;
+}
+
+export function changedSupportCeilings(previous,next,kinds){
+ const before=finishSignatures(previous,kinds),after=finishSignatures(next,kinds);
+ const faces=new Map([...(previous.coverage||[]),...(next.coverage||[])]
+  .filter(row=>row.ceilingId&&row.face).map(row=>[row.ceilingId,row.face]));
+ return [...new Set([...before.keys(),...after.keys()])].flatMap(id=>{
+  const a=before.get(id)||[],b=after.get(id)||[],face=faces.get(id);
+  return face&&(a.length!==b.length||JSON.stringify(a.sort())!==JSON.stringify(b.sort()))?[{ceilingId:id,...face}]:[];
+ });
+}
+
 export function createSupportGapComparison({anchor,scene,onRestore}){
  const panel=document.createElement('div');
  panel.dataset.id='gap-comparison';
  panel.style.cssText='margin:10px 0;padding:9px 0;border-block:1px solid #c5dce7';
- panel.innerHTML='<strong>横すき間の変更前後</strong><small data-gap-summary role="status"></small>'+
-  '<label><input type="checkbox" data-gap-show checked>支えが減った箇所を強調</label><button type="button" data-gap-restore></button>';
+ panel.innerHTML='<strong data-comparison-title></strong><small data-gap-summary role="status"></small>'+
+  '<label><input type="checkbox" data-gap-show checked><span data-comparison-toggle></span></label><button type="button" data-gap-restore></button>';
  anchor.after(panel);
  const summary=panel.querySelector('[data-gap-summary]'),toggle=panel.querySelector('[data-gap-show]'),restore=panel.querySelector('[data-gap-restore]');
+ const title=panel.querySelector('[data-comparison-title]'),toggleLabel=panel.querySelector('[data-comparison-toggle]');
  const group=new Group();
  scene.add(group);
  let baseline=null,hasChanges=false,blocked=false,masked=false;
@@ -134,10 +192,14 @@ export function createSupportGapComparison({anchor,scene,onRestore}){
   for(const mesh of [...group.children]){
    mesh.removeFromParent();mesh.geometry.dispose();mesh.material.dispose();
   }
-  baseline=null;hasChanges=false;summary.textContent='';sync();
+  baseline=null;hasChanges=false;delete panel.dataset.changedCeilings;summary.textContent='';sync();
  }
  function pending(previous){
   clear();baseline=previous;
+  const gapOnly=previous.kinds.length===1&&previous.kinds[0]==='gap';
+  title.textContent=gapOnly?'横すき間の変更前後':'リブサポートの変更前後';
+  toggleLabel.textContent=gapOnly?'支えが減った箇所を強調':'変更箇所を強調';
+  restore.hidden=!gapOnly;
   restore.textContent=display(baseline.value)+' mmに戻す';
   summary.textContent='変更後の精密プレビューを計算しています。';
   sync();
@@ -152,30 +214,43 @@ export function createSupportGapComparison({anchor,scene,onRestore}){
   }
  }
  function show(previous,entries){
+  const kinds=previous.kinds.filter(kind=>kind!=='gap'),gap=previous.kinds.includes('gap');
   const pairs=previous.entries.flatMap(before=>{
-   const after=entries.find(entry=>entry.input.target===before.input.target);
-   return after&&before.input.sideGap!==after.input.sideGap?[[before,after]]:[];
+   const after=entries.find(entry=>entry.input.target===before.input.target&&entry.input.style==='walls');
+   return after&&(kinds.length||gap&&before.input.sideGap!==after.input.sideGap)?[[before,after]]:[];
   });
   if(!pairs.length){clear();return;}
   pending(previous);
-  const changes=pairs.map(([before,after])=>compareSupportGap(before,after));
+  const changes=gap?pairs.filter(([before,after])=>before.input.sideGap!==after.input.sideGap)
+   .map(([before,after])=>compareSupportGap(before,after)):[];
   const removed=changes.flatMap(change=>change.removed),skins=changes.flatMap(change=>change.skins),spans=changes.flatMap(change=>change.spans);
   const widest=spans.reduce((current,row)=>!current||row.widest.growth>current.growth?row.widest:current,null);
-  const total=key=>changes.reduce((sum,change)=>sum+change[key],0);
-  hasChanges=!!(removed.length||skins.length||spans.length);
+  const changed=kinds.length?pairs.flatMap(([before,after])=>
+   changedSupportCeilings(before.result.supportPreview,after.result.supportPreview,kinds)):[];
+  hasChanges=!!(removed.length||skins.length||spans.length||changed.length);
   add(removed,0xde3448,27);add(skins,0xc33caf,28);add(spans,0xf08a24,29);
+  add(changed,0x147cce,26);
+  panel.dataset.changedCeilings=String(changed.length);
   const values=[...new Set(pairs.map(([,after])=>display(after.input.sideGap)))].join('・');
-  const lines=['横すき間 '+display(previous.value)+' → '+values+' mm ／ リブ '+total('beforeCount')+' → '+total('afterCount')+'枚'];
+  const total=(index,get)=>pairs.reduce((sum,pair)=>sum+get(pair[index].result.analysis.printSupport),0);
+  const lines=[];
+  if(changes.length)lines.push('横すき間 '+display(previous.value)+' → '+values+' mm');
+  lines.push('リブ '+total(0,a=>a.count)+' → '+total(1,a=>a.count)+'枚');
+  if(kinds.length){
+   const grams=index=>display(total(index,a=>a.material.massG));
+   lines.push('材料の概算 '+grams(0)+' → '+grams(1)+' g');
+   lines.push(changed.length?'青は変更した下面 '+changed.length+'面':'変更した下面 0面');
+  }
   if(removed.length)lines.push('赤は消えたリブ '+removed.length+'枚');
   if(skins.length)lines.push('紫は減った上面の薄皮 '+display(skins.reduce((area,part)=>area+part.area,0))+' mm²');
   if(widest)lines.push('橙は幅が広がった区画（最大増加の箇所 '+display(widest.before)+' → '+display(widest.after)+' mm、目安）');
-  if(!hasChanges)lines.push('表示する差はありません');
+  if(!hasChanges&&!kinds.length)lines.push('表示する差はありません');
   if(pairs.length<previous.entries.length)lines.push(pairs.length+'ボディを比較');
   summary.textContent=lines.join(' ／ ')+'。';
   sync();
  }
  toggle.onchange=sync;
- restore.onclick=()=>{if(baseline&&!blocked)onRestore(baseline.value);};
+ restore.onclick=()=>{if(baseline&&!restore.hidden&&!blocked)onRestore(baseline.value);};
  clear();
  return {clear,pending,show,fail(){if(baseline){pending(baseline);summary.textContent='変更後の精密プレビューを確認できません。';}},
   controls(state){({blocked,masked}=state);sync();}};

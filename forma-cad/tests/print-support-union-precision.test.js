@@ -10,6 +10,7 @@ import {printSupport3mf} from '../src/print-support-3mf.js';
 import {inspectCadStl} from '../src/stl-cad-inspection.js';
 import {createPrintSupportCache} from '../src/print-support-cache.js';
 import {fuseSupportSolids} from '../src/print-support-solid-groups.js';
+import {supportHistoryFeature} from '../src/print-support-batch.js';
 
 before(async()=>{
  R.setOC(await init({wasmBinary:await readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
@@ -56,4 +57,37 @@ test('an unchanged support group can be reused when another group changes',()=>{
   assert.ok(Math.abs(R.measureVolume(initial)-348)<1e-6);
   assert.ok(Math.abs(R.measureVolume(revised)-372)<1e-6);
  }finally{initial?.delete();revised?.delete();shapes.forEach(shape=>shape.delete());}
+});
+
+test('matching rib positions survive a body switch and checked previews recheck neighboring supports',()=>{
+ const a=R.makeBox([0,0,32],[32,26,35]),b=R.makeBox([55,0,32],[87,26,35]);
+ const conflict=R.makeBox([55,0,0],[87,26,20]);
+ const feature=(id,shape)=>({kind:'cadop',id,remove:[],outputs:[{id,...cadMesh(shape),brep:serializeCadShape(shape)}]});
+ try{
+  const features=[feature('a',a),feature('b',b)];
+  const settings={type:'printSupport',style:'walls',mode:'auto',topGap:.3,wallDirection:'x',wallPitch:10,edgeRibs:true,
+   wallRoof:true,wallTies:false,preview:true,batch:true,batchGroup:'checked-supports'};
+  const first={...settings,id:'ribs-a',target:'a'},second={...settings,id:'ribs-b',target:'b'};
+  const original=runOperation(features,first);
+  const firstFeature=supportHistoryFeature(first,original);
+  const separate=runOperation([...features,firstFeature],second);
+  const stages=[];
+  const edited={...first,wallPitch:10.1};
+  const same=runOperation(features,edited,update=>stages.push(update.stage));
+  const ribCenters=preview=>preview.supportPreview.ribs.map(({center})=>center);
+  assert.deepEqual(ribCenters(original),ribCenters(same));
+  assert.equal(same.analysis.printSupport.ceilingLayoutReuse?.reused,1);
+  assert.equal(same.supportPreview.coverage[0].settings.wallPitch,10.1);
+  assert(!stages.some(stage=>stage.startsWith('薄壁サポートを作成しています')));
+  assert(same.supportPreview.exportStatus.ok);
+  const wider=runOperation(features,{...edited,wallPitch:7});
+  assert.notDeepEqual(ribCenters(wider),ribCenters(same));
+  assert.equal(wider.analysis.printSupport.ceilingLayoutReuse,undefined);
+  const latest=[...features,supportHistoryFeature(edited,same)],neighborStages=[];
+  const reused=runOperation(latest,second,update=>neighborStages.push(update.stage));
+  assert(neighborStages.includes('検査済みのリブプレビューを再利用しています'));
+  assert.deepEqual(reused.supportPackage,separate.supportPackage);
+  const occupied={...firstFeature,outputs:[{...firstFeature.outputs[0],brep:serializeCadShape(conflict)}]};
+  assert.throws(()=>runOperation([...features,occupied],second),/作成済みのサポートと重なります/);
+ }finally{a.delete();b.delete();conflict.delete();}
 });

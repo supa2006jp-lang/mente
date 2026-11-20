@@ -4,9 +4,11 @@ import {createFilletInspectionGuard} from './fillet-inspection-guard.js';
 import {previewResultGuard} from './preview-result-guard.js';
 import {previewTimeoutCache,previewTimeoutKey,isAutomaticPreview} from './preview-timeout-cache.js';
 import {isPrecisionPreview,precisionPreviewDeferReason,precisionPreviewMode,rememberSlowPrecisionPreview,waitForPrecisionPreview} from './precision-preview-mode.js';
+import {cancelledCadJob} from './cad-steps.js';
 const liveClients=new Set();
 export function cancelAutomaticPrecisionPreviews(){for(const reference of liveClients){const client=reference.deref();if(!client){liveClients.delete(reference);continue;}for(const [id,p]of [...client.pending])if(p.precisionPreview)client.cancel(id);}}
 const activityListeners=new Set();
+const requestId=Symbol();
 export function subscribeKernelActivity(listener){activityListeners.add(listener);return ()=>activityListeners.delete(listener);}
 function calculationState(p){
  if(!p.lastStage)return null;
@@ -102,6 +104,7 @@ export class KernelClient {
   const pending=this.pending.get(data.id);
   if(!pending)return;
   if(data.progress){
+   if(pending.supportSuperseded)return;
    const progress=pending.filletGuard.progress(data.progress);
    activity(this,data.id,pending,'progress',{progress});pending.onProgress?.(progress);return;
   }
@@ -114,13 +117,17 @@ export class KernelClient {
     this.finishFilletInspection(data.id,worker,'kernel-error');return;
    }
    worker.terminate();this.worker=null;this.active=null;
-   if(!pending.retry){
+   if(!pending.retry&&!pending.supportSuperseded){
     pending.retry={message:data.error,calculation:calculationState(pending)};
     pending.onProgress?.({stage:'計算エンジンを再起動しています',current:0,total:1});
     this.dispatch();return;
    }
   }
   this.pending.delete(data.id);this.active=null;
+  if(pending.supportSuperseded){
+   const error=cancelledCadJob();
+   activity(this,data.id,pending,'cancelled',{error});pending.reject(error);this.dispatch();return;
+  }
   if(pending.precisionPreview)rememberSlowPrecisionPreview(pending.timeoutDocument,pending.payload.spec,Date.now()-pending.started);
   if(data.error){
    const error=cadErrorAdvice(Object.assign(new Error(data.error),data.details||{}),pending.payload.spec);
@@ -130,7 +137,7 @@ export class KernelClient {
  }
  request(payload,timeout=90000,onProgress,onTiming,activityFeatures,verification,onCalculation){
   const id=++this.next;
-  return new Promise((resolve,reject)=>{
+  const result=new Promise((resolve,reject)=>{
    const p={payload,timeout,onProgress,onTiming,activityFeatures,automaticPreview:verification?.automaticPreview,
     precisionPreview:verification?.precisionPreview,timeoutKey:verification?.timeoutKey,timeoutDocument:verification?.timeoutDocument,
     timer:null,created:Date.now(),
@@ -150,8 +157,22 @@ export class KernelClient {
    if(this.active!==null)onProgress?.({stage:'現在の計算が終わるのを待っています'});
    this.dispatch();
   });
+  result[requestId]=id;
+  return result;
  }
  warmup(){return this.request({type:'warmup'});}
+ startSupportPreview(features,spec,options){
+  if(spec?.type!=='printSupport'||spec.preview!==true)throw Error('サポートのプレビューを指定してください');
+  const result=this.run(features,spec,options),id=result[requestId];
+  return {result,supersede:()=>{
+   const request=this.pending.get(id);
+   if(!request||request.supportSuperseded)return;
+   if(this.active!==id){this.cancel(id);return;}
+   request.supportSuperseded=true;
+   try{this.worker.postMessage({type:'supersedeSupportPreview',id});}
+   catch{this.cancel(id);}
+  }};
+ }
  runLatestExactExtrusion(features,spec,{replaceWaitMs=1500,...options}={}){
   if(spec?.type!=='exactExtrusionPreview')throw Error('距離変更用の押し出しプレビューだけを置き換えられます');
   const result=this.run(features,spec,options),id=this.next;

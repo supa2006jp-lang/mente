@@ -1,5 +1,5 @@
 import {createSupportCoverageView} from './print-support-coverage-view.js';
-import {createSupportGapComparison} from './print-support-gap-comparison.js';
+import {createSupportGapComparison,supportComparisonKinds} from './print-support-gap-comparison.js';
 import {createSupportBatchPanel,supportBatchPackage,supportHistoryFeature,supportPreviewExportable} from './print-support-batch.js';
 import {createSupportClearanceView} from './print-support-clearance-view.js';
 import {createSupportContactView} from './print-support-contact-view.js';
@@ -28,6 +28,7 @@ import {createSupportFastPreview} from './print-support-fast-preview.js';
 import {cadFaceGroup} from './face-selection.js';
 import {compareBridgeWidths} from './print-support-bridges.js';
 import {adjustSupportPreview,sameSupportFace,supportAdjustmentFields} from './print-support-adjustments.js';
+import {cancelledCadJob} from './cad-steps.js';
 import {createSupportAdjustmentPermissions,createSupportAdjustmentReview} from './print-support-adjustment-view.js';
 export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas,camera,meshes,kernel,getFeatures,bodyName,getFace,onStart,apply,applyBatch,notify,fitPreview,download,getSavedExportIds=()=>[],getBodyVisibility=()=>undefined,confirmOutput,recordFailure=(job,error)=>failureRecord({...job,error})}){
  const dialog=document.createElement('dialog');dialog.id='print-support-dialog';dialog.style.cssText='position:fixed;inset:80px 12px auto auto;margin:0;width:355px;max-width:calc(100vw - 48px);max-height:calc(100vh - 135px);overflow:auto;padding:18px;z-index:120;background:#f5fbff;color:#193a50;border:1px solid #83a8b9;border-radius:12px;box-shadow:0 8px 28px #152c4940';
@@ -130,21 +131,27 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  $('rib-pick').after(ribBatchControls);
  let faceOverrides=new Map(),batchEntries=new Map(),batchIds=new Map(),batchAdjustments=new Map(),batchGroup,targetCount=0,batchPending=false;
  const batchPanel=createSupportBatchPanel({anchor:$('target').closest('label'),bodyName,onChange:()=>schedule(),onRetry:()=>schedule(true),
-  onAdjust(target,values){batchAdjustments.set(target,values);batchEntries.delete(target);schedule();}});
+  onAdjust(target,values){
+   const before=batchPending?[]:currentBatch(),fields=changedFields(batchAdjustments.get(target),values);
+   batchAdjustments.set(target,values);batchEntries.delete(target);schedule(false,null,fields,before);
+  }});
  const batchAvailable=()=>!editing&&targetCount>1&&$('style').value==='walls'&&$('mode').value==='auto';
  const batching=()=>batchAvailable()&&batchPanel.selected.size>0;
- const currentBatch=()=>[...batchEntries.values()].filter(entry=>entry.result&&batchPanel.selected.has(entry.input.target));
+ const currentBatch=()=>[...batchPanel.selected].map(target=>batchEntries.get(target)).filter(entry=>entry?.result);
  const batchExportCount=()=>currentBatch().filter(supportPreviewExportable).length;
  const overridesFor=target=>faceOverrides.get(target)||[];
- let gapBaseline=null;
- const gapComparison=createSupportGapComparison({anchor:previewHint,scene,onRestore:value=>{
+ let changeBaseline=null;
+ const supportComparison=createSupportGapComparison({anchor:previewHint,scene,onRestore:value=>{
   $('sideGap').value=value;resetStructure();schedule();
  }});
- function updateGapComparison(entries){
-  if(!gapBaseline)return;
-  if(!entries.length){gapComparison.fail();return;}
-  try{gapComparison.show(gapBaseline,entries);}
-  catch(error){gapComparison.fail();console.warn('横すき間の比較を表示できませんでした',error);}
+ function changedFields(before={},after={}){
+  return [...new Set([...Object.keys(before),...Object.keys(after)])].filter(key=>before[key]!==after[key]);
+ }
+ function updateSupportComparison(entries){
+  if(!changeBaseline)return;
+  if(!entries.length){supportComparison.fail();return;}
+  try{supportComparison.show(changeBaseline,entries);}
+  catch(error){supportComparison.fail();console.warn('変更前後の比較を表示できませんでした',error);}
  }
  const comparisonPanel=document.createElement('div');
  comparisonPanel.dataset.id='rib-reinforcement-comparison';
@@ -179,8 +186,14 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(comparison&&$('target').value===target)comparison.undoDepth=ribUndo.length;
   const placementChanged=['noSupport','wallPitch','edgeAssist','localRibs','wallBottomSkin'].some(key=>JSON.stringify(previous?.[key])!==JSON.stringify(settings[key]));
   if(placementChanged||$('target').value!==target)resetStructure();
-  faceOverrides.set(target,rows);$('target').value=target;schedule(false,comparison);if(message)notify(message);
- },onReset(target){if($('target').value===target)rememberRibEdit();faceOverrides.delete(target);resetStructure();schedule();}});
+  faceOverrides.set(target,rows);$('target').value=target;
+  schedule(false,comparison,changedFields(previous,settings));
+  if(message)notify(message);
+ },onReset(target){
+  if($('target').value===target)rememberRibEdit();
+  const fields=overridesFor(target).flatMap(Object.keys);
+  faceOverrides.delete(target);resetStructure();schedule(false,null,fields);
+ }});
  autoFaceButton.onclick=()=>coverageView.showAutoFaces();
  const faceView=createSupportFaceView({scene,host,meshes,camera});
  const ribView=createSupportRibView({host,canvas,camera,onToggle:pickRib});
@@ -210,8 +223,31 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return (batching()?currentBatch():cached?[cached]:[]).filter(supportPreviewExportable);
  }});
  function clear(){clearTrialPreview();sliceReview.reset();autoFaceButton.hidden=true;adjustmentReview.clearFocus();coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
- function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;gapComparison.clear();adjustmentReview.clear();clear();$('apply').disabled=true;return revision;}
- function close(){gapBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
+ function invalidate({preserveWorker=false}={}){
+  revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;
+  if(inflight||selectionBusy||trialBusy){
+   if(preserveWorker&&inflight&&!selectionBusy&&!trialBusy)activeRun?.supersede?.();
+   else{activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}
+  }
+  cached=null;supportComparison.clear();adjustmentReview.clear();clear();$('apply').disabled=true;
+  return revision;
+ }
+ function queuePreview(calculate){
+  timer=setTimeout(()=>{if(inflight)pendingPreview=calculate;else calculate();},450);
+ }
+ function startPreview(request){
+  const job={request,supersede:null};
+  activeRun=job;inflight=true;
+  return job;
+ }
+ function finishPreview(job,isBatch=false){
+  if(activeRun!==job)return;
+  activeRun=null;inflight=false;
+  if(isBatch&&job.request===revision)batchPending=false;
+  const next=pendingPreview;pendingPreview=null;
+  if(dialog.open){if(next)next();else controls();}
+ }
+ function close(){changeBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
  const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
  function previewOutputs(){
   const entries=batching()?currentBatch():cached?[cached]:[];
@@ -294,7 +330,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   adjustmentReview.controls(blocked||masked);
   $('auto-adjust-undo').disabled=blocked||masked||!!trialPreview;
   autoFaceButton.disabled=blocked||masked;
-  gapComparison.controls({blocked,masked});
+  supportComparison.controls({blocked,masked});
   $('target').disabled=busy||batch;
   $('apply').textContent=batch?'成功分をまとめて作成（'+currentBatch().length+'）':editing?'変更を適用':'連結リブサポートを作成';
   $('export3mf').textContent=batch?'成功分をまとめて3MF出力（'+batchExportCount()+'）':'プレビューを3MF出力（本体＋薄壁）';
@@ -586,6 +622,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function completeSpec(){return {...spec(),...Object.fromEntries(keys.map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))};}
  $('face-clear').onclick=()=>{if(busy||selectionBusy)return;selectedFaces=[];resetStructure();if(picking){faceView.clear();controls();$('error').textContent='';}else schedule();};
  const presets=installPrintSupportPresets($('style').closest('label'),{read:completeSpec,download,apply:values=>{
+  const before=spec();
   const settings={fallbackPosts:printSupportDefaults.fallbackPosts,fillGaps:printSupportDefaults.fillGaps,
    fallbackDiameter:printSupportDefaults.fallbackDiameter,...values};
   faceView.endPick();picking=false;resetStructure();
@@ -593,7 +630,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   for(const key of toggles)if(settings[key]!==undefined)$(key).checked=settings[key];
   if($('style').value!==settings.style){clearRibEdits();excludedRibs=[];excludedRibBlockers=[];}
   for(const key of ['style','baseMode','wallDirection'])$(key).value=settings[key];
-  wallOffset=settings.wallOffset||0;alignWidth();schedule();
+  wallOffset=settings.wallOffset||0;alignWidth();schedule(false,null,changedFields(before,spec()));
  }});
  function showFailureDetails(record){
   const calculation=record.calculation,stage=supportCalculationLabel(calculation),retryResult=supportRetryLabel(calculation?.retry);
@@ -717,7 +754,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function adoptSupportVariant(){
   const {input,result,target,number,kind,plan}=trialPreview,batch=batching(),repair=kind==='slice';
   const previous=batch?batchEntries.get(target):cached;
-  clearTrialPreview();gapBaseline=null;gapComparison.clear();
+  clearTrialPreview();changeBaseline=null;supportComparison.clear();
   if(batch){
    if(repair)faceOverrides.set(target,structuredClone(input.faceOverrides));
    batchEntries.set(target,{...previous,input,result,error:null,coverage:[],clearance:[],adjustment:null,
@@ -759,39 +796,49 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   for(const [target,entry] of batchEntries)if(keys.get(target)!==entry.key||retryFailed&&entry.error)batchEntries.delete(target);
   $('info').textContent='選んだボディの下面を調べています…';controls();
   const calculate=async()=>{
-   const job={};activeRun=job;inflight=true;controls();
+   const job=startPreview(request);controls();
    const current=()=>request===revision&&dialog.open&&getFeatures()===original;
+   const preceding=[];
    try{
     for(const task of tasks){
      const {input,key}=task;
      if(!current())return;
-     if(batchEntries.has(input.target))continue;
+     const dependencies=preceding.flatMap(entry=>entry.result.outputs.map(({id,brep})=>({id,brep})));
+     const saved=batchEntries.get(input.target);
+     if(saved&&saved.dependencies?.length===dependencies.length&&saved.dependencies.every((output,i)=>
+      output.id===dependencies[i].id&&output.brep===dependencies[i].brep)){
+      if(saved.result)preceding.push(saved);
+      continue;
+     }
+     batchEntries.delete(input.target);
      $('info').textContent='計算中：'+bodyName(input.target);
      let trialReport;
      try{
-      const previous=currentBatch().map(entry=>supportHistoryFeature(entry.input,entry.result));
+      const previous=preceding.map(entry=>supportHistoryFeature(entry.input,entry.result));
       const checked=validatePrintSupport(input);
       const preview=await prepareSupportPreview(checked,request,previous.length?[...history,...previous]:history,false,report=>{trialReport=report;});
       if(!current())return;
       const {result,adjustment}=preview;
       const issues=result.analysis.printSupport.ribs?.issues||[];
       if(!result.outputs.length||issues.length)throw Error(issues.join('。')||'リブを配置できませんでした');
-      batchEntries.set(input.target,{input:preview.input,key,result,adjustment,trialReport});
+      const entry={input:preview.input,key,result,adjustment,trialReport,dependencies};
+      batchEntries.set(input.target,entry);
+      preceding.push(entry);
      }catch(error){
       if(!current())return;
-      batchEntries.set(input.target,{input,key,error:error.message,coverage:error.supportCoverage||[],clearance:error.supportClearanceRegions||[],trialReport});
+      batchEntries.set(input.target,{input,key,error:error.message,coverage:error.supportCoverage||[],clearance:error.supportClearanceRegions||[],trialReport,dependencies});
      }
      controls();
     }
     const prepared=currentBatch();
     renderBatchPreview();
-    updateGapComparison(currentBatch());
+    updateSupportComparison(prepared);
     showBatchTrialReports();
     const adjusted=prepared.filter(entry=>entry.adjustment).length;
     $('auto-adjust-status').textContent=adjusted?adjusted+'ボディを自動調整しました。「複数ボディに一括配置」で変更内容を確認できます。':'';
-   }finally{if(activeRun===job){activeRun=null;inflight=false;batchPending=false;if(dialog.open)controls();}}
+   }finally{finishPreview(job,true);}
   };
-  timer=setTimeout(calculate,450);
+  queuePreview(calculate);
  }
  function showBatchTrialReports(){
   adjustmentReview.show([...batchEntries].filter(([,entry])=>entry.trialReport)
@@ -814,20 +861,24 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }
  async function runSupportPreview(input,request,requestHistory,failures){
   const current=()=>request===revision&&dialog.open&&getFeatures()===original;
+  if(!current())throw cancelledCadJob();
   const previewSpec={...input,preview:true};
   let calculation;
+  const task=kernel.startSupportPreview(requestHistory,previewSpec,{document:original,
+   onProgress:update=>{if(current()&&update.stage)$('info').textContent=supportCalculationLabel(update);},
+   onCalculation:trace=>{calculation=trace;},
+  });
+  const job=activeRun?.request===request?activeRun:null;
+  if(job)job.supersede=task.supersede;
   try{
-   const result=await kernel.run(requestHistory,previewSpec,{document:original,
-    onProgress:update=>{if(current()&&update.stage)$('info').textContent=supportCalculationLabel(update);},
-    onCalculation:trace=>{calculation=trace;},
-   });
+   const result=await task.result;
    if(current()&&calculation?.retry?.outcome==='succeeded')
     rememberFailure('preview',cadErrorAdvice(calculation.retry.message,previewSpec),input,result,{calculation,requestHistory});
    return result;
   }catch(error){
    failures.set(error,{input,calculation});
    throw error;
-  }
+  }finally{if(job?.supersede===task.supersede)job.supersede=null;}
  }
  async function prepareSupportPreview(input,request,requestHistory=history,remap=false,onReport){
   const current=()=>request===revision&&dialog.open&&getFeatures()===original;
@@ -897,25 +948,29 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(a.reusedStructure)$('info').textContent+=' リブ本体と横つなぎを再利用しました。';
   if(a.ceilingReuse)$('info').textContent+=' 下面 '+a.ceilingReuse.reused+'面分のリブと薄皮を再利用しました。';
   if(a.ceilingScopeReuse)$('info').textContent+=' 下面 '+a.ceilingScopeReuse.reused+'面の配置範囲と横すき間を再利用しました。';
+  if(a.ceilingLayoutReuse)$('info').textContent+=' 下面 '+a.ceilingLayoutReuse.reused+'面分の同じリブ配置を再利用しました。';
  }
- function schedule(retryFailed=false,comparison=null,compareGap=false){
+ function schedule(retryFailed=false,comparison=null,fields=[],beforeComparison){
   if(reinforcementComparison?.showBefore)setComparisonView(false);
   if(comparison){comparison.ghost=null;comparison.after=null;}
   reinforcementComparison=comparison;
   endRibBatch();layoutPlans=[];$('rib-plan-list').replaceChildren();materialInvalid=false;
   if(busy||picking)return;
   autoAdjustment=null;$('auto-adjust-status').textContent='';
-  if(compareGap){
-   const entries=batching()?currentBatch():cached?[cached]:[];
-   if(entries.length)gapBaseline={entries,value:entries[0].input.sideGap};
-  }else gapBaseline=null;
+  const kinds=supportComparisonKinds(fields);
+  if(kinds.length){
+   const ready=beforeComparison??(batching()?(batchPending?[]:currentBatch()):cached?[cached]:[]);
+   const entries=ready.filter(entry=>entry.input.style==='walls');
+   if(entries.length)changeBaseline={entries,kinds,value:entries[0].input.sideGap};
+   else if(changeBaseline)changeBaseline={...changeBaseline,kinds:[...new Set([...changeBaseline.kinds,...kinds])]};
+  }else changeBaseline=null;
   retry.hidden=true;
-  const request=invalidate(true);
-  if(gapBaseline)gapComparison.pending(gapBaseline);
+  const request=invalidate({preserveWorker:true});
+  if(changeBaseline)supportComparison.pending(changeBaseline);
   controls();$('error').textContent='';$('info').textContent='';
   if(batching()){scheduleBatch(request,retryFailed);return;}
   let input;
-  try{input=validatePrintSupport(spec());}catch(e){$('error').textContent=e.message;gapComparison.fail();return;}
+  try{input=validatePrintSupport(spec());}catch(e){$('error').textContent=e.message;supportComparison.fail();return;}
   const draft=fastView.show(input);
   if(draft){
    const live=meshes.get(id);
@@ -924,8 +979,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   $('info').textContent=draft?'簡易プレビュー：配置の目安です。操作が止まると精密形状を計算します。':'支えられる下面と土台を探しています…';
   exportControls('checking');
   const calculate=async()=>{
-   const job={};
-   activeRun=job;inflight=true;
+   const job=startPreview(request);
    try{
     const prepared=await prepareSupportPreview(input,request,history,true,
      report=>adjustmentReview.show([{target:input.target,report}]));
@@ -941,7 +995,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
     show(result);
     if(input.mode==='face')input.faces=selectedFaces.map(f=>structuredClone(f));
     cached={input,result};
-    updateGapComparison([cached]);
+    updateSupportComparison([cached]);
     const check=result.supportPreview?.exportStatus;
     if(check?.parts.some(part=>!part.ok))rememberFailure('preflight',Error(check.issues.map(issue=>supportExportPartName(issue,bodyName)+' ／ '+issue.message).join('。')),input,result);
     showPreviewInfo(result.analysis.printSupport);
@@ -954,16 +1008,10 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
     if(e.supportCoverage)coverageView.show(e.supportCoverage);
     $('info').textContent=e.code==='preview-manual'?'簡易表示中・精密確認待ち':'';
     $('error').textContent=e.message;
-    gapComparison.fail();
-   }finally{
-    if(activeRun===job){
-     activeRun=null;inflight=false;
-     const next=pendingPreview;pendingPreview=null;
-     if(dialog.open){if(next)next();else controls();}
-    }
-   }
+    supportComparison.fail();
+   }finally{finishPreview(job);}
   };
-  timer=setTimeout(()=>{if(inflight)pendingPreview=calculate;else calculate();},450);
+  queuePreview(calculate);
  }
  function canExportPreview(){
   const batch=batching();
@@ -1002,13 +1050,13 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    'wallBottomSkin','connectFeet','fitLineWidth'].includes(key)||(['wallLines','lineWidth'].includes(key)&&$('fitLineWidth').checked)){
    alignWidth();resetStructure();
   }
-  schedule(false,null,key==='sideGap');
+  schedule(false,null,[key]);
  });
  $('pick').onclick=()=>{if(busy||selectionBusy)return;if(picking){faceView.endPick();picking=false;schedule();return;}const items=faceView.items;ribPicking=false;ribView.setDisplay();invalidate();try{faceView.beginPick(history,$('target').value,editing?.id);faceView.show(items);picking=true;controls();$('error').textContent='対象ボディの下面をクリックで追加・解除します。Shift＋ドラッグで回転できます。';}catch(e){picking=false;controls();$('error').textContent=e.message;}};
  $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(dialog.open)return;faceView.endPick();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;});
  dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(trialPreview||sliceReview.checking)return;if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
  function open(target=null,feature=null,selection=null,restored=null,initialTargets=[]){
-  gapBaseline=null;
+  changeBaseline=null;
   autoAdjustment=null;$('auto-adjust').checked=true;$('auto-adjust-status').textContent='';
   restoredBatch=restored?.input?.batch===true?{batch:true,batchGroup:restored.input.batchGroup}:null;
   includeHidden.checked=true;

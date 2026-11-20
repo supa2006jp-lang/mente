@@ -13,6 +13,29 @@ test('a timed out worker rejects active and queued requests and restarts cleanly
  const first=client.request({spec:{type:'shell'}},15),a=assert.rejects(first,{code:'timeout'}),queued=client.run([],{type:'move'}),b=assert.rejects(queued,{code:'timeout'});await Promise.all([a,b]);assert.ok(workers[0].dead);assert.equal(client.pending.size,0);assert.equal(client.active,null);
  const next=client.run([],{type:'move'});workers[0].onmessage({data:{id:workers[1].last.id,result:{stale:true}}});assert.equal(client.pending.size,1);workers[1].onmessage({data:{id:workers[1].last.id,result:{ok:true}}});assert.deepEqual(await next,{ok:true});client.reset();
 });
+test('a superseded support preview discards its result and keeps the worker for the newest settings',async()=>{
+ const workers=[],messages=[];
+ const client=new KernelClient(()=>{
+  const worker={postMessage(message){messages.push(message);},terminate(){this.dead=true;}};
+  workers.push(worker);return worker;
+ });
+ try{
+  const settings={type:'printSupport',style:'walls',preview:true,wallPitch:10};
+  const first=client.startSupportPreview([],settings,{foreground:true});
+  const cancelled=assert.rejects(first.result,{code:'cancelled'}),firstId=client.active;
+  const obsolete=client.startSupportPreview([],{...settings,wallPitch:10.1},{foreground:true});
+  const ignored=assert.rejects(obsolete.result,{code:'cancelled'});
+  obsolete.supersede();first.supersede();
+  const latest=client.startSupportPreview([],{...settings,wallPitch:12},{foreground:true});
+  assert.deepEqual(messages.at(-1),{type:'supersedeSupportPreview',id:firstId});
+  workers[0].onmessage({data:{id:firstId,result:{outputs:[],stale:true}}});
+  await Promise.all([cancelled,ignored]);
+  assert.equal(workers.length,1);assert.equal(workers[0].dead,undefined);
+  assert.equal(messages.at(-1).spec.wallPitch,12);
+  workers[0].onmessage({data:{id:client.active,result:{outputs:[],latest:true}}});
+  assert.deepEqual(await latest.result,{outputs:[],latest:true});
+ }finally{client.reset();}
+});
 test('preview deadlines can be shortened without shortening actual model operations',async()=>{
  const client=new KernelClient(()=>({postMessage(){},terminate(){}}));
  assert.equal(kernelTimeout([],{type:'meshCombinePreview'}),5000);

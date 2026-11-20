@@ -2,6 +2,7 @@ import * as R from 'replicad';
 import {MODEL_PRECISION} from './model-precision.js';
 import {fuseSolids} from './solid-fuse.js';
 import {cachedSupportGeometry} from './print-support-cache.js';
+import {finishCadSteps} from './cad-steps.js';
 
 export function supportShapeBounds(shape){
  const box=shape.boundingBox;
@@ -42,13 +43,21 @@ function fuseSupportGroup(shapes,checks,cache){
  return shape;
 }
 
-export function fuseSupportSolids(shapes,{onProgress,cache}={}){
+export function fuseSupportSolids(shapes,options){
+ return finishCadSteps(fuseSupportSolidSteps(shapes,options));
+}
+
+export function* fuseSupportSolidSteps(shapes,{onProgress,cache}={}){
  const groups=supportSolidGroups(shapes);
  const checks={onProgress,verifyFinishedMesh:true};
+ yield;
  if(groups.length<=1)return fuseSupportGroup(shapes,checks,cache);
  const pieces=[];
  try{
-  for(const group of groups)pieces.push(fuseSupportGroup(group.map(entry=>entry.shape),checks,cache));
+  for(const group of groups){
+   pieces.push(fuseSupportGroup(group.map(entry=>entry.shape),checks,cache));
+   yield;
+  }
   return R.makeCompound(pieces).asShape3D();
  }finally{pieces.forEach(piece=>piece.delete());}
 }

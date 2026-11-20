@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {compareSupportGap} from '../src/print-support-gap-comparison.js';
+import {changedSupportCeilings,compareSupportGap,supportComparisonKinds} from '../src/print-support-gap-comparison.js';
 
 const rectangle=(width,height=6)=>({
  vertices:[0,0,20,width,0,20,width,height,20,0,height,20],
@@ -36,4 +36,24 @@ test('retriangulating an unchanged thin skin or shifting a rib slightly adds no 
  const after=entry({ribs:[rib('moved',8.01)],skin:{...skin,triangles:[0,1,3,1,2,3]},bands:[band(0,8),band(8,20)],sideGap:.55});
  const result=compareSupportGap(before,after);
  assert.deepEqual(result,{beforeCount:1,afterCount:1,removed:[],skins:[],spans:[]});
+});
+
+test('finish comparison highlights the actual ceiling, layer and window changes',()=>{
+ const a='auto:1',b='auto:2',part=(ceilingId,width)=>({...rectangle(width),ceilingId});
+ const before={coverage:[{ceilingId:a,face:rectangle(20)},{ceilingId:b,face:rectangle(20)}],
+  roof:{parts:[part(a,20),part(b,20)]},skins:[[{...part(a,20),side:'lower'}],[{...part(b,20),side:'lower'}]],
+  contact:[{...part(a,20),role:'upper'},{...part(b,20),role:'lower'}]};
+ const after=structuredClone(before);
+ after.roof.parts[0]=part(a,19);
+ after.roof.parts[1].triangles=[0,1,3,1,2,3];
+ after.skins[1][0]= {...part(b,18),side:'lower'};
+ after.contact=[{...part(a,17),role:'upper'},{...part(b,16),role:'lower'}];
+ after.windowCuts=[{ceilingId:b,axis:0,center:6,x:5,z0:3,z1:14,width:4}];
+ const changed=fields=>changedSupportCeilings(before,after,supportComparisonKinds(fields)).map(face=>face.ceilingId);
+ assert.deepEqual(changed(['roofLayers']),[a]);
+ assert.deepEqual(changed(['bottomSkinLayers']),[b]);
+ assert.deepEqual(changed(['interfaceSpacing']),[a]);
+ assert.deepEqual(changed(['bottomInterfaceSpacing']),[b]);
+ assert.deepEqual(changed(['wallWindows']),[b]);
+ assert.deepEqual(changed(['wallWindows','roofLayers']),[a,b]);
 });

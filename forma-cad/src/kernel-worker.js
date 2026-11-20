@@ -4,11 +4,33 @@ import {meshExtrusionProbe} from './extrusion-mesh-probe.js';
 import {meshCombinePreview} from './combine-mesh-preview.js';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {setOC} from 'replicad';
-import {runOperation} from './kernel.js';
+import {runOperation,runOperationSteps} from './kernel.js';
 import {PhaseTimings,withPhaseTimings,barrierTimingRequest} from './phase-timings.js';
-let ready=null,queue=Promise.resolve(),stlSession=null;
+import {cancelledCadJob} from './cad-steps.js';
+let ready=null,queue=Promise.resolve(),stlSession=null,activeSupport=null;
 function initialize(){return ready||(ready=fetch(new URL('replicad_single.wasm',self.location.href)).then(response=>{if(!response.ok)throw Error('CADエンジンを取得できませんでした');return response.arrayBuffer();}).then(wasmBinary=>init({wasmBinary})).then(setOC).catch(e=>{ready=null;throw e;}));}
-self.onmessage=({data})=>{queue=queue.then(async()=>{
+async function supportPreview(steps,job,phases){
+ let lastTurn=performance.now();
+ try{
+  while(!job.superseded){
+   const step=withPhaseTimings(phases,()=>steps.next());
+   if(step.done)return step.value;
+   if(performance.now()-lastTurn>=16){
+    await new Promise(resolve=>setTimeout(resolve,0));
+    lastTurn=performance.now();
+   }
+  }
+  throw cancelledCadJob();
+ }finally{steps.return();}
+}
+self.onmessage=({data})=>{
+ if(data.type==='supersedeSupportPreview'){
+  if(activeSupport?.id===data.id)activeSupport.superseded=true;
+  return;
+ }
+ queue=queue.then(async()=>{
+ const job=data.spec?.type==='printSupport'&&data.spec.preview===true?{id:data.id,superseded:false}:null;
+ activeSupport=job;
  let timing;
  let lastStage,lastFace;
  function progress(update){
@@ -37,10 +59,11 @@ self.onmessage=({data})=>{queue=queue.then(async()=>{
   const reportTimings=barrierTimingRequest(data.features||[],data.spec);
   const phases=new PhaseTimings(undefined,stage=>progress({stage:stage+'中…'}));
   if(reportTimings)timing=phases;
-  const result=data.spec?.type==='stepImport'?await importStepBodies(data.spec):withPhaseTimings(phases,compute);
+  const result=job?await supportPreview(runOperationSteps(data.features,data.spec,progress),job,phases):
+   data.spec?.type==='stepImport'?await importStepBodies(data.spec):withPhaseTimings(phases,compute);
   self.postMessage({id:data.id,result,...(timing?{timings:timing.report()}:{})});
  }catch(e){
   const details={};for(const key of ['code','diagnostics','featureId','featureIndex','failedOperation','supportClearanceRegions','supportCoverage','supportAdjustmentHints','referenceRepair'])if(e?.[key]!==undefined)details[key]=e[key];
   self.postMessage({id:data.id,error:typeof e==='number'?'形状計算に失敗しました。寸法や選択を変更してください。':e.message||String(e),details,...(timing?{timings:timing.report()}:{})});
- }
+ }finally{activeSupport=null;}
 });};

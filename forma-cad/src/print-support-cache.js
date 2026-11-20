@@ -9,7 +9,7 @@ export function createPrintSupportCache(maxSize,maxEntries){
   const entry=entries.get(key);
   if(entry){size-=entry.weight;entries.delete(key);}
  }
- return {
+ const cache={
   get(key){
    const entry=entries.get(key);
    if(!entry)return null;
@@ -26,6 +26,14 @@ export function createPrintSupportCache(maxSize,maxEntries){
   },
   delete:remove,
  };
+ return {...cache,scope(context){
+  const prefix=context.length+':'+context;
+  return {
+   get:key=>cache.get(prefix+key),
+   set:(key,value,weight)=>cache.set(prefix+key,value,prefix.length+weight),
+   delete:key=>cache.delete(prefix+key),
+  };
+ }};
 }
 // Cache exact geometry as an independent snapshot. Boolean operations can
 // change the topology data shared by a native clone.

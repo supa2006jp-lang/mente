@@ -41,10 +41,7 @@ function verifiedTieColumn({axis,from,to,row,width,neck,neckWidth,heights,thickn
  }finally{probe.delete();}
 }
 
-// Short horizontal bridges join neighboring fins. Narrow ends leave a place to
-// cut them after printing, while the middle restrains motion across the fins.
-export function makeWallTies(records,prism,bodies,p,onProgress,sections=[]){
- const shapes=[],levels=new Set(),intervals=new Set(),attachments=[],thickness=2*p.layerHeight,width=Math.max(1.6,Math.min(3,2*p.wallThickness)),neckWidth=Math.min(width,Math.max(.6,p.wallThickness));let skipped=0,attempts=0;
+export function supportWallTiePairs(records,p,sections=[]){
  const neighboringPairs=new Map();
  function addNeighbors(rows,accept){
   const columns=[];
@@ -64,14 +61,20 @@ export function makeWallTies(records,prism,bodies,p,onProgress,sections=[]){
   groupNeighbors(records.filter(({span:row,local})=>row&&
    (row[0]===span[0]&&row[1]===span[1]||local&&row[0]<span[1]&&row[1]>span[0])));
  }else groupNeighbors(records);
+ return [...neighboringPairs.values()].filter(([left,right])=>
+  right.center-left.center<=(left.local||right.local||p.wallOffset?1.4:1.05)*p.wallPitch);
+}
+
+// Short horizontal bridges join neighboring fins. Narrow ends leave a place to
+// cut them after printing, while the middle restrains motion across the fins.
+export function makeWallTies(records,prism,bodies,p,onProgress,sections=[],pairs=supportWallTiePairs(records,p,sections)){
+ const shapes=[],levels=new Set(),intervals=new Set(),attachments=[],thickness=2*p.layerHeight,width=Math.max(1.6,Math.min(3,2*p.wallThickness)),neckWidth=Math.min(width,Math.max(.6,p.wallThickness));let skipped=0,attempts=0;
  const models=[...bodies.values()].map(shape=>({shape,box:bounds(shape)}));
  const ribBounds=new Map(records.map(record=>[record,bounds(record.shape)]));
  onProgress?.({stage:'薄壁の横つなぎを作成しています'});
  try{
-  for(const [left,right] of neighboringPairs.values()){
+  for(const [left,right] of pairs){
    const axis=left.axis,other=1-axis;
-   const maxSpacing=(left.local||right.local||p.wallOffset?1.4:1.05)*p.wallPitch;
-   if(right.center-left.center>maxSpacing)continue;
    const a=ribBounds.get(left),b=ribBounds.get(right),lo=Math.max(a[0][other],b[0][other]),hi=Math.min(a[1][other],b[1][other]),bottom=Math.max(a[0][2],b[0][2]),top=Math.min(a[1][2],b[1][2])-Math.max(1,3*p.layerHeight);
    const interval=supportTieInterval(top-bottom,p);intervals.add(Number(interval.toFixed(6)));
    if(hi-lo<width+.2)continue;const rows=hi-lo>=3*width?[lo+(hi-lo)/3,lo+2*(hi-lo)/3]:[(lo+hi)/2],from=left.center+p.wallThickness/2-.12,to=right.center-p.wallThickness/2+.12,gap=to-from;

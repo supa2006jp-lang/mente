@@ -17,7 +17,8 @@ import {enclosureHistoryBody} from './enclosure-history-body.js';
 import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-state.js';
 import {assemblyReference,assemblyPlan} from './assembly-mate.js';
 import {inspectAssemblyClearances,inspectAssemblyContact} from './assembly-contact.js';
-import {makePrintSupport,validatePrintSupport} from './print-support.js';
+import {printSupportSteps,validatePrintSupport} from './print-support.js';
+import {finishCadSteps} from './cad-steps.js';
 import {gapRepairSpec} from './geometry-gap-repair.js';
 import {healthBudget,inspectShapeHealth,inspectOperationHealth,inspectGeometryHealth,diagnoseOutputHealth} from './geometry-health.js';
 import {historyStlFindings,traceGeometryHistory} from './geometry-history-trace.js';
@@ -319,6 +320,22 @@ function printSupportBodyMesh(shape){
  }
  return meshes;
 }
+function supportBounds(shape){
+ const box=shape.boundingBox;
+ try{return box.bounds;}finally{box.delete();}
+}
+function checkSupportsOverlap(shape,bounds,bodies,previousSupports){
+ for(const id of previousSupports){
+  const other=bodies.get(id);
+  if(!other)continue;
+  const otherBounds=supportBounds(other);
+  if([0,1,2].some(i=>Math.min(bounds[1][i],otherBounds[1][i])-Math.max(bounds[0][i],otherBounds[0][i])<=1e-6))continue;
+  const common=shape.intersect(other);
+  try{
+   if(R.measureVolume(common)>.0001)throw Error('作成済みのサポートと重なります。薄壁の向きや間隔を変えてください');
+  }finally{common.delete();}
+ }
+}
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){
  f=nativeSketchFeature(f,features);
  if(!f.untilSolid&&!thinSourceFillEnabled(f))return extrusionToolNative(f,bodies,contactInfo,features,onProgress);
@@ -475,6 +492,9 @@ function auditAssembly(features,spec,onProgress){
 }
 
 export function runOperation(features,spec,onProgress,context={}){
+ return finishCadSteps(runOperationSteps(features,spec,onProgress,context));
+}
+export function* runOperationSteps(features,spec,onProgress,context={}){
  if(spec.type==='formOutlineComparison')return compareFormSilhouette(formSilhouette(spec.mesh,spec.view),spec.outline,spec.tolerance);
  if(spec.type==='formClearance'){
   const bodies=kernelBodies(features);
@@ -514,9 +534,9 @@ export function runOperation(features,spec,onProgress,context={}){
  }
  if(spec.type==='solidBoundaryInfo'){const bodies=kernelBodies(features);try{return {bodies:[...bodies].filter(([id])=>!spec.targets||spec.targets.includes(id)).map(([id,shape])=>solidBoundaryInfo(shape,id))};}finally{for(const shape of bodies.values())shape.delete();}}
  if(spec.type==='refreshBoundaryLinks')return {features:refreshSolidBoundaryBundle(spec.features,spec.bundleId,(history,source,id)=>{const bodies=kernelBodies(history);try{const shape=bodies.get(id);return shape?modelSketchBoundaries(history,source,id,solidBoundaryInfo(shape,id)):[];}finally{for(const shape of bodies.values())shape.delete();}})};
- try{return computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
+ try{return yield* computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
 }
-function computeOperation(features,spec,onProgress,context={}){
+function* computeOperation(features,spec,onProgress,context={}){
  if(['assemblyAudit','assemblyAuditPair'].includes(spec.type))return auditAssembly(features,spec,onProgress);
  if(spec.type==='machiningValueTrial'){
   const operation=spec.operation;
@@ -655,16 +675,32 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  if(['coilJoint','enclose','shell','fillet','chamfer','move','join','split','mirror','circular','rectangular'].includes(p.type)&&!base)throw Error('対象ボディを選択してください');
  if(p.type==='printSupport'){
   if(typeof p.id!=='string'||!p.id||bodies.has(p.id))throw Error('サポートの作成先が不正です');
-  const previewSettings=p.preview===true&&p.style==='walls'&&p.batch!==true?validatePrintSupport(p):null;
+  yield;
+  const previousSupports=new Set(p.batch===true?features.filter(f=>f.spec?.type==='printSupport').flatMap(f=>f.outputs.map(o=>o.id)):[]);
+  previousSupports.delete(p.target);
+  const supportBodies=previousSupports.size?new Map([...bodies].filter(([id])=>!previousSupports.has(id))):bodies;
+  const previewSettings=p.preview===true&&p.style==='walls'?validatePrintSupport(p):null;
   // A disabled or absent contact layer cannot change this checked geometry.
   const previewKey=previewSettings?JSON.stringify([
-   [...bodies].map(([id,shape])=>[id,bodyTokens.get(shape)]),
+   [...supportBodies].map(([id,shape])=>[id,bodyTokens.get(shape)]),
    printSupportPreviewOptions(previewSettings),
   ]):null;
+  const neighbors=p.batch===true?JSON.stringify([...previousSupports].filter(id=>bodies.has(id))
+   .map(id=>[id,bodyTokens.get(bodies.get(id))])):null;
   const cachedPreview=previewKey&&printSupportPreviewCache.get(previewKey);
   if(cachedPreview){
+   const result=structuredClone(cachedPreview.result);
+   if(neighbors!==cachedPreview.neighbors&&result.outputs[0]){
+    const shape=R.deserializeShape(result.outputs[0].brep).asShape3D();
+    try{
+     checkSupportsOverlap(shape,supportBounds(shape),bodies,previousSupports);
+     const report=inspectOperationHealth(shape,{id:p.id,bodies,spec:p});
+     if(!report.valid)throw invalidResultError(report);
+     result.analysis.geometryHealth={version:MODEL_PRECISION.version,rows:[report]};
+    }finally{shape.delete();}
+   }
    onProgress?.({stage:'検査済みのリブプレビューを再利用しています'});
-   const result=structuredClone(cachedPreview),contact=result.analysis.printSupport.contactInterface;
+   const contact=result.analysis.printSupport.contactInterface;
    contact.spacing=previewSettings.interfaceSpacing;
    if(contact.settings){
     contact.width=previewSettings.interfaceLineWidth;
@@ -672,24 +708,13 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    }
    return result;
   }
-  const previousSupports=new Set(p.batch===true?features.filter(f=>f.spec?.type==='printSupport').flatMap(f=>f.outputs.map(o=>o.id)):[]);
-  previousSupports.delete(p.target);
-  const supportBodies=previousSupports.size?new Map([...bodies].filter(([id])=>!previousSupports.has(id))):bodies;
-  const made=makePrintSupport(supportBodies,p,onProgress,{bodyKey:shape=>bodyTokens.get(shape)});
+  const made=yield* printSupportSteps(supportBodies,p,onProgress,{bodyKey:shape=>bodyTokens.get(shape)});
   try{
-   if(made.shape&&previousSupports.size){
-    const shapeBounds=shape=>{const box=shape.boundingBox;try{return box.bounds;}finally{box.delete();}};
-    const a=shapeBounds(made.shape);
-    for(const id of previousSupports){
-     const other=bodies.get(id);if(!other)continue;
-     const b=shapeBounds(other);
-     if([0,1,2].some(i=>Math.min(a[1][i],b[1][i])-Math.max(a[0][i],b[0][i])<=1e-6))continue;
-     const common=made.shape.intersect(other);
-     try{if(R.measureVolume(common)>.0001)throw Error('作成済みのサポートと重なります。薄壁の向きや間隔を変えてください');}finally{common.delete();}
-    }
-   }
+   yield;
+   if(made.shape&&previousSupports.size)checkSupportsOverlap(made.shape,supportBounds(made.shape),bodies,previousSupports);
    let supportMesh;
    if(made.shape){onProgress?.({stage:'サポートの表示・保存用データを作成しています'});supportMesh=emit(p.id,made.shape);onProgress?.({stage:'3MF出力用の形状を検査しています'});}analysis={...analysis,printSupport:made.analysis,supportLinks:p.lockToModel===false?[]:[{id:p.id+'-model-link',bodies:[...new Set([p.target,...made.analysis.baseBodyIds,p.id])],mode:'support'}]};
+   yield;
    const blockers=p.preview||p.batch===true||p.saveSupportExport===true
     ?made.blockers?.map(shape=>{const {vertices,triangles}=printSupportExportMesh(shape);return {vertices,triangles};})||[]:[];
    const autoSupportFaces=made.autoSupportFaces||[];
@@ -704,10 +729,21 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     blockers,...(autoSupportFaces.length?{autoSupportFaces}:{})}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
    if(analysis.supportExport)analysis.supportExport.complete=exportStatus.ok;
-   const result={outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...targetMesh},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview,skins:made.skinPreview}:{}),...(made.columnPreview?.length?{columns:made.columnPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),...(made.printRegions?{printRegions:made.printRegions}:{}),...(made.adjustmentHints?.length?{adjustmentHints:made.adjustmentHints}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};
+   const supportPreview={body:{id:p.target,...targetMesh},exportStatus,
+    ...(made.contactPreview?{contact:made.contactPreview}:{}),
+    ...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),
+    ...(made.roofPreview?{roof:made.roofPreview}:{}),
+    ...(made.ribPreview?{ribs:made.ribPreview,skins:made.skinPreview}:{}),
+    ...(made.windowCuts?.length?{windowCuts:made.windowCuts}:{}),
+    ...(made.columnPreview?.length?{columns:made.columnPreview}:{}),
+    ...(made.coverage?{coverage:made.coverage}:{}),
+    ...(made.printRegions?{printRegions:made.printRegions}:{}),
+    ...(made.adjustmentHints?.length?{adjustmentHints:made.adjustmentHints}:{}),
+   };
+   const result={outputs,remove,analysis,supportPreview,...(supportPackage?{supportPackage}:{})};
    if(previewKey&&exportStatus.ok){
-    const size=JSON.stringify(result).length;
-    if(size<=8_000_000)printSupportPreviewCache.set(previewKey,structuredClone(result),size);
+    const size=JSON.stringify(result).length+(neighbors?.length||0);
+    if(size<=8_000_000)printSupportPreviewCache.set(previewKey,{result:structuredClone(result),neighbors},size);
    }
    return result;
   }finally{made.shape?.delete();made.blockers?.forEach(s=>s.delete());}

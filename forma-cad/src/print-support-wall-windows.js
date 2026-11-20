@@ -18,6 +18,7 @@ function prism(points,axis,center,thickness){
 // open onto an existing edge/hole or remove a landing on a non-flat base.
 export function makeWallWindows(shape,records,ties,p,onProgress,protectedShapes=[]){
  const originalVolume=R.measureVolume(shape),tools=[],tieBoxes=ties.map(bounds),protectedBoxes=protectedShapes.map(bounds),wallBoxes=records.map(record=>({record,box:bounds(record.shape)}));let skipped=0,attempts=0,limited=false,result=null;
+ const cuts=[];
  try{
   scan: for(const record of records){
    const {axis,center}=record,other=1-axis,b=bounds(record.shape),margin=Math.max(2,2*p.wallThickness),band=Math.max(3,4*p.layerHeight),localTies=tieBoxes.filter(t=>t[0][axis]<=center+p.wallThickness/2+.001&&t[1][axis]>=center-p.wallThickness/2-.001);
@@ -38,6 +39,7 @@ export function makeWallWindows(shape,records,ties,p,onProgress,protectedShapes=
       tool=prism([[x,z0],[x+width/2,z],[x,z1],[x-width/2,z]],axis,center,p.wallThickness+.2);
       const box=bounds(tool);if(tieBoxes.some(b=>overlaps(box,b))||protectedBoxes.some(b=>overlaps(box,b))||wallBoxes.some(item=>item.record!==record&&overlaps(box,item.box))){skipped++;continue;}
       tools.push(tool);tool=null;
+      if(p.preview&&record.supportFace?.ceilingId)cuts.push({ceilingId:record.supportFace.ceilingId,axis,center,x,z0,z1,width});
      }finally{tool?.delete();common?.delete();guard?.delete();}
     }
    }
@@ -47,6 +49,6 @@ export function makeWallWindows(shape,records,ties,p,onProgress,protectedShapes=
    if(solidCount(result)!==solidCount(shape))throw supportAdjustmentError('窓抜きでリブが分断されるため中止しました。窓抜きをオフにしてください',{kind:'window-split'});
   }else result=shape.clone();
   const removedVolume=Math.max(0,originalVolume-R.measureVolume(result)),analysis={enabled:true,count:tools.length,skipped,limited,originalVolume,removedVolume,savedPercent:originalVolume?100*removedVolume/originalVolume:0};
-  const answer=result;result=null;return {shape:answer,analysis};
+  const answer=result;result=null;return {shape:answer,analysis,cuts};
  }finally{result?.delete();tools.forEach(s=>s.delete());}
 }

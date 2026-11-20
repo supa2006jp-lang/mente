@@ -6,6 +6,7 @@ import {supportAdjustmentError} from './print-support-adjustments.js';
 import {supportBoxesTouch,supportSolidGroups} from './print-support-solid-groups.js';
 import {MODEL_PRECISION} from './model-precision.js';
 import {cachedSupportGeometry} from './print-support-cache.js';
+import {finishCadSteps} from './cad-steps.js';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 const displayMesh=shape=>shape.mesh({tolerance:.08,angularTolerance:.15});
 function validContactResult(shape,count){
@@ -99,12 +100,17 @@ function makeGrooveMask(shape,spans,{role,axis,z,top,b,settings,rimWidth,cache,s
 
 // One layer of grooves replaces a solid contact face with parallel landing
 // lines. Bottom grooves start on the model, not in air. Bed feet stay solid.
-export function supportContactLines(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false,cache,meshCache}={}){
+export function supportContactLines(original,regions,p,onProgress,options){
+ return finishCadSteps(supportContactSteps(original,regions,p,onProgress,options));
+}
+
+export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false,cache,meshCache}={}){
  const masks=[],landings=[],preview=[],ribPreview=[],groups=[],skipped=new Set();let result=null,local=null;const analysis={enabled:true,width:p.interfaceLineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
  try{
   for(const {shape,role,axis,supportFace}of regions){
    const settings=contactRoleSettings(p,role);if(!settings.enabled)continue;const b=bounds(shape),other=1-axis;if(role==='lower'&&b[0][2]<=p.bedZ+1e-6){analysis.bedPreserved++;continue;}const low=b[0][other],high=b[1][other],pitch=settings.width+settings.spacing;
    onProgress?.({stage:(role==='upper'?'上面':'底面')+'に線状の接触層を作成しています',supportFace});
+   yield;
    const z=role==='upper'?Math.max(b[0][2],b[1][2]-p.layerHeight):b[0][2],top=role==='upper'?b[1][2]:Math.min(b[1][2],z+p.layerHeight),start=masks.length,slots=analysis.slots,cutCount=analysis[role],relief=analysis.bottomEndRelief?.count??0;
    let offset=0;
    try{
@@ -137,6 +143,7 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
    }
   }
   onProgress?.({stage:'接触層をサポート全体に反映しています'});
+  yield;
   const count=parts(original);
   const maskBounds=new Map(masks.map(mask=>[mask,bounds(mask)]));
   function applySequentially(source,tools){
@@ -156,13 +163,14 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
    if(reused)onProgress?.({stage:'接触層を反映済みのリブを再利用しています'});
    return shape;
   }
-  function applyIndependentMasks(source,tools){
+  function* applyIndependentMasks(source,tools){
    const solids=source.solids;
    const pieces=[];
    try{
     const independent=supportSolidGroups(solids);
     if(independent.length<=1)return null;
     for(const group of independent){
+     yield;
      const part=group.length===1?group[0].shape.clone():R.makeCompound(group.map(entry=>entry.shape)).asShape3D();
      try{
       const relevant=tools.filter(mask=>group.some(entry=>supportBoxesTouch(entry.box,maskBounds.get(mask))));
@@ -180,17 +188,17 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
     solids.forEach(solid=>solid.delete());
    }
   }
-  function applyMasks(source,tools){
-   return tools.length?(applyIndependentMasks(source,tools)??applySequentially(source,tools)):source.clone();
+  function* applyMasks(source,tools){
+   return tools.length?((yield* applyIndependentMasks(source,tools))??applySequentially(source,tools)):source.clone();
   }
   let activeMasks=masks;
-  result=applyMasks(original,masks);
+  result=yield* applyMasks(original,masks);
   if(allowPartial?!validContactResult(result,count):parts(result)!==count){
    if(!allowPartial)throw supportAdjustmentError('接触層でサポートが分断されます。薄皮を2層以上にするか、線の隙間を狭くしてください',
     {kind:'contact-split',roles:[...new Set(groups.map(group=>group.role))]});
    result.delete();result=original.clone();activeMasks=[];
    for(const group of groups){
-    const next=applyMasks(result,group.masks);
+    const next=yield* applyMasks(result,group.masks);
     if(validContactResult(next,count)){result.delete();result=next;activeMasks.push(...group.masks);continue;}
     next.delete();skipped.add(group.shape);analysis.slots-=group.slots;analysis[group.role]-=group.cut;
     if(group.relief)analysis.bottomEndRelief.count-=group.relief;
@@ -200,9 +208,27 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
   const grooveOffsets=groups.filter(group=>group.cut&&group.offset&&!skipped.has(group.shape)).map(({role,offset})=>({role,offset}));
   if(grooveOffsets.length)analysis.grooveOffsets=grooveOffsets;
   for(const {shape,b,z,top,width}of landings){if(skipped.has(shape))continue;const box=R.makeBox([b[0][0],b[0][1],z],[b[1][0],b[1][1],top]);let layer,remaining;try{layer=shape.intersect(box);remaining=result.intersect(layer);if(volume(remaining)<p.lineWidth*width*(top-z))throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');}finally{remaining?.delete();layer?.delete();box.delete();}}
-  if(p.preview)local=supportLocalPreview(original,activeMasks);analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};if(p.preview)for(const {shape,role,axis}of regions){if(skipped.has(shape)||!contactRoleSettings(p,role).enabled)continue;const b=bounds(shape);if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;const a=[...b[0]],c=[...b[1]];if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);else c[2]=Math.min(c[2],a[2]+p.layerHeight);const box=R.makeBox(a,c);let mask,display;try{mask=shape.intersect(box);display=local.clip(mask);if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,bounds:bounds(display),...displayMesh(display)});}finally{display?.delete();mask?.delete();box.delete();}}
+  analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};
+  if(p.preview){
+   local=supportLocalPreview(original,activeMasks);
+   for(const {shape,role,axis,supportFace} of regions){
+    if(skipped.has(shape)||!contactRoleSettings(p,role).enabled)continue;
+    const b=bounds(shape);
+    if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;
+    const a=[...b[0]],c=[...b[1]];
+    if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);
+    else c[2]=Math.min(c[2],a[2]+p.layerHeight);
+    const box=R.makeBox(a,c);let mask,display;
+    try{
+     mask=shape.intersect(box);display=local.clip(mask);
+     if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,ceilingId:supportFace?.ceilingId,
+      bounds:bounds(display),...displayMesh(display)});
+    }finally{display?.delete();mask?.delete();box.delete();}
+   }
+  }
   if(p.preview)for(const [index,record]of ribRecords.entries()){
    onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）',supportFace:record.supportFace});
+   yield;
    ribPreview.push({id:record.id,...local.mesh(record.shape,{contained:ribsAreContained,cache:meshCache,meshShape:displayMesh})});
   }
   analysis.removedVolume=Math.max(0,volume(original)-volume(result));const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:"flat"})):[];const shape=result;result=null;return {shape,analysis,preview,ribPreview,flatSkinPreview};
