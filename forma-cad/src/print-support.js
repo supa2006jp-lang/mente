@@ -56,6 +56,7 @@ export function validatePrintSupport(input){
  if(!['auto','face'].includes(p.mode))throw Error('サポートの配置方法を選択してください');
  if(p.mode==='face')p.faces=validateSupportFaces(p.faces,p.target);
  if(input.skipSmallExterior!==undefined&&typeof input.skipSmallExterior!=='boolean')throw Error('外側の小片を省く設定が不正です');
+ if(input.skipSmallBores!==undefined&&typeof input.skipSmallBores!=='boolean')throw Error('小さな丸穴を省く設定が不正です');
  if(p.style==='walls'&&p.faceOverrides!==undefined)p.faceOverrides=validateSupportFaceOverrides(p.faceOverrides,p.target,p.wallThickness);
  for(const key of ['connectFeet','braces','lockToModel'])if(typeof p[key]!=='boolean')throw Error('サポートの設定が不正です');
  return p;

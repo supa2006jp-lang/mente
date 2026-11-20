@@ -22,6 +22,8 @@ import {supportBaseSurfaces} from './print-support-base.js';
 import {supportFallbackColumns} from './print-support-column-fallback.js';
 import {widerSupportRib} from './print-support-local-rib.js';
 import {fillSupportGaps} from './print-support-gap-fill.js';
+import {fuseSupportSolids,supportBoxesTouch} from './print-support-solid-groups.js';
+import {smallSupportBoreFloor,supportHoleBounds,tinyRibAtSupportHole} from './print-support-bores.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
 const bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}};
 function previewSkin(shape,axis,side,records){
@@ -61,7 +63,14 @@ function inset(face,distance){
   const outer=hold(face.clone().outerWire()),inner=face.clone().innerWires();inner.forEach(hold);const out=hold(offset(outer,true)),holes=inner.map(w=>hold(offset(w,false,.5))),profile=hold(R.makeFace(out.clone()));return holes.length?R.addHolesInFace(profile,holes):profile.clone();
  }finally{owned.forEach(s=>s.delete());}
 }
-function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress,getBases}){
+function omitSmallBore(face,box,model){
+ try{return smallSupportBoreFloor(face,box,model);}
+ catch(error){
+  if(error instanceof WebAssembly.RuntimeError)throw error;
+  return false;
+ }
+}
+function prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress,getBases}){
  const item=p.preview||p.fillGaps?supportCoverageFace(face,p.target,p,override):null;
  if(item){
   item.ceilingId=ceilingId;
@@ -78,6 +87,18 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
  const onProgress=update=>progress?.({...update,supportFace});
  let complete=false;
  try{
+  const suppressBores=p.mode==='auto'&&p.skipSmallBores&&!override;
+  if(suppressBores&&omitSmallBore(face,b,model)){
+   if(p.preview||p.saveSupportExport||p.batch===true){
+    const shifted=hold(face.clone().translate([0,0,p.layerHeight]));
+    const direction=new R.Vector([0,0,-(p.topGap+2*p.layerHeight)]);
+    try{manualBlockers.push(hold(R.basicFaceExtrusion(shifted,direction)));}finally{direction.delete();}
+   }
+   part.omittedBore=true;
+   if(coverage){coverage.item.suppressed=true;coverage.item.suppressedReason='bore';}
+   complete=true;
+   return part;
+  }
   if(skipSmallExterior&&!p.noSupport?.length&&!p.edgeAssist&&!p.localRibs?.length&&isSmallExteriorLip(face,b,model,modelBounds,z,item?.face)){
    part.blocker=hold(scopedBlocker(face,p,z,[]));
    part.omittedExterior=true;
@@ -107,7 +128,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
     else {manualBlockers.push(blocked);scope=hold(scope.cut(tool));}
    }
   }
-  const cutouts=[];
+  const cutouts=[],holes=suppressBores?supportHoleBounds(face):[];
   let initialFailure=null,skipGapFill=false;
   for(let attempt=0;attempt<4;attempt++){
    const ownedBeforeFace=owned.length;
@@ -187,7 +208,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
    part.minRibs=Math.max(part.minRibs,stripes.length);
    if(stripes.length>limits.ribs)throw supportAdjustmentError('薄壁の本数が多すぎます。壁の間隔を広げるか対象面を絞ってください',
     {kind:'rib-limit',total:96-limits.ribs+stripes.length});
-   let faceOmittedPieces=0;
+   let faceOmittedPieces=0,omittedHoleFragments=0;
    const localPlaced=new Set(),widthsApplied=new Set();
    for(const layout of stripes){
     const {center,band,foot,rib,span}=layout;
@@ -198,10 +219,11 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
     if(R.measureVolume(wall)<.001)continue;
     if(protectWidth){wall=sideGap.trimRib(wall,axis,hold);if(!wall||R.measureVolume(wall)<.001)continue;}
     if(p.connectFeet&&!p.wallBottomSkin&&!rib){const fa=[...a],fb=[...b];[fa[axis],fb[axis]]=foot;fa[2]=p.bedZ;fb[2]=p.bedZ+p.footThickness;const footBox=hold(R.makeBox(fa,fb)),base=hold(prism.intersect(footBox));if(R.measureVolume(base)>.001)wall=hold(wall.fuse(base));}
-    if(p.baseMode==='bed'){let blocked=false;for(const model of bodies.values()){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){blocked=true;break;}}if(blocked){blockedRibs++;continue;}}
+    const wallBox=bounds(wall),nearby=[...bodies].filter(([id])=>supportBoxesTouch(wallBox,bodyBounds.get(id)));
+    if(p.baseMode==='bed'){let blocked=false;for(const [,model] of nearby){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){blocked=true;break;}}if(blocked){blockedRibs++;continue;}}
     else{
      const bases=[];
-     for(const [id,model]of bodies){
+     for(const [id,model]of nearby){
       const common=hold(wall.intersect(model));
       if(R.measureVolume(common)>.0001){
        if(skipSmallExterior||zoneTools.length)bases.push(id);else faceBases.add(id);
@@ -230,6 +252,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
      {kind:'rib-limit',total:96-limits.ribs+faceCandidates.length+pieces.length});
     if(whole)excludedCells.push({low,high,autoBlocked:p.excludedRibBlockers.includes(ribId),blockHeight:z});
     for(const [part,piece] of pieces.entries()){
+     if(holes.length&&tinyRibAtSupportHole(piece.bounds,holes,p)){omittedHoleFragments++;continue;}
      const partId=pieces.length===1?ribId:ribId+'#'+JSON.stringify(piece.bounds.flat().map(n=>Number(n.toFixed(6))))+':'+part;
      const exclusionId=whole?ribId:partId,excluded=whole||p.excludedRibs.includes(partId);
      const widthSetting=!excluded&&p.ribWidths?.find(row=>row.id===partId);
@@ -362,7 +385,7 @@ function prepareWallCeiling(face,p,{b,z,bodies,model,modelBounds,skipSmallExteri
     ...(bottom?.shapes||[]).flatMap(s=>previewSkin(s,axis,'lower',records)),
     ...(roof?previewSkin(roof,axis,'upper',records):[]),
    ].map(skin=>({...skin,ceilingId,layers:skin.side==='upper'?p.roofLayers:p.bottomSkinLayers}));
-   Object.assign(part,{candidateRibs:faceCandidates,wallRecords:records,omittedRibPieces:faceOmittedPieces,blockedRibs,
+   Object.assign(part,{candidateRibs:faceCandidates,wallRecords:records,omittedRibPieces:faceOmittedPieces,omittedHoleFragments,blockedRibs,
     baseBodyIds:[...faceBases],aligned:anchorLow||anchorHigh||sections.length>0,sections:sections.length});
    excludedScope.push(...excludedCells,...cutouts);
    let ceilingScope=null;
@@ -442,8 +465,9 @@ function prepareWallSupports(bodies,p,onProgress,cache){
  const contactRegions=[],bottomSeams={enabled:!!p.bottomSeams,count:0,skipped:0,sections:0,spacing:p.bottomSectionLength,width:p.bottomSeamWidth};
  const tieIntervals=new Set(),tieAttachments=[],bottomSkins=[],bottomHeights=[],skippedCeilings=[],skippedScopes=[],clearanceRegions=[];
  const model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
+ const bodyBounds=new Map([...bodies].map(([id,body])=>[id,bounds(body)]));
  const skipSmallExterior=p.mode==='auto'&&p.skipSmallExterior===true;
- const modelBounds=skipSmallExterior||p.sideGap?bounds(model):null;
+ const modelBounds=skipSmallExterior||p.sideGap?bodyBounds.get(p.target):null;
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces;
  const owned=[],hold=shape=>(owned.push(shape),shape);
  const wallRecords=[],candidateRibs=[],ribIssues=[],excludedScope=[],ties=[],roofs=[],roofTabs=[],roofPreview=[],roofPlacements=[],roofMatched=[];
@@ -451,7 +475,7 @@ function prepareWallSupports(bodies,p,onProgress,cache){
  const columns=[],columnBlockers=[];
  let shape,sideGap,selectedFacePreview,firstSkinFailure,columnBases;
  let omitted=0,faceCount=0,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0;
- let omittedExterior=0,omittedRibPieces=0,nonHorizontalFaces=0,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
+ let omittedExterior=0,omittedRibPieces=0,omittedBoreFaces=0,omittedHoleFragments=0,nonHorizontalFaces=0,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
  let reusedCeilings=0,rebuiltCeilings=0,faceNumber=0;
  const gapFill={ribs:0,columns:0,faces:0};
  const getBases=()=>p.baseMode==='bedOrModel'?(columnBases??=supportBaseSurfaces(bodies)):null;
@@ -513,7 +537,7 @@ function prepareWallSupports(bodies,p,onProgress,cache){
      if(p.roofTabs)for(const axis of [0,1]){scope[0][axis]-=p.roofTabLength;scope[1][axis]+=p.roofTabLength;}
      sideGap=createSupportSideGap(bodies,scope,p.sideGap);
     }
-    part=prepareWallCeiling(face,settings,{b,z,bodies,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress:onProgress,getBases});
+    part=prepareWallCeiling(face,settings,{b,z,bodies,bodyBounds,model,modelBounds,skipSmallExterior,sideGap,limits,override,ceilingId,supportFace,progress:onProgress,getBases});
    }
    // Blockers are owned separately because trimming replaces their shapes.
    const ownBlockers=new Set([part.blocker,...part.manualBlockers]);
@@ -532,7 +556,7 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    for(const column of part.fillColumns)columns.push({...column,ceilingId,ceilingNumber:supportFace.number,id:'column-'+(columns.length+1)});
    if(part.gapFill){gapFill.ribs+=part.gapFill.ribs;gapFill.columns+=part.gapFill.columns;gapFill.faces++;}
    let addedColumns=[];
-   if(p.fallbackPosts&&columns.length<p.maxSupports&&!part.candidateRibs.length&&!part.omittedExterior&&!part.skippedCeiling){
+   if(p.fallbackPosts&&columns.length<p.maxSupports&&!part.candidateRibs.length&&!part.omittedExterior&&!part.omittedBore&&!part.skippedCeiling){
     addedColumns=supportFallbackColumns({face,faceBounds:b,height:z,bodies,bases:getBases(),settings,
      limit:p.maxSupports-columns.length,onProgress:update=>onProgress?.({...update,supportFace})});
     addedColumns.forEach(({shape,blocker})=>{hold(shape);columnBlockers.push(blocker);});
@@ -559,6 +583,8 @@ function prepareWallSupports(bodies,p,onProgress,cache){
    firstSkinFailure??=part.skinFailure;
    sideGapLimited||=part.sideGapLimited;
    if(part.omittedExterior)omittedExterior++;
+   if(part.omittedBore)omittedBoreFaces++;
+   omittedHoleFragments+=part.omittedHoleFragments||0;
    if(part.aligned)alignedCeilings++;
    sectionCount+=part.sections||0;
    if(!addedColumns.length)omitted+=part.blockedRibs||0;
@@ -634,7 +660,7 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   if(p.mode==='auto'&&usedOverrides.size!==(p.faceOverrides?.length||0))throw Error('個別設定の下面が見つかりません。設定する下面を選び直してください');
   if(faceNumber===1)for(const hint of adjustmentHints)if(hint.selection)hint.onlyCeiling=true;
   if(!candidateRibs.length&&!columns.length){
-   const error=firstSkinFailure||Error(sideGapLimited?(p.keepRibThickness?'指定した厚みと':'')+'側壁との横すき間を確保できる場所がありません。すき間を小さくするか、対象面を選び直してください':omittedExterior?'外側の細い張り出しを省きました。支える場合は対象面を選ぶか、外側の小片を省く設定を外してください':'薄壁を置ける水平な下面がありません。土台と高さを確認してください');
+   const error=firstSkinFailure||Error(sideGapLimited?(p.keepRibThickness?'指定した厚みと':'')+'側壁との横すき間を確保できる場所がありません。すき間を小さくするか、対象面を選び直してください':omittedExterior?'外側の細い張り出しを省きました。支える場合は対象面を選ぶか、外側の小片を省く設定を外してください':omittedBoreFaces?'小さな丸穴の底・段差を自動配置で省きました。支える場合は下面を選んでください。':'薄壁を置ける水平な下面がありません。土台と高さを確認してください');
    if(firstSkinFailure)error.supportClearanceRegions=clearanceRegions;
    if(coverage.length)error.supportCoverage=coverage;
    if(sideGapLimited)adjustmentHints.push({kind:'no-width'});
@@ -647,9 +673,9 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   const missingPlacements=(faceNumber?upperEnabled:p.wallRoof)&&p.roofTabs?(p.roofTabPlacements||[]).filter(v=>!roofMatched.includes(v.sectionId)).map(v=>v.sectionId):[];roofManualInvalid+=missingPlacements.length;
   if(roofManualInvalid&&!p.preview)throw Error('指定した位置にタブを作成できません。プレビューで位置を選び直すか自動配置に戻してください');
   onProgress?.({stage:'各下面のリブと薄皮を結合しています'});
-  if(walls.length)shape=fuseSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin||bottomSkins.length)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
+  if(walls.length)shape=fuseSupportSolids([...walls,...ties,...roofs,...roofTabs,...bottomSkins],{onProgress,verifyMesh:!!(p.edgeRibs||p.wallBottomSkin||bottomSkins.length)});if(shape&&p.wallWindows){const cut=makeWallWindows(shape,wallRecords,ties,p,onProgress,[...roofs,...roofTabs,...bottomSkins]);shape.delete();shape=cut.shape;windows=cut.analysis;}
   if(columns.length){
-   const mixed=fuseSolids([...(shape?[shape]:[]),...columns.map(column=>column.shape)],{onProgress,verifyMesh:true});
+   const mixed=fuseSupportSolids([...(shape?[shape]:[]),...columns.map(column=>column.shape)],{onProgress,verifyMesh:true});
    shape?.delete();shape=mixed;
   }
   for(const candidate of candidateRibs)if(!candidate.excluded){const b=candidate.bounds;candidate.risk=supportRibRisk({height:b[1][2]-b[0][2],thickness:candidate.thickness??p.wallThickness,bottom:b[0][2],top:b[1][2],levels:tieAttachments.filter(a=>a.ribs.includes(candidate.id)).map(a=>a.z)});}
@@ -666,6 +692,8 @@ function prepareWallSupports(bodies,p,onProgress,cache){
   if(reusedCeilings)analysis.ceilingReuse={reused:reusedCeilings,rebuilt:rebuiltCeilings};
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
   if(omittedExterior||omittedRibPieces)analysis.omittedExterior={faces:omittedExterior,ribPieces:omittedRibPieces};
+  if(omittedBoreFaces)analysis.omittedBoreFaces=omittedBoreFaces;
+  if(omittedHoleFragments)analysis.omittedHoleFragments=omittedHoleFragments;
   if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;
   analysis.bottomSkin={enabled:faceNumber?lowerEnabled:!!p.wallBottomSkin,...(lowerPerFace?{perFace:true}:{}),count:bottomSkins.length,layers:p.bottomSkinLayers,thickness:p.bottomSkinLayers*p.layerHeight,heights:[...new Set(bottomHeights)].sort((a,b)=>a-b),contactGap:0,...(p.bottomSeams?{seams:bottomSeams}:{})};analysis.wallTies.auto=!!p.autoReinforce;analysis.wallTies.intervals=[...tieIntervals].sort((a,b)=>a-b);analysis.strength={heuristic:true,ribs:candidateRibs.filter(r=>!r.excluded).map(({id,number,risk})=>({id,number,...risk})),skippedTies};
   analysis.roof={enabled:faceNumber?upperEnabled:!!p.wallRoof,...(upperPerFace?{perFace:true}:{}),count:roofs.length,layers:p.roofLayers??2,thickness:(p.roofLayers??2)*p.layerHeight};if(analysis.roof.enabled&&p.roofSeams)analysis.roof.seams={enabled:true,count:roofCuts,skipped:roofSkippedCuts,sections:roofSections,spacing:p.roofSectionLength,width:p.roofSeamWidth};if(analysis.roof.enabled&&p.roofTabs)analysis.roof.tabs={enabled:true,count:roofTabs.length,skipped:roofSkippedTabs,length:p.roofTabLength,width:4,...((p.roofTabPlacements||[]).length?{manualInvalid:roofManualInvalid}:{})};if(roofManualInvalid)analysis.complete=false;analysis.windows=windows;analysis.printSettings=supportPrintSettings(p);analysis.ribs={total:candidateRibs.length,excluded:candidateRibs.filter(r=>r.excluded).length,direction:p.wallDirection,edgeAligned:!!p.edgeRibs,issues:[...new Set(ribIssues)],missing:missingRibs};analysis.selection={mode:p.mode,count:selection?.faces.length||0};const result={shape,analysis,blockers,coverage,autoSupportFaces,selectedFaces:selectedFacePreview,
@@ -807,7 +835,9 @@ export function makeWallSupports(bodies,p,onProgress,{bodyKey}={}){
    onProgress?.({stage:'サポート全体と本体の干渉を確認しています'});
    const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
    try{if(!check.IsValid())throw Error('正常な薄壁サポートを作成できませんでした');}finally{check.delete();}
+   const supportBox=bounds(shape);
    for(const model of bodies.values()){
+    if(!supportBoxesTouch(supportBox,bounds(model)))continue;
     const common=shape.intersect(model);
     try{if(R.measureVolume(common)>.0001)throw Error('薄壁が本体に入り込むため作成を中止しました');}
     finally{common.delete();}

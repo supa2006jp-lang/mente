@@ -3,6 +3,7 @@ import {contactRoleSettings} from './print-support-contact-settings.js';
 import {bottomContactInsetMask,upperContactRimMask} from './print-support-contact-inset.js';
 import * as R from 'replicad';
 import {supportAdjustmentError} from './print-support-adjustments.js';
+import {supportBoxesTouch,supportSolidGroups} from './print-support-solid-groups.js';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 const displayMesh=shape=>shape.mesh({tolerance:.08,angularTolerance:.15});
 function validContactResult(shape,count){
@@ -37,7 +38,8 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
   }
   onProgress?.({stage:'接触層をサポート全体に反映しています'});
   const count=parts(original);
-  function applyMasks(source,tools){
+  const maskBounds=new Map(masks.map(mask=>[mask,bounds(mask)]));
+  function applySequentially(source,tools){
    let cut=source.clone();
    try{
     for(const mask of tools){
@@ -46,6 +48,33 @@ export function supportContactLines(original,regions,p,onProgress,{ribRecords=[]
     }
     const answer=cut;cut=null;return answer;
    }finally{cut?.delete();}
+  }
+  function applyIndependentMasks(source,tools){
+   const solids=source.solids;
+   const pieces=[];
+   try{
+    const independent=supportSolidGroups(solids);
+    if(independent.length<=1)return null;
+    for(const group of independent){
+     const part=group.length===1?group[0].shape.clone():R.makeCompound(group.map(entry=>entry.shape)).asShape3D();
+     try{
+      const relevant=tools.filter(mask=>group.some(entry=>supportBoxesTouch(entry.box,maskBounds.get(mask))));
+      const cut=applySequentially(part,relevant);
+      pieces.push(cut);
+      if(parts(cut)!==group.length)return null;
+     }finally{part.delete();}
+    }
+    return R.makeCompound(pieces).asShape3D();
+   }catch(error){
+    if(error instanceof WebAssembly.RuntimeError)throw error;
+    return null;
+   }finally{
+    pieces.forEach(piece=>piece.delete());
+    solids.forEach(solid=>solid.delete());
+   }
+  }
+  function applyMasks(source,tools){
+   return tools.length?(applyIndependentMasks(source,tools)??applySequentially(source,tools)):source.clone();
   }
   let activeMasks=masks;
   result=applyMasks(original,masks);

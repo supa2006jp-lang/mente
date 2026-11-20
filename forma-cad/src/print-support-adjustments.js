@@ -223,7 +223,7 @@ function trialSummary(state,original,number){
   const placed=covered.has(row.ceilingId);
   const notes=hints.filter(hint=>hint.ceilingId===row.ceilingId||sameSupportFace(hint.selection,row.selection)).map(hintMessage);
   const status=placed?(notes.length?'一部配置':'配置'):'配置できず';
-  if(row.suppressed)notes.push('外側の小片を省略');
+  if(row.suppressed)notes.push(row.suppressedReason==='bore'?'小さな丸穴を省略':'外側の小片を省略');
   if(result?.supportPreview?.columns?.some(column=>column.ceilingId===row.ceilingId))notes.push('柱型で補完');
   if(placed)for(const [field,role,label] of [['wallRoof','upper','上面'],['wallBottomSkin','lower','底面']])
    if(row.override?.[field]===false&&row.skin?.[role]?.enabled===false)notes.push(label+'の薄皮なし');
