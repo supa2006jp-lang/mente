@@ -54,7 +54,8 @@ function arcPoints(from,to,fields,clockwise){
 
 export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
  const layers=new Map(),pathBounds=[[Infinity,Infinity],[-Infinity,-Infinity]];
- let xyz={x:0,y:0,z:0},e=0,xyAbsolute=true,eAbsolute=true,layer,object,feature='custom',width=lineWidth,paths=0;
+ const outerWidths=new Map(),heights=new Map();
+ let xyz={x:0,y:0,z:0},e=0,xyAbsolute=true,eAbsolute=true,layer,object,feature='custom',width=lineWidth,hasWidth=false,paths=0;
  for(let start=0;start<gcode.length;){
   const next=gcode.indexOf('\n',start),line=gcode.slice(start,next<0?gcode.length:next).trim();
   start=next<0?gcode.length:next+1;
@@ -68,7 +69,7 @@ export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
    const h=layerHeight.exec(line);
    if(h&&layer){layer.height=Number(h[1]);continue;}
    const w=pathWidth.exec(line);
-   if(w){const n=Number(w[1]);if(n>=.08&&n<=3)width=n;continue;}
+   if(w){const n=Number(w[1]);if(n>=.08&&n<=3){width=n;hasWidth=true;}continue;}
    const kind=/^;\s*FEATURE:\s*(.*)/i.exec(line);
    if(kind){feature=kind[1].toLowerCase();continue;}
    const owner=/^;\s*OBJECT_ID:\s*(\d+)/i.exec(line);
@@ -99,9 +100,14 @@ export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
    const points=command==='G2'||command==='G3'?arcPoints(xyz,dest,fields,command==='G2'):[dest];
    let from=xyz;
    for(const to of points){
-    if(Math.hypot(to.x-from.x,to.y-from.y)>.0001){
+    const length=Math.hypot(to.x-from.x,to.y-from.y);
+    if(length>.0001){
      if(++paths>1_600_000)throw Error('積層経路が多すぎます。確認するプレートを分けて書き出してください');
      addPath(layer,{ax:from.x,ay:from.y,bx:to.x,by:to.y,width,normal});
+     if(hasWidth&&feature==='outer wall'){
+      const rounded=Number(width.toFixed(3));
+      outerWidths.set(rounded,(outerWidths.get(rounded)||0)+length);
+     }
      if(normal)for(const [i,axis] of ['x','y'].entries()){
       pathBounds[0][i]=Math.min(pathBounds[0][i],from[axis],to[axis]);
       pathBounds[1][i]=Math.max(pathBounds[1][i],from[axis],to[axis]);
@@ -118,9 +124,14 @@ export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
  for(const row of sorted){
   if(!(row.height>0&&row.height<=2))row.height=row.z-last;
   row.mid=row.z-row.height/2;
+  if(row.height>0&&row.height<=2&&(last>0||sorted.length===1)){
+   const rounded=Number(row.height.toFixed(4));
+   heights.set(rounded,(heights.get(rounded)||0)+1);
+  }
   last=row.z;
  }
- return {layers:sorted,pathBounds};
+ const mode=values=>[...values].sort((a,b)=>b[1]-a[1]||a[0]-b[0])[0]?.[0];
+ return {layers:sorted,pathBounds,printSettings:{lineWidth:mode(outerWidths),layerHeight:mode(heights)}};
 }
 
 function hasPath(layer,x,y,normalOnly){
@@ -160,7 +171,7 @@ function sliceZones(source){
  const zones=[],ribs=source.ribs.filter(rib=>!rib.excluded);
  for(const rib of ribs){
   const [lo,hi]=rib.bounds,axis=rib.axis,other=1-axis;
-  zones.push({kind:'rib',number:rib.number,bounds:rib.bounds,ceiling:rib.ceiling,probes:valuesAcross(lo[other],hi[other],9).map(value=>{
+  zones.push({kind:'rib',id:rib.id,ceilingId:rib.ceilingId,number:rib.number,bounds:rib.bounds,ceiling:rib.ceiling,probes:valuesAcross(lo[other],hi[other],9).map(value=>{
    const p=[];p[axis]=rib.center;p[other]=value;return p;
   })});
  }
@@ -168,9 +179,9 @@ function sliceZones(source){
  for(const skin of source.skins){
   const [lo,hi]=skin.bounds,neighbors=ribs.filter(rib=>skin.ribs.includes(rib.id));
   const probes=valuesAcross(lo[0],hi[0],7).flatMap(x=>valuesAcross(lo[1],hi[1],7).map(y=>[x,y]));
-  zones.push({kind:skin.side,number:++numbers[skin.side],bounds:skin.bounds,
+  zones.push({kind:skin.side,ceilingId:skin.ceilingId,number:++numbers[skin.side],bounds:skin.bounds,
    ceiling:skin.side==='upper'?hi[2]+source.topGap:null,
-   probes:probes.filter(p=>!neighbors.some(rib=>Math.abs(p[rib.axis]-rib.center)<=source.wallThickness/2+.04))});
+   probes:probes.filter(p=>!neighbors.some(rib=>Math.abs(p[rib.axis]-rib.center)<=(rib.thickness??source.wallThickness)/2+.04))});
  }
  for(const [i,column] of source.columns.entries()){
   const [x,y,z]=column.point,r=column.radius;
@@ -235,12 +246,12 @@ function checkZone(zone,context){
    if(last>=0)contacts.push(...gapAt(layers,{x,y,matrix,zone,model,baseModels,source,top,bottom,last,first}));
   }
  }
- return {kind:zone.kind,number:zone.number,checked,found,unsliced,missingPoints,contacts};
+ return {kind:zone.kind,id:zone.id,ceilingId:zone.ceilingId,number:zone.number,checked,found,unsliced,missingPoints,contacts};
 }
 
 export function inspectSupportSlicePaths({gcode,objectId,matrix,sources,models},onProgress){
  onProgress?.({stage:'スライス済みの積層経路を解析しています'});
- const {layers,pathBounds}=readSupportSliceLayers(gcode,objectId,sources[0]?.lineWidth);
+ const {layers,pathBounds,printSettings}=readSupportSliceLayers(gcode,objectId,sources[0]?.lineWidth);
  const vertices=models.flatMap(mesh=>{
   const [low,high]=supportSliceBounds(mesh.vertices);
   return [low[0],high[0]].flatMap(x=>[low[1],high[1]].flatMap(y=>[low[2],high[2]].flatMap(z=>supportSlicePoint(matrix,[x,y,z]))));
@@ -262,6 +273,6 @@ export function inspectSupportSlicePaths({gcode,objectId,matrix,sources,models},
     }
    }finally{solid.dispose();}
   }
-  return {rows,layerCount:layers.length};
+  return {rows,layerCount:layers.length,printSettings};
  }finally{for(const check of checks.values())check.dispose();}
 }

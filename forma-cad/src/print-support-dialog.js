@@ -20,6 +20,7 @@ import {cadErrorAdvice} from './cad-error-advice.js';
 import {supportExportPartName} from './print-support-preflight.js';
 import {installSupportRemoval} from './print-support-removal-view.js';
 import {createSupportSliceReview} from './print-support-slice-view.js';
+import {supportSliceRepairApplied} from './print-support-slice-repair.js';
 import {supportMaterialEstimate} from './print-support-material.js';
 import {createSupportFaceView} from './print-support-face-view.js';
 import {cadPosition} from './cad-coordinates.js';
@@ -68,7 +69,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   '<small data-id="auto-adjust-status" role="status"></small><button type="button" data-id="auto-adjust-undo" hidden>自動調整前の設定に戻す</button>';
  $('baseMode').closest('label').after(autoSettings);
  const columnSettings=document.createElement('div');
- columnSettings.innerHTML='<label><input type="checkbox" data-id="fallbackPosts">リブを置けない下面を柱型で補う</label><small data-id="column-status" role="status"></small>';
+ columnSettings.innerHTML='<label><input type="checkbox" data-id="fallbackPosts">リブを置けない下面を柱型で補う</label><small data-id="column-status" role="status"></small>'+
+  '<label><input type="checkbox" data-id="fillGaps">同じ下面の支え不足を自動補完</label><small data-id="gap-fill-status" role="status"></small>';
  autoSettings.after(columnSettings);
  $('fallbackPosts').closest('label').after($('fallbackDiameter').closest('label'));
  const adjustmentPermissions=createSupportAdjustmentPermissions(autoSettings,()=>{
@@ -161,7 +163,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const target=row.selection.bodyId;
   const same=selection=>JSON.stringify(selection.point)===JSON.stringify(row.selection.point);
   const rows=overridesFor(target).filter(entry=>!same(entry.selection));
-  const settings=Object.fromEntries(Object.entries(values).filter(([key,value])=>['noSupport','allowAutoSupport','localRibs'].includes(key)?value?.length:key==='edgeAssist'?value===true:value!=null));
+  const settings=Object.fromEntries(Object.entries(values).filter(([key,value])=>['noSupport','allowAutoSupport','localRibs','ribWidths'].includes(key)?value?.length:key==='edgeAssist'?value===true:value!=null));
   if(Object.keys(settings).length)rows.push({selection:row.selection,...settings});
   try{validatePrintSupport({...spec(),target,mode:'auto',faceOverrides:rows});}
   catch(error){$('error').textContent=error.message;return;}
@@ -189,7 +191,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  });
  const clearanceView=createSupportClearanceView({anchor:$('info'),host,camera});
  const fastView=createSupportFastPreview({scene,host});let activeRun=null,pendingPreview=null;
- const ray=new THREE.Raycaster(),keys=fields.map(([key])=>key),toggles=['topContactRim','topContactLines','bottomContactLines','contactLines','bottomSeams','wallBottomSkin','edgeRibs','skipSmallExterior','fallbackPosts','fitLineWidth','wallRoof','roofSeams','wallWindows','wallTies','autoReinforce','connectFeet','braces','lockToModel'];
+ const ray=new THREE.Raycaster(),keys=fields.map(([key])=>key),toggles=['topContactRim','topContactLines','bottomContactLines','contactLines','bottomSeams','wallBottomSkin','edgeRibs','skipSmallExterior','fallbackPosts','fillGaps','fitLineWidth','wallRoof','roofSeams','wallWindows','wallTies','autoReinforce','connectFeet','braces','lockToModel'];
  function removalState(){
   if(!dialog.open||trialPreview||materialInvalid||inflight||batchPending)return null;
   const ready=batching()?currentBatch():cached?[cached]:[];
@@ -199,7 +201,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return entries.length?{entries,history,preview}:null;
  }
  const removal=installSupportRemoval({anchor:material,host,scene,meshes,kernel,bodyName,getState:removalState,onChange:controls});
- const sliceReview=createSupportSliceReview({anchor:$('export3mf'),scene,host,kernel,fitPreview,bodyName,onChange:controls,getEntries(){
+ const sliceReview=createSupportSliceReview({anchor:$('export3mf'),scene,host,kernel,fitPreview,bodyName,onChange:controls,
+  previewRepair:previewSliceRepair,adoptRepair:adoptSliceRepair,getEntries(){
   if(!dialog.open||inflight||batchPending||getFeatures()!==original)return [];
   return (batching()?currentBatch():cached?[cached]:[]).filter(supportPreviewExportable);
  }});
@@ -259,13 +262,17 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function controls(){const walls=$('style').value==='walls',roof=walls&&skinAvailable('wallRoof');$('sideGap').closest('label').hidden=!walls;$('roof-removal').hidden=!roof;$('roofSeams').closest('label').hidden=!roof;for(const key of ['roofSectionLength','roofSeamWidth'])$(key).closest('label').hidden=!roof||!$('roofSeams').checked;$('wallRoof').closest('label').hidden=!walls;$('roofLayers').closest('label').hidden=!walls||!$('wallRoof').checked;$('roof-note').hidden=!walls||!$('wallRoof').checked;$('roof-note').textContent='厚さ '+Number((Number($('roofLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mm。本体との上側のすき間は維持し、両端のリブの間だけをつなぎます。';$('wallWindows').closest('label').hidden=!walls;$('windows-note').hidden=!walls;$('wallTies').closest('label').hidden=!walls;$('tieInterval').closest('label').hidden=!walls||!$('wallTies').checked;for(const key of ['edgeMargin','wallPitch','wallThickness','layerHeight'])$(key).closest('label').hidden=!walls;for(const key of ['spacing','footDiameter','postDiameter','tipDiameter','bottomGap','braceDiameter','maxSupports'])$(key).closest('label').hidden=walls;$('braces').closest('label').hidden=walls;$('wall-note').hidden=$('export3mf').hidden=!walls;for(const el of dialog.querySelectorAll('input,select,button'))el.disabled=busy;$('apply').disabled=busy||!cached;$('export3mf').disabled=busy||!cached?.result.supportPackage?.complete;$('face-row').hidden=$('mode').value!=='face';$('braceDiameter').disabled=busy||!$('braces').checked;$('bottomGap').disabled=busy||$('baseMode').value==='bed';faceControls();placementControls(roof);ribControls(walls,roof);presets.sync(busy);failurePanel.hidden=!lastFailure;exportControls();improvementControls(walls);exteriorLabel.hidden=!walls||$('mode').value!=='auto';
   autoSettings.hidden=!walls;
   columnSettings.hidden=!walls;
-  const useColumns=walls&&$('fallbackPosts').checked;
+  const useColumns=walls&&($('fallbackPosts').checked||$('fillGaps').checked);
   $('fallbackDiameter').closest('label').hidden=!useColumns;
   $('bottomGap').closest('label').hidden=walls&&!(useColumns&&$('baseMode').value==='bedOrModel');
   const columns=(batching()?currentBatch():cached?[cached]:[]).map(entry=>entry.result.analysis.printSupport.columnFallback).filter(Boolean);
   const columnCount=columns.reduce((sum,stats)=>sum+stats.count,0);
   $('column-status').textContent=columnCount?columnCount+'本を配置 ／ '+columns.reduce((sum,stats)=>sum+stats.faces,0)+'面を補完':
-   useColumns&&columns.length?'補完した柱はありません。':'';
+   $('fallbackPosts').checked&&columns.length?'補完した柱はありません。':'';
+  const fills=(batching()?currentBatch():cached?[cached]:[]).map(entry=>entry.result.analysis.printSupport.gapFill).filter(Boolean);
+  const totals=fills.reduce((sum,stats)=>({ribs:sum.ribs+stats.ribs,columns:sum.columns+stats.columns,faces:sum.faces+stats.faces}),{ribs:0,columns:0,faces:0});
+  $('gap-fill-status').textContent=totals.faces?totals.faces+'面を補完 ／ 短いリブ '+totals.ribs+'枚・柱 '+totals.columns+'本':
+   fills.length?'指定の条件で追加できる補完はありません。':'';
   $('auto-adjust').disabled=busy||picking;
   $('auto-adjust-undo').hidden=!autoAdjustment;
   adjustmentPermissions.controls({enabled:walls&&$('auto-adjust').checked,disabled:busy||picking});
@@ -278,7 +285,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   const blocked=busy||picking||inflight||batchPending;
   const masked=removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length;
   sliceReview.panel.hidden=!walls;
-  sliceReview.sync(blocked||masked||!!trialPreview);
+  sliceReview.sync(blocked||masked||!!trialPreview,!blocked&&!masked&&trialPreview?.kind==='slice');
   if(masked)sliceReview.clearFocus();
   adjustmentReview.controls(blocked||masked);
   $('auto-adjust-undo').disabled=blocked||masked||!!trialPreview;
@@ -575,7 +582,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function completeSpec(){return {...spec(),...Object.fromEntries(keys.map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))};}
  $('face-clear').onclick=()=>{if(busy||selectionBusy)return;selectedFaces=[];resetStructure();if(picking){faceView.clear();controls();$('error').textContent='';}else schedule();};
  const presets=installPrintSupportPresets($('style').closest('label'),{read:completeSpec,download,apply:values=>{
-  const settings={fallbackPosts:printSupportDefaults.fallbackPosts,fallbackDiameter:printSupportDefaults.fallbackDiameter,...values};
+  const settings={fallbackPosts:printSupportDefaults.fallbackPosts,fillGaps:printSupportDefaults.fillGaps,
+   fallbackDiameter:printSupportDefaults.fallbackDiameter,...values};
   faceView.endPick();picking=false;resetStructure();
   for(const key of keys)if(settings[key]!==undefined)$(key).value=settings[key];
   for(const key of toggles)if(settings[key]!==undefined)$(key).checked=settings[key];
@@ -648,24 +656,39 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   trialPreview.group.traverse(mesh=>{mesh.geometry?.dispose();mesh.material?.dispose();});
   for(const [mesh,visible] of trialPreview.hidden)mesh.visible=visible;
   for(const [label,value] of trialPreview.labels)label.hidden=value;
-  trialPreview=null;
-  adjustmentReview.setPreview(null);
+  const {kind}=trialPreview;trialPreview=null;
+  if(kind==='slice')sliceReview.setRepairPreview(false);
+  else adjustmentReview.setPreview(null);
  }
- async function previewTrial(target,trial){
-  if(busy||inflight||picking||ribPicking||ribBatch||removal.active||contactView.active||sliceReview.checking)return;
+ function canPreviewSupportVariant(){
+  return !busy&&!inflight&&!batchPending&&!picking&&!ribPicking&&!ribBatch&&!removal.active&&!contactView.active&&!sliceReview.checking;
+ }
+ function previewTrial(target,trial){
+  if(!canPreviewSupportVariant())return;
   if(!trial){clearTrialPreview();controls();return;}
-  if(!trial.settings)return;
+  if(trial.settings)return previewSupportVariant(target,trial.settings,{kind:'trial',number:trial.number});
+ }
+ function previewSliceRepair(plan){
+  if(!canPreviewSupportVariant())return;
+  if(!plan){clearTrialPreview();controls();return;}
+  return previewSupportVariant(plan.target,plan.settings,{kind:'slice',plan});
+ }
+ async function previewSupportVariant(target,settings,variant){
   const current=previewOutputIsCurrent(),batch=batching();
   const previous=batch?currentBatch().filter(entry=>entry.input.target!==target).map(entry=>supportHistoryFeature(entry.input,entry.result)):[];
   clearTrialPreview();busy=true;trialBusy=true;controls();
   sliceReview.clearFocus();
   $('error').textContent='';
+  const repair=variant.kind==='slice';
+  if(repair)sliceReview.repairMessage('すき間と干渉を確認しています…');
   try{
-   const input=validatePrintSupport({...trial.settings,filamentDiameter:Number($('filamentDiameter').value),materialDensity:Number($('materialDensity').value)});
+   const input=validatePrintSupport({...settings,filamentDiameter:Number($('filamentDiameter').value),materialDensity:Number($('materialDensity').value)});
    const result=await kernel.run([...history,...previous],{...input,preview:true},{document:original});
    if(!current())return;
    if(!result.supportPreview?.exportStatus?.ok||result.analysis.printSupport.ribs?.issues.length)
     throw Error('現在の配置では、この候補の検査に通りませんでした。');
+   if(repair&&!supportSliceRepairApplied(variant.plan,result))
+    throw Error('指定のすき間と配置を保てる修正形状が作れませんでした。');
    const group=new THREE.Group(),hidden=[],labels=[];
    for(const mesh of preview?.children||[])if(mesh.userData.supportOutputId===input.id){hidden.push([mesh,mesh.visible]);mesh.visible=false;}
    for(const label of host.querySelectorAll('[data-support-rib-labels],[data-support-roof-labels]')){
@@ -673,31 +696,45 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    }
    for(const output of result.outputs)group.add(supportOutputMesh(output));
    scene.add(group);
-   trialPreview={target,number:trial.number,input,result,group,hidden,labels};
-   adjustmentReview.setPreview(trialPreview);
-  }catch(error){if(current())$('error').textContent=error.message;}
+   trialPreview={target,input,result,group,hidden,labels,...variant};
+   if(repair)sliceReview.setRepairPreview(true);
+   else adjustmentReview.setPreview(trialPreview);
+  }catch(error){if(current()){if(repair)sliceReview.repairMessage(error.message);else $('error').textContent=error.message;}}
   finally{if(current()){busy=false;trialBusy=false;controls();}}
  }
  function adoptTrial(target,trial){
-  if(busy||inflight||batchPending||!trialPreview||target!==trialPreview.target||trial.number!==trialPreview.number)return;
-  const {input,result}=trialPreview,batch=batching();
+  if(!canPreviewSupportVariant()||trialPreview?.kind!=='trial'||target!==trialPreview.target||trial.number!==trialPreview.number)return;
+  adoptSupportVariant();
+ }
+ function adoptSliceRepair(plan){
+  if(!canPreviewSupportVariant()||trialPreview?.kind!=='slice'||trialPreview.plan!==plan)return;
+  adoptSupportVariant();
+ }
+ function adoptSupportVariant(){
+  const {input,result,target,number,kind,plan}=trialPreview,batch=batching(),repair=kind==='slice';
   const previous=batch?batchEntries.get(target):cached;
   clearTrialPreview();gapBaseline=null;gapComparison.clear();
   if(batch){
+   if(repair)faceOverrides.set(target,structuredClone(input.faceOverrides));
    batchEntries.set(target,{...previous,input,result,error:null,coverage:[],clearance:[],adjustment:null,
-    trialReport:{...previous.trialReport,selected:trial.number}});
-   adjustmentReview.select(target,trial.number);renderBatchPreview();
+    trialReport:repair?null:{...previous.trialReport,selected:number}});
+   if(repair)showBatchTrialReports();
+   else adjustmentReview.select(target,number);
+   renderBatchPreview();
   }else{
    const before=validatePrintSupport(spec());
    applyAutoSettings(before,input);
-   autoAdjustment={before,after:input};
+   autoAdjustment=repair?null:{before,after:input};
    if(result.supportPreview?.ribs){ribLayout=result.supportPreview.ribs;ribLayoutTarget=target;}
    cached={input,result};
-   adjustmentReview.select(target,trial.number);show(result);
+   if(repair)adjustmentReview.clear();
+   else adjustmentReview.select(target,number);
+   show(result);
    showPreviewInfo(result.analysis.printSupport);
   }
   $('error').textContent='';
-  $('auto-adjust-status').textContent=(trial.number?'候補 '+trial.number:'調整前の配置')+'を採用しました。';
+  $('auto-adjust-status').textContent=repair?plan.title+'を採用しました。':
+   (number?'候補 '+number:'調整前の配置')+'を採用しました。';
   controls();
  }
  $('auto-adjust-undo').onclick=()=>{
@@ -745,13 +782,16 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
     const prepared=currentBatch();
     renderBatchPreview();
     updateGapComparison(currentBatch());
-    adjustmentReview.show([...batchEntries].filter(([,entry])=>entry.trialReport)
-     .map(([target,entry])=>({target,report:entry.trialReport})));
+    showBatchTrialReports();
     const adjusted=prepared.filter(entry=>entry.adjustment).length;
     $('auto-adjust-status').textContent=adjusted?adjusted+'ボディを自動調整しました。「複数ボディに一括配置」で変更内容を確認できます。':'';
    }finally{if(activeRun===job){activeRun=null;inflight=false;batchPending=false;if(dialog.open)controls();}}
   };
   timer=setTimeout(calculate,450);
+ }
+ function showBatchTrialReports(){
+  adjustmentReview.show([...batchEntries].filter(([,entry])=>entry.trialReport)
+   .map(([target,entry])=>({target,report:entry.trialReport})));
  }
  function renderBatchPreview(){
   const results=currentBatch().map(entry=>entry.result);
@@ -950,7 +990,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  for(const key of [...keys,...toggles])$(key).addEventListener('input',()=>{
   if(['filamentDiameter','materialDensity'].includes(key)){updateMaterial();return;}
   ribPicking=false;
-  if(['edgeMargin','sideGap','edgeRibs','skipSmallExterior','wallPitch','wallThickness','bedZ','topGap','footThickness',
+  if(['edgeMargin','sideGap','edgeRibs','skipSmallExterior','wallPitch','wallThickness','bedZ','topGap','footThickness','fillGaps','fallbackDiameter',
    'wallBottomSkin','connectFeet','fitLineWidth'].includes(key)||(['wallLines','lineWidth'].includes(key)&&$('fitLineWidth').checked)){
    alignWidth();resetStructure();
   }

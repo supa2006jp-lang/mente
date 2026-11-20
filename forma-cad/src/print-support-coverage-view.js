@@ -175,8 +175,8 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
    if(busy||inputs.some(([,input])=>!input.reportValidity()))return;
    const values=Object.fromEntries(inputs.filter(([,input])=>input.value!=='').map(([key,input])=>[key,input.valueAsNumber]));
    for(const [key,choice] of skins)if(choice.value)values[key]=choice.value==='on';
-   const {noSupport,allowAutoSupport,edgeAssist,localRibs}=row.override;
-   onSave(row,{...values,noSupport,allowAutoSupport,edgeAssist,localRibs});
+   const {noSupport,allowAutoSupport,edgeAssist,localRibs,ribWidths}=row.override;
+   onSave(row,{...values,noSupport,allowAutoSupport,edgeAssist,localRibs,ribWidths});
   };
   const remove=document.createElement('button');remove.type='button';remove.textContent='共通設定に戻す';remove.disabled=busy;
   remove.onclick=()=>{if(!busy){const {noSupport,allowAutoSupport,edgeAssist,localRibs}=row.override;onSave(row,{noSupport,allowAutoSupport,edgeAssist,localRibs});}};
@@ -266,6 +266,23 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   };
   zones.append(lengthLabel,addRib);
   for(const entry of row?[row]:rows){
+   if(entry.gapFill){
+    const summary=document.createElement('small'),{ribs,columns,before,after}=entry.gapFill;
+    summary.textContent=faceLabel(entry)+' ／ 短いリブ '+ribs+'枚・柱 '+columns+'本を補完'+
+     (after<before-.05?' ／ 支えのない最大幅の目安 '+Number(before.toFixed(2))+' → '+Number(after.toFixed(2))+' mm':'');
+    zones.append(summary);
+   }
+   if(entry.override.ribWidths?.length){
+    const clear=document.createElement('button');
+    clear.type='button';clear.disabled=busy;clear.textContent=faceLabel(entry)+' ／ リブの厚み修正を解除';
+    clear.onclick=()=>onSave(entry,{...entry.override,ribWidths:[]});
+    zones.append(clear);
+    if(entry.unappliedRibWidths?.length){
+     const stale=document.createElement('small');
+     stale.textContent='配置やすき間の変更により適用できない厚み修正が '+entry.unappliedRibWidths.length+' 件あります。';
+     zones.append(stale);
+    }
+   }
    for(const [i,rib] of (entry.override.localRibs||[]).entries()){
     const remove=document.createElement('button');remove.type='button';remove.disabled=busy;
     remove.textContent=faceLabel(entry)+' ／ 短いリブ '+(i+1)+' を削除（'+rib.length+' mm）';

@@ -35,7 +35,7 @@ function adjustmentHints(state){
 function candidates(state,original,allowed){
  const p=state.input,a=state.result?.analysis?.printSupport,initial=original.result?.analysis?.printSupport;
  const hints=adjustmentHints(state);
- const pinned=!!(p.excludedRibs?.length||p.roofTabPlacements?.length||p.faceOverrides?.some(row=>row.localRibs?.length));
+ const pinned=!!(p.excludedRibs?.length||p.roofTabPlacements?.length||p.faceOverrides?.some(row=>row.localRibs?.length||row.ribWidths?.length));
  const next=[];
  const set=(key,value)=>{if(allowed.has(key)&&p[key]!==value)next.push({...p,[key]:value});};
  function alternateDirection(){

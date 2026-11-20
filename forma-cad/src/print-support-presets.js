@@ -1,14 +1,14 @@
 import {printSupportDefaults,validatePrintSupport} from './print-support.js';
 export const printSupportPresetKey='forma-cad-print-support-presets-v1';
-export const printSupportPresetFields=['style','contactLines','topContactLines','bottomContactLines','topContactRim','topContactRimWidth','interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','edgeMargin','sideGap','fallbackPosts','fallbackDiameter','bottomSeams','bottomSectionLength','bottomSeamWidth','wallBottomSkin','bottomSkinLayers','edgeRibs','autoReinforce','filamentDiameter','materialDensity','baseMode','lineWidth','fitLineWidth','wallLines','wallDirection','wallOffset','wallRoof','roofLayers','roofTabs','roofTabLength','roofSeams','roofSectionLength','roofSeamWidth','wallWindows','wallTies','tieInterval','wallPitch','wallThickness','layerHeight','spacing','footDiameter','footThickness','postDiameter','tipDiameter','topGap','bottomGap','maxSupports','connectFeet','braces','braceDiameter','lockToModel'];
+export const printSupportPresetFields=['style','contactLines','topContactLines','bottomContactLines','topContactRim','topContactRimWidth','interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','edgeMargin','sideGap','fallbackPosts','fillGaps','fallbackDiameter','bottomSeams','bottomSectionLength','bottomSeamWidth','wallBottomSkin','bottomSkinLayers','edgeRibs','autoReinforce','filamentDiameter','materialDensity','baseMode','lineWidth','fitLineWidth','wallLines','wallDirection','wallOffset','wallRoof','roofLayers','roofTabs','roofTabLength','roofSeams','roofSectionLength','roofSeamWidth','wallWindows','wallTies','tieInterval','wallPitch','wallThickness','layerHeight','spacing','footDiameter','footThickness','postDiameter','tipDiameter','topGap','bottomGap','maxSupports','connectFeet','braces','braceDiameter','lockToModel'];
 export function validatePrintSupportPreset(values){
  if(!values||typeof values!=='object'||Array.isArray(values))throw Error('プリセットの設定が不正です');
  const settings=Object.fromEntries(printSupportPresetFields.map(key=>[key,values[key]===undefined?printSupportDefaults[key]:values[key]]));
  settings.autoReinforce=values.autoReinforce??false;settings.roofTabs=false;
  const valid=validatePrintSupport({...settings,type:'printSupport',target:'preset',mode:'auto',faces:[],excludedRibs:[],roofTabPlacements:[],bedZ:0});
- const hasColumnSettings=valid.fallbackPosts||valid.fallbackDiameter!==printSupportDefaults.fallbackDiameter;
+ const hasColumnSettings=valid.fallbackPosts||valid.fillGaps||valid.fallbackDiameter!==printSupportDefaults.fallbackDiameter;
  const fields=printSupportPresetFields.filter(key=>(key!=='wallOffset'||valid.wallOffset)&&
-  (hasColumnSettings||!['fallbackPosts','fallbackDiameter'].includes(key)));
+  (hasColumnSettings||!['fallbackPosts','fallbackDiameter'].includes(key))&&(key!=='fillGaps'||valid.fillGaps));
  return Object.fromEntries(fields.map(key=>[key,valid[key]]));
 }
 function validateRows(rows){

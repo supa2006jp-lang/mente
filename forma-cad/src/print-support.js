@@ -5,7 +5,7 @@ import {fuseSolids} from './solid-fuse.js';
 import {supportBaseSurfaces} from './print-support-base.js';
 import {makeWallSupports} from './print-support-walls.js';
 import {supportMaterialEstimate} from './print-support-material.js';
-export const printSupportDefaults={style:'posts',fallbackPosts:false,fallbackDiameter:1.2,contactLines:false,topContactLines:true,bottomContactLines:true,topContactRim:false,topContactRimWidth:.6,interfaceLineWidth:.6,interfaceSpacing:.5,bottomContactInset:0,edgeMargin:.5,sideGap:0,bottomSeams:false,bottomSectionLength:25,bottomSeamWidth:.6,wallBottomSkin:false,bottomSkinLayers:2,edgeRibs:false,autoReinforce:false,filamentDiameter:1.75,materialDensity:1.24,lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',wallOffset:0,excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
+export const printSupportDefaults={style:'posts',fallbackPosts:false,fillGaps:false,fallbackDiameter:1.2,contactLines:false,topContactLines:true,bottomContactLines:true,topContactRim:false,topContactRimWidth:.6,interfaceLineWidth:.6,interfaceSpacing:.5,bottomContactInset:0,edgeMargin:.5,sideGap:0,bottomSeams:false,bottomSectionLength:25,bottomSeamWidth:.6,wallBottomSkin:false,bottomSkinLayers:2,edgeRibs:false,autoReinforce:false,filamentDiameter:1.75,materialDensity:1.24,lineWidth:.4,fitLineWidth:false,wallLines:2,wallDirection:'auto',wallOffset:0,excludedRibs:[],wallRoof:false,roofLayers:2,roofTabs:false,roofTabPlacements:[],roofTabLength:6,roofSeams:false,roofSectionLength:25,roofSeamWidth:.6,wallWindows:false,wallTies:true,tieInterval:20,wallPitch:4,wallThickness:.8,layerHeight:.3,mode:'auto',baseMode:'bedOrModel',spacing:25,footDiameter:20,footThickness:.8,postDiameter:4,tipDiameter:1.2,topGap:.2,bottomGap:.2,bedZ:0,maxSupports:16,connectFeet:true,braces:true,braceDiameter:2,lockToModel:true};
 const vector=v=>{try{return v.toTuple();}finally{v.delete();}};
 const box=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
 export function validatePrintSupport(input){
@@ -16,7 +16,9 @@ export function validatePrintSupport(input){
  p.sideGap=input.sideGap??0;
  if(!Number.isFinite(p.sideGap)||p.sideGap<0||p.sideGap>2)throw Error('側壁との横すき間は0〜2 mmで指定してください');
  p.fallbackPosts=input.fallbackPosts??false;
+ p.fillGaps=input.fillGaps??false;
  p.fallbackDiameter=input.fallbackDiameter??printSupportDefaults.fallbackDiameter;
+ if(typeof p.fillGaps!=='boolean')throw Error('支え不足の自動補完の設定が不正です');
  if(typeof p.fallbackPosts!=='boolean'||!Number.isFinite(p.fallbackDiameter)||p.fallbackDiameter<.8||p.fallbackDiameter>6)
   throw Error('補完用の柱径は0.8〜6 mmで指定してください');
  // Older history entries replay their original rib positions until edited.
@@ -28,7 +30,7 @@ export function validatePrintSupport(input){
  if(typeof p.autoReinforce!=='boolean')throw Error('自動補強の設定が不正です');
  supportMaterialEstimate(0,p);
  if(!Number.isFinite(p.lineWidth)||p.lineWidth<.2||p.lineWidth>1||typeof p.fitLineWidth!=='boolean'||!Number.isInteger(p.wallLines)||p.wallLines<1||p.wallLines>8)throw Error('線幅は0.2〜1 mm、薄壁の線数は1〜8本で指定してください');
- if(p.style==='walls'&&p.fallbackPosts&&p.fallbackDiameter<p.lineWidth)throw Error('補完用の柱径は印刷の線幅以上にしてください');
+ if(p.style==='walls'&&(p.fallbackPosts||p.fillGaps)&&p.fallbackDiameter<p.lineWidth)throw Error('補完用の柱径は印刷の線幅以上にしてください');
  if(!['auto','x','y'].includes(p.wallDirection))throw Error('薄壁の向きを選択してください');
  if(input.wallOffset!==undefined&&(!Number.isFinite(input.wallOffset)||Math.abs(input.wallOffset)>.4))throw Error('リブの列のずらしは間隔の±40%以内で指定してください');
  if(!Array.isArray(p.excludedRibs)||p.excludedRibs.length>96||new Set(p.excludedRibs).size!==p.excludedRibs.length||p.excludedRibs.some(v=>typeof v!=='string'||!v||v.length>500))throw Error('除外するリブの指定が不正です');

@@ -11,19 +11,20 @@ function samples(low,high,pitch){
  return Array.from({length:count*2+1},(_,i)=>low+(high-low)*i/(count*2));
 }
 
-export function supportFallbackColumns({face,faceBounds,height,bodies,bases,settings:p,limit,onProgress}){
+export function supportFallbackColumns({face,faceBounds,height,bodies,bases,settings:p,limit,onProgress,positions}){
  const radius=p.fallbackDiameter/2,margin=radius+p.edgeMargin,top=height-p.topGap;
  const low=faceBounds[0].map(v=>v+margin),high=faceBounds[1].map(v=>v-margin);
  if(limit<1||low[0]>high[0]+tolerance||low[1]>high[1]+tolerance||top<=p.bedZ+p.layerHeight)return [];
  const pitch=Math.max(p.wallPitch,p.fallbackDiameter*2,4),center=low.map((v,i)=>(v+high[i])/2);
- const points=samples(low[0],high[0],pitch).flatMap(x=>samples(low[1],high[1],pitch).map(y=>[x,y]));
- points.sort((a,b)=>Math.hypot(a[0]-center[0],a[1]-center[1])-Math.hypot(b[0]-center[0],b[1]-center[1]));
+ const points=positions||samples(low[0],high[0],pitch).flatMap(x=>samples(low[1],high[1],pitch).map(y=>[x,y]));
+ if(!positions)points.sort((a,b)=>Math.hypot(a[0]-center[0],a[1]-center[1])-Math.hypot(b[0]-center[0],b[1]-center[1]));
  const vector=new R.Vector([0,0,p.layerHeight]),results=[];
  let scope,complete=false,checked=0;
  try{
   scope=R.basicFaceExtrusion(face,vector);
   for(const [x,y] of points){
    if(results.length>=limit||checked>=81)break;
+   if(x<low[0]-tolerance||x>high[0]+tolerance||y<low[1]-tolerance||y>high[1]+tolerance)continue;
    if(results.some(column=>Math.hypot(x-column.point[0],y-column.point[1])<pitch*.85))continue;
    if((p.noSupport||[]).some(([x0,y0,x1,y1])=>x+radius>x0&&x-radius<x1&&y+radius>y0&&y-radius<y1))continue;
    checked++;
