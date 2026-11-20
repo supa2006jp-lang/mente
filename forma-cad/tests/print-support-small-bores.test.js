@@ -121,7 +121,7 @@ test('a modeled large threaded opening does not grow ribs from its small entranc
    threadFaceOffsets:[-.2,-.2,-.2,0],threadCylinderOffset:-.2,fullLength:true,surfacePoint:[29.7,15,30]}));
   const features=[{...history[0],outputs:[{id:'thread-body',brep:threaded.serialize()}]}];
   const output=runOperation(features,{...printSupportNewDefaults,type:'printSupport',id:'thread-ribs',target:'thread-body',mode:'auto',
-   preview:true,skipSmallBores:true,keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true,
+   preview:true,keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true,
    wallRoof:false,wallTies:false,wallBottomSkin:false,contactLines:false});
   const {printSupport}=output.analysis;
   assert.equal(printSupport.omittedThreadFaces,1);

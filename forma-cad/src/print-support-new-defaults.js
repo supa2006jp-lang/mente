@@ -20,6 +20,7 @@ export const printSupportNewDefaults=Object.freeze({
   "wallBottomSkin": true,
   "bottomSkinLayers": 1,
   "edgeRibs": true,
+  "skipSmallBores": true,
   "autoReinforce": false,
   "filamentDiameter": 1.75,
   "materialDensity": 1.24,
