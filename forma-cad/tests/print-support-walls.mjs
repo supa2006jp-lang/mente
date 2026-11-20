@@ -23,10 +23,21 @@ const plate=R.makeBox([0,0,20],[40,20,20.35]);
 const slope=R.draw([20,20.4]).lineTo([32,23.4]).lineTo([32,26]).lineTo([20,26]).close().sketchOnPlane('XZ').extrude(-10);
 const stepped=R.makeCompound([plate,slope]);
 plate.delete();slope.delete();
-const mixed=runOperation([record('mixed',stepped)],{...spec,target:'mixed'});
+const mixedSource=record('mixed',stepped),mixedSpec={...spec,target:'mixed'};
+const mixed=runOperation([mixedSource],mixedSpec);
 assert.equal(mixed.analysis.printSupport.nonHorizontalFaces,1);
 assert.equal(mixed.analysis.printSupport.faceCount,1);
 assert(mixed.supportPreview.exportStatus.ok,JSON.stringify(mixed.supportPreview.exportStatus.issues));
+assert.equal(mixed.supportPreview.coverage.filter(row=>row.autoSupportReason==='sloped').length,1);
+assert.equal(mixed.supportPackage.autoSupportFaces[0].reason,'sloped');
+assert.equal(mixed.supportPackage.autoSupportFaces[0].bodyId,'mixed');
+const mixedConfig=strFromU8(unzipSync(printSupport3mf(mixed.supportPackage))['Metadata/model_settings.config']);
+assert.equal((mixedConfig.match(/<part /g)||[]).length,mixed.supportPackage.bodies.length+mixed.supportPackage.blockers.length);
+const {supportPreview:unusedPreview,supportPackage:unusedPackage,...mixedOutput}=mixed;
+const savedMixed=[mixedSource,{kind:'cadop',id:spec.id,spec:{...mixedSpec,preview:false},...mixedOutput}];
+const savedMixedPackage=runOperation(savedMixed,{type:'printSupportSavedExport',ids:[spec.id]});
+assert.equal(savedMixedPackage.autoSupportFaces.length,1);
+assert.deepEqual(savedMixedPackage.autoSupportFaces[0],mixed.supportPackage.autoSupportFaces[0]);
 const material=new MeshBasicMaterial({side:DoubleSide});
 const blockers=mixed.supportPackage.blockers.map(({vertices,triangles})=>new Mesh(
  new BufferGeometry().setAttribute('position',new Float32BufferAttribute(vertices,3)).setIndex(triangles),material

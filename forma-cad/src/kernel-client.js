@@ -8,15 +8,29 @@ const liveClients=new Set();
 export function cancelAutomaticPrecisionPreviews(){for(const reference of liveClients){const client=reference.deref();if(!client){liveClients.delete(reference);continue;}for(const [id,p]of [...client.pending])if(p.precisionPreview)client.cancel(id);}}
 const activityListeners=new Set();
 export function subscribeKernelActivity(listener){activityListeners.add(listener);return ()=>activityListeners.delete(listener);}
+function calculationState(p){
+ if(!p.lastStage)return null;
+ const now=Date.now();
+ return {stage:p.lastStage,stageElapsedMs:Math.max(0,now-p.stageStarted),elapsedMs:Math.max(0,now-p.started),
+  ...(p.supportFace?{supportFace:p.supportFace}:{})};
+}
+function reportCalculation(p,onCalculation,outcome){
+ if(!onCalculation)return;
+ const last=calculationState(p)??p.retry?.calculation??(p.retry?{stage:'CADエンジンを準備しています'}:null);
+ if(!last&&!p.retry)return;
+ try{onCalculation({...last,...(p.retry?{retry:{...p.retry,outcome}}:{})});}
+ catch(error){console.warn('計算記録を表示できませんでした',error);}
+}
 function activity(client,id,p,state,extra={}){
- if(state==='progress'&&extra.progress?.stage&&extra.progress.stage!==p.lastStage){
-  p.lastStage=extra.progress.stage;
-  p.stageStarted=Date.now();
+ if(state==='progress'&&extra.progress?.stage){
+  const {stage,supportFace}=extra.progress;
+  if(stage!==p.lastStage||supportFace?.number!==p.supportFace?.number){
+   p.lastStage=stage;
+   p.stageStarted=Date.now();
+  }
+  p.supportFace=supportFace;
  }
- if(p.lastStage){
-  const now=Date.now();
-  extra.calculation={stage:p.lastStage,stageElapsedMs:Math.max(0,now-p.stageStarted),elapsedMs:Math.max(0,now-p.started)};
- }
+ if(p.lastStage)extra.calculation=calculationState(p);
  const event={
   client,id,state,spec:p.payload.spec,features:p.activityFeatures||p.payload.features||[],
   started:p.started,created:p.created,
@@ -66,8 +80,15 @@ export class KernelClient {
  dispatch(){
   if(this.active!==null)return;const entry=this.pending.entries().next().value;if(!entry)return;const [id,p]=entry;
   if(freshSvgEngine(p.payload.features||[],p.payload.spec)&&this.worker){this.worker.terminate();this.worker=null;}
-  if(!this.worker){let worker;try{worker=this.factory();}catch(e){this.reset(e);return;}this.worker=worker;worker.onmessage=({data})=>{if(this.worker!==worker)return;const pending=this.pending.get(data.id);if(!pending)return;if(data.progress){const progress=pending.filletGuard.progress(data.progress);activity(this,data.id,pending,'progress',{progress});pending.onProgress?.(progress);return;}clearTimeout(pending.timer);pending.filletGuard?.clear();if(data.timings){try{pending.onTiming?.(data.timings);}catch(error){console.warn('計算時間を表示できませんでした',error);}}if(data.error&&fatalKernelError(data.error)&&pending.payload.spec?.type==='filletRadiusSearch'&&pending.filletGuard?.hasResult()){this.finishFilletInspection(data.id,worker,'kernel-error');return;}if(data.error&&fatalKernelError(data.error)){this.worker?.terminate();this.worker=null;this.active=null;if(!pending.retried){pending.retried=true;pending.onProgress?.({stage:'計算エンジンを再起動しています',current:0,total:1});this.dispatch();return;}}this.pending.delete(data.id);this.active=null;if(pending.precisionPreview)rememberSlowPrecisionPreview(pending.timeoutDocument,pending.payload.spec,Date.now()-pending.started);if(data.error){const error=cadErrorAdvice(Object.assign(new Error(data.error),data.details||{}),pending.payload.spec);activity(this,data.id,pending,'error',{error});pending.reject(error);}else{pending.resolve(data.result);}this.dispatch();};worker.onerror=e=>{if(this.worker!==worker)return;const p=this.pending.get(this.active);if(p?.payload.spec?.type==='filletRadiusSearch'&&p.filletGuard?.hasResult()){this.finishFilletInspection(this.active,worker,'kernel-error');return;}this.reset(Error(e.message||'CADエンジンを起動できませんでした'));};worker.onmessageerror=()=>{if(this.worker===worker)this.reset(Error('CADの計算結果を受信できませんでした'));};}
-  this.active=id;p.started=Date.now();p.lastStage=null;const worker=this.worker;p.filletGuard=createFilletInspectionGuard(p.payload.spec,()=>this.finishFilletInspection(id,worker),{delay:this.filletTrialTimeout});activity(this,id,p,'started');p.timer=setTimeout(()=>{
+  if(!this.worker){
+   let worker;
+   try{worker=this.factory();}catch(e){this.reset(e);return;}
+   this.worker=worker;
+   worker.onmessage=({data})=>this.receive(worker,data);
+   worker.onerror=e=>{if(this.worker!==worker)return;const p=this.pending.get(this.active);if(p?.payload.spec?.type==='filletRadiusSearch'&&p.filletGuard?.hasResult()){this.finishFilletInspection(this.active,worker,'kernel-error');return;}this.reset(Error(e.message||'CADエンジンを起動できませんでした'));};
+   worker.onmessageerror=()=>{if(this.worker===worker)this.reset(Error('CADの計算結果を受信できませんでした'));};
+  }
+  this.active=id;p.started=Date.now();p.lastStage=null;p.supportFace=null;const worker=this.worker;p.filletGuard=createFilletInspectionGuard(p.payload.spec,()=>this.finishFilletInspection(id,worker),{delay:this.filletTrialTimeout});activity(this,id,p,'started');p.timer=setTimeout(()=>{
    previewTimeoutCache.remember(p.timeoutDocument,p.timeoutKey);
    if(p.precisionPreview){
     rememberSlowPrecisionPreview(p.timeoutDocument,p.payload.spec,Math.max(4000,Date.now()-p.started));
@@ -76,8 +97,59 @@ export class KernelClient {
    this.reset(Error('計算が長引いています。寸法や個数を小さくして再実行してください'));
   },p.timeout);try{this.worker.postMessage({...p.payload,id});}catch(e){this.reset(e);}
  }
- request(payload,timeout=90000,onProgress,onTiming,activityFeatures,verification){
-  const id=++this.next;return new Promise((resolve,reject)=>{const accept=result=>{try{if(verification)previewResultGuard.accept(verification.features,verification.spec,result);activity(this,id,p,'completed');resolve(result);}catch(cause){const error=cadErrorAdvice(cause,verification?.spec||payload.spec);activity(this,id,p,'error',{error});reject(error);}};const p={resolve:accept,reject,payload,timeout,onProgress,onTiming,activityFeatures,automaticPreview:verification?.automaticPreview,precisionPreview:verification?.precisionPreview,timeoutKey:verification?.timeoutKey,timeoutDocument:verification?.timeoutDocument,timer:null,created:Date.now()};this.pending.set(id,p);activity(this,id,p,'queued');if(this.active!==null)onProgress?.({stage:'現在の計算が終わるのを待っています'});this.dispatch();});
+ receive(worker,data){
+  if(this.worker!==worker)return;
+  const pending=this.pending.get(data.id);
+  if(!pending)return;
+  if(data.progress){
+   const progress=pending.filletGuard.progress(data.progress);
+   activity(this,data.id,pending,'progress',{progress});pending.onProgress?.(progress);return;
+  }
+  clearTimeout(pending.timer);pending.filletGuard?.clear();
+  if(data.timings){
+   try{pending.onTiming?.(data.timings);}catch(error){console.warn('計算時間を表示できませんでした',error);}
+  }
+  if(data.error&&fatalKernelError(data.error)){
+   if(pending.payload.spec?.type==='filletRadiusSearch'&&pending.filletGuard?.hasResult()){
+    this.finishFilletInspection(data.id,worker,'kernel-error');return;
+   }
+   worker.terminate();this.worker=null;this.active=null;
+   if(!pending.retry){
+    pending.retry={message:data.error,calculation:calculationState(pending)};
+    pending.onProgress?.({stage:'計算エンジンを再起動しています',current:0,total:1});
+    this.dispatch();return;
+   }
+  }
+  this.pending.delete(data.id);this.active=null;
+  if(pending.precisionPreview)rememberSlowPrecisionPreview(pending.timeoutDocument,pending.payload.spec,Date.now()-pending.started);
+  if(data.error){
+   const error=cadErrorAdvice(Object.assign(new Error(data.error),data.details||{}),pending.payload.spec);
+   activity(this,data.id,pending,'error',{error});pending.reject(error);
+  }else pending.resolve(data.result);
+  this.dispatch();
+ }
+ request(payload,timeout=90000,onProgress,onTiming,activityFeatures,verification,onCalculation){
+  const id=++this.next;
+  return new Promise((resolve,reject)=>{
+   const p={payload,timeout,onProgress,onTiming,activityFeatures,automaticPreview:verification?.automaticPreview,
+    precisionPreview:verification?.precisionPreview,timeoutKey:verification?.timeoutKey,timeoutDocument:verification?.timeoutDocument,
+    timer:null,created:Date.now(),
+    resolve:result=>{
+     try{if(verification)previewResultGuard.accept(verification.features,verification.spec,result);}
+     catch(cause){
+      const error=cadErrorAdvice(cause,verification?.spec||payload.spec);
+      activity(this,id,p,'error',{error});p.reject(error);return;
+     }
+     reportCalculation(p,onCalculation,'succeeded');
+     activity(this,id,p,'completed');resolve(result);
+    },
+    reject(error){reportCalculation(p,onCalculation,error.code==='cancelled'?'cancelled':'failed');reject(error);},
+   };
+   this.pending.set(id,p);
+   activity(this,id,p,'queued');
+   if(this.active!==null)onProgress?.({stage:'現在の計算が終わるのを待っています'});
+   this.dispatch();
+  });
  }
  warmup(){return this.request({type:'warmup'});}
  runLatestExactExtrusion(features,spec,{replaceWaitMs=1500,...options}={}){
@@ -88,7 +160,7 @@ export class KernelClient {
   const timer=setTimeout(()=>{const current=this.pending.get(this.active);if(this.pending.has(id)&&this.active!==id&&current?.payload.spec?.type==='exactExtrusionPreview')this.cancel(this.active);},replaceWaitMs);
   return result.finally(()=>clearTimeout(timer));
  }
- run(features,spec,{onProgress,onTiming,timeout,retry=false,document=features,automaticPreview=false,foreground=false}={}){
+ run(features,spec,{onProgress,onTiming,onCalculation,timeout,retry=false,document=features,automaticPreview=false,foreground=false}={}){
   const precisionPreview=!foreground&&isPrecisionPreview(spec,automaticPreview);
   const descriptor=automaticPreview&&!isAutomaticPreview(spec)?{type:'preview',operation:spec}:spec;
   const key=foreground?null:previewTimeoutKey(descriptor);
@@ -110,7 +182,7 @@ export class KernelClient {
   const limit=(spec.type==='machiningValueTrial'||isAutomaticPreview(descriptor))&&Number.isFinite(timeout)&&timeout>0?Math.min(timeout,maximum):maximum;
   return this.request(compactExtrusionRequest(features,spec),limit,onProgress,onTiming,features,{
    features,spec:descriptor,automaticPreview,precisionPreview,timeoutKey:key,timeoutDocument:document
-  });
+  },onCalculation);
  }
 }
 export const kernelClient=new KernelClient();

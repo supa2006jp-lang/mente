@@ -10,10 +10,11 @@ let ready=null,queue=Promise.resolve(),stlSession=null;
 function initialize(){return ready||(ready=fetch(new URL('replicad_single.wasm',self.location.href)).then(response=>{if(!response.ok)throw Error('CADエンジンを取得できませんでした');return response.arrayBuffer();}).then(wasmBinary=>init({wasmBinary})).then(setOC).catch(e=>{ready=null;throw e;}));}
 self.onmessage=({data})=>{queue=queue.then(async()=>{
  let timing;
- let lastStage;
+ let lastStage,lastFace;
  function progress(update){
-  if(Object.keys(update).length===1&&update.stage===lastStage)return;
-  if(update.stage)lastStage=update.stage;
+  const face=update.supportFace?.number;
+  if(update.stage&&update.stage===lastStage&&face===lastFace&&Object.keys(update).every(k=>k==='stage'||k==='supportFace'))return;
+  if(update.stage){lastStage=update.stage;lastFace=face;}
   self.postMessage({id:data.id,progress:update});
  }
  try{

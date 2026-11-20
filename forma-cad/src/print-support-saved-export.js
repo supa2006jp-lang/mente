@@ -37,14 +37,16 @@ const samePlacement=(a,b)=>a.elements.every((value,i)=>Math.abs(value-b.elements
 
 export function savedSupportPackage(features,ids,bodies,regenerate,onProgress){
  if(!Array.isArray(ids)||!ids.length||ids.length>100||new Set(ids).size!==ids.length)throw Error('出力する連結リブサポートを選択してください');
- const parts=new Set(),blockers=[];
+ const parts=new Set(),blockers=[],autoSupportFaces=[];
  let layerHeight;
  for(const [number,id] of ids.entries()){
   const index=features.findIndex(feature=>feature.id===id&&feature.spec?.type==='printSupport'&&feature.spec.style==='walls');
   if(index<0)throw Error('連結リブサポートの工程が見つかりません');
   const feature=features[index],prefix=features.slice(0,index);
   onProgress?.({stage:'保存済みの連結リブサポートを確認しています',current:number+1,total:ids.length});
-  const record=feature.analysis?.supportExport??regenerate(prefix,feature.spec);
+  const cached=feature.analysis?.supportExport;
+  const missingFaces=cached&&!cached.autoSupportFaces&&feature.analysis?.printSupport?.nonHorizontalFaces;
+  const record=cached&&!missingFaces?cached:regenerate(prefix,feature.spec);
   if(!record?.complete||!record.blockers?.length)throw Error('3MF出力に必要な除外範囲がありません。連結リブサポートの配置を確認してください');
   if(layerHeight!==undefined&&layerHeight!==record.layerHeight)throw Error('一括出力する積層ピッチを揃えてください');
   layerHeight=record.layerHeight;
@@ -59,15 +61,22 @@ export function savedSupportPackage(features,ids,bodies,regenerate,onProgress){
    parts.add(part);
   }
   const point=new Vector3();
-  for(const mesh of record.blockers){
+  const transform=mesh=>{
    const vertices=[];
    for(let i=0;i<mesh.vertices.length;i+=3){
     point.fromArray(mesh.vertices,i).applyMatrix4(placement);vertices.push(point.x,point.y,point.z);
    }
-   blockers.push({vertices,triangles:mesh.triangles});
+   return {...mesh,vertices};
+  };
+  blockers.push(...record.blockers.map(transform));
+  if(Array.isArray(record.autoSupportFaces)){
+   const faces=record.autoSupportFaces.filter(face=>face?.bodyId===feature.spec.target&&['sloped','curved'].includes(face.reason)&&
+    Array.isArray(face.vertices)&&Array.isArray(face.triangles)&&face.vertices.length>=9&&face.vertices.length%3===0&&face.triangles.length>=3);
+   autoSupportFaces.push(...faces.map(transform));
   }
  }
- const result={complete:true,layerHeight,blockers,bodies:[...parts].map(id=>({id,...printSupportExportMesh(bodies.get(id))}))};
+ const result={complete:true,layerHeight,blockers,bodies:[...parts].map(id=>({id,...printSupportExportMesh(bodies.get(id))})),
+  ...(autoSupportFaces.length?{autoSupportFaces}:{})};
  const report=inspectPrintSupportPackage(result);
  if(!report.ok)throw Error(report.issues[0].message);
  return result;

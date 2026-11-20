@@ -51,6 +51,7 @@ import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
 import {printSupportExportCandidates,savedSupportExportGroups,savedSupportExportIds} from './print-support-export-choice.js';
 import {createExportDialog} from './export-dialog.js';
 import {createExport3mfPreview} from './export-3mf-preview.js';
+import {supportAutoFaceColor,supportAutoFaceLabel,supportAutoFaceMessage} from './print-support-auto-faces.js';
 import {createCadWorkflow} from './cad-workflow.js';
 const outputDialog=createExportDialog({createPreview:createExport3mfPreview});
 import {createPrintSupportDialog} from './print-support-dialog.js';
@@ -1949,7 +1950,12 @@ function supportOutputEntry({original,ids=[],previews=[],run,label='本体とリ
    const rows=[...bodyNames.keys()].filter(id=>byId.has(id)).map(bodyRow);
    const parts=rows.map(({id,color})=>({...byId.get(id),color}));
    parts.push(...data.blockers.map(mesh=>({...mesh,id:blocker.id,color:blocker.color,overlay:true})));
-   return {rows:[...rows,{...blocker,detail:data.blockers.length+'範囲'}],parts,data};
+   const autoFaces=(data.autoSupportFaces||[]).map((face,index)=>({
+    ...face,id:Symbol('auto-support-face-'+(index+1)),label:bodyDisplayName(face.bodyId)+' ／ '+supportAutoFaceLabel(face.reason)+' '+(index+1),
+    detail:supportAutoFaceMessage(face.reason),color:supportAutoFaceColor,autoFace:true,
+   }));
+   parts.push(...autoFaces);
+   return {rows:[...rows,{...blocker,detail:data.blockers.length+'範囲'}],parts,autoFaces,data};
   }
  };
 }

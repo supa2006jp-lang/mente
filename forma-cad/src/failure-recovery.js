@@ -1,5 +1,6 @@
 import {subscribeKernelActivity} from './kernel-client.js';
 import {createFailureRecoveryStore,failureRecord,failureDocument,recoverableMachiningSpec} from './failure-recovery-store.js';
+import {supportCalculationLabel,supportRetryLabel} from './print-support-failure.js';
 const commands=new Set(['exactExtrusionPreview','extrusionToolPreview','extrusionJoinInspect','extrusionBatch','extrusion','barrierPreparedPreview','join','fillet','chamfer','shell','move','pull','mirror','replay','pipe','loft','revolve','resize','split','thread','coil','enclose','svgWrap','geometryGapRepair','ballJoint','bossJoint','simpleBoss','snapLid','slideLid','cylinderHinge']);
 const operationNames={exactExtrusionPreview:'押し出しのプレビュー',extrusionToolPreview:'押し出しのプレビュー',extrusionJoinInspect:'結合の確認',extrusionBatch:'押し出し',extrusion:'押し出し',barrierPreparedPreview:'バリア押し出し',join:'結合・切り取り',fillet:'フィレット',chamfer:'面取り',shell:'シェル',move:'移動',pull:'プレス・プル',mirror:'ミラー',replay:'履歴の再計算',pipe:'パイプ',loft:'ロフト',revolve:'回転体',resize:'サイズ変更',split:'分離',thread:'ねじ',coil:'コイル',enclose:'囲み形成',svgWrap:'巻き付け',geometryGapRepair:'隙間の修正',ballJoint:'ボールジョイント',bossJoint:'ボス接合',simpleBoss:'ボス接合',snapLid:'被せ蓋',slideLid:'スライド蓋',cylinderHinge:'円柱ヒンジ蓋'};
 export function installFailureRecovery({getFeatures,getEditing,getDrawing,getNamedDimensions,onRestore,notify,store=createFailureRecoveryStore()}){
@@ -14,8 +15,13 @@ export function installFailureRecovery({getFeatures,getEditing,getDrawing,getNam
    if(record.calculation?.stage){
     const phase=document.createElement('p');
     const seconds=Math.floor(record.calculation.stageElapsedMs/1000);
-    phase.textContent='最後の計算段階：'+record.calculation.stage+(Number.isFinite(seconds)?'（この段階で '+seconds+' 秒）':'');
+    phase.textContent='最後の計算段階 '+supportCalculationLabel(record.calculation)+(Number.isFinite(seconds)?'（この段階で '+seconds+' 秒）':'');
     article.append(phase);
+   }
+   if(record.calculation?.retry){
+    const retry=document.createElement('p');
+    retry.textContent=supportRetryLabel(record.calculation.retry);
+    article.append(retry);
    }
    const restore=document.createElement('button');restore.type='button';restore.textContent=record.editing?.support?'モデルとサポート設定を復元':(record.editing?.feature?.kind==='extrusion'||recoverableMachiningSpec(record))?'モデルと入力条件を復元':'元モデルを復元';restore.onclick=async()=>{restore.disabled=true;try{await onRestore(structuredClone(record));dialog.close();notify('失敗直前の状態を復元しました。現在のモデルは「元に戻す」で戻せます');}catch(error){status.textContent=error.message;}finally{restore.disabled=false;}};
    const save=document.createElement('button');save.type='button';save.textContent='モデルと条件をファイル保存';save.onclick=()=>download(record);const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.onclick=async()=>{try{await store.remove(record.id);if(last?.id===record.id)last=null;await refresh();}catch(error){status.textContent=error.message;}};article.append(restore,save,remove);list.append(article);

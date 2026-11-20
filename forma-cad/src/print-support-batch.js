@@ -11,7 +11,9 @@ export function mergeSupportPackages(packages){
  if(packages.some(pkg=>pkg.layerHeight!==layerHeight))throw Error('一括出力する積層ピッチを揃えてください');
  const bodies=new Map();
  for(const pkg of packages)for(const body of pkg.bodies)if(!bodies.has(body.id))bodies.set(body.id,body);
- return {complete:true,layerHeight,bodies:[...bodies.values()],blockers:packages.flatMap(pkg=>pkg.blockers)};
+ const autoSupportFaces=packages.flatMap(pkg=>pkg.autoSupportFaces||[]);
+ return {complete:true,layerHeight,bodies:[...bodies.values()],blockers:packages.flatMap(pkg=>pkg.blockers),
+  ...(autoSupportFaces.length?{autoSupportFaces}:{})};
 }
 
 export function supportBatchPackage(entries){

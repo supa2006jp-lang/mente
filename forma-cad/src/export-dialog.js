@@ -8,25 +8,34 @@ export function createExportDialog({createPreview}={}){
   '<div class="export-review"><section><h3>ファイルに含まれる内容</h3><ul id="export-contents" aria-live="polite"></ul></section>'+
   '<section id="export-preview" hidden><div class="export-preview-controls">'+
   '<button type="button" id="export-preview-all">全体表示</button><button type="button" id="export-preview-top">上から見る</button></div>'+
-  '<div id="export-viewport"></div><p id="export-preview-status" role="status"></p></section></div>'+
+  '<div id="export-viewport"></div><label id="export-auto-faces" hidden>自動サポートに任せる面<select id="export-auto-face"></select></label>'+
+  '<p id="export-preview-status" role="status"></p></section></div>'+
   '<p id="export-detail" role="status"></p><div class="export-actions">'+
   '<button type="button" id="export-cancel">閉じる</button>'+
   '<button type="button" id="export-confirm" class="accent"></button></div>';
  document.body.append(dialog);
  const find=id=>dialog.querySelector('#export-'+id);
  const format=find('format'),target=find('target'),contents=find('contents'),detail=find('detail'),confirm=find('confirm');
- const preview=find('preview'),view=createPreview?.(find('viewport')),previewStatus=find('preview-status');
- let formats=[],current=()=>true,revision=0,ready=false,payload;
+ const preview=find('preview'),previewStatus=find('preview-status'),autoSelect=find('auto-face');
+ let formats=[],current=()=>true,revision=0,ready=false,payload,autoFaces=[];
+ const view=createPreview?.(find('viewport'),id=>selectPart(view.focused===id?null:id));
  const entries=()=>formats.find(item=>item.id===format.value)?.entries??[];
  const entry=()=>entries()[Number(target.value)];
  function selectPart(id,label){
-  view?.focus(id);previewStatus.textContent=id===null?'一覧の名前を選ぶと、その部品を強調します。':label+'を強調しています。';
+  view?.focus(id);
+  const autoIndex=autoFaces.findIndex(face=>face.id===id),autoFace=autoFaces[autoIndex];
+  autoSelect.value=autoFace?String(autoIndex):'';
+  previewStatus.textContent=autoFace?autoFace.detail:id===null?
+   (autoFaces.length?'青い面をクリックすると、自動サポートに任せる理由を確認できます。':'一覧の名前を選ぶと、その部品を強調します。'):
+   label+'を強調しています。';
   for(const button of contents.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.exportPartId===id));
  }
  find('preview-all').onclick=()=>{selectPart(null);view?.view();};
  find('preview-top').onclick=()=>view?.view(true);
+ autoSelect.onchange=()=>selectPart(autoSelect.value===''?null:autoFaces[Number(autoSelect.value)]?.id??null);
  function clearPreview(){
   payload=undefined;view?.clear();preview.hidden=true;
+  autoFaces=[];autoSelect.replaceChildren();find('auto-faces').hidden=true;
   dialog.classList.remove('has-model-preview');
  }
  function drawRows(rows){
@@ -55,12 +64,18 @@ export function createExportDialog({createPreview}={}){
   detail.textContent=item?.load?'出力対象を確認しています…':item?.detail??'';
   if(!item?.load)return;
   try{
-   const {rows,parts,plateSize,data}=await item.load(currentEntry);
+   const {rows,parts,plateSize,data,autoFaces:faces=[]}=await item.load(currentEntry);
    if(!currentEntry())return;
    let warning='';
    if(view&&parts?.length){
     preview.hidden=false;dialog.classList.add('has-model-preview');
-    if(view.show(parts,plateSize))selectPart(null);
+    if(view.show(parts,plateSize)){
+     autoFaces=faces.filter(face=>view.has(face.id));
+     find('auto-faces').hidden=!autoFaces.length;
+     if(autoFaces.length)autoSelect.replaceChildren(new Option('すべての面（'+autoFaces.length+'面）',''),
+      ...autoFaces.map((face,i)=>new Option(face.label,String(i))));
+     selectPart(null);
+    }
     else{
      preview.hidden=true;dialog.classList.remove('has-model-preview');
      warning='3Dプレビューを表示できませんでした。';

@@ -1,9 +1,36 @@
 import {validatePrintSupport} from './print-support.js';
 import {currentBodyMeshRecords} from './mesh-quality.js';
 const phases=new Set(['preview','export3mf','apply','preflight']);
-export function printSupportFailureContext({features,history,input,fields,featureId=null,phase,analysis=null,build='unknown',bodyNames={}}){
+export function printSupportFailureContext({features,history,input,fields,featureId=null,phase,analysis=null,build='unknown',bodyNames={},calculation=null}){
  if(!phases.has(phase)||input?.type!=='printSupport')throw Error('サポートの失敗記録が不正です');
- return {features,requestFeatures:history,spec:{...structuredClone(input),preview:true},editing:{stage:'printSupport',bodyNames:structuredClone(bodyNames),support:{version:1,phase,featureId,input:structuredClone(input),fields:structuredClone(fields),analysis:structuredClone(analysis),build:String(build).slice(0,80)}}};
+ return {features,requestFeatures:history,spec:{...structuredClone(input),preview:true},calculation,editing:{stage:'printSupport',bodyNames:structuredClone(bodyNames),support:{version:1,phase,featureId,input:structuredClone(input),fields:structuredClone(fields),analysis:structuredClone(analysis),build:String(build).slice(0,80)}}};
+}
+export function supportCalculationLabel(update){
+ if(!update?.stage)return '';
+ const face=update.supportFace;
+ const prefix=Number.isInteger(face?.number)&&Number.isFinite(face?.height)?'下面 '+face.number+'（高さ '+Number(face.height.toFixed(2))+' mm） ／ ':'';
+ return prefix+update.stage;
+}
+export function supportRetryLabel(retry){
+ if(!retry)return '';
+ const before=supportCalculationLabel(retry.calculation);
+ const outcome=retry.outcome==='succeeded'?'自動再試行で復旧しました。':retry.outcome==='cancelled'?'自動再試行を中断しました。':'自動再試行でも計算を完了できませんでした。';
+ return outcome+(before?' 初回の停止箇所 '+before+'。':'');
+}
+function readCalculation(value){
+ if(typeof value?.stage!=='string')return undefined;
+ const result={stage:value.stage.slice(0,240)};
+ for(const key of ['stageElapsedMs','elapsedMs'])if(Number.isFinite(value[key])&&value[key]>=0)result[key]=value[key];
+ const {number,height}=value.supportFace||{};
+ if(Number.isInteger(number)&&number>0&&Number.isFinite(height))result.supportFace={number,height};
+ return result;
+}
+function savedCalculation(value){
+ const calculation=readCalculation(value),retry=value?.retry;
+ if(calculation&&['succeeded','failed','cancelled'].includes(retry?.outcome))
+  calculation.retry={outcome:retry.outcome,calculation:readCalculation(retry.calculation),
+   ...(typeof retry.message==='string'?{message:retry.message.slice(0,1000)}:{})};
+ return calculation;
 }
 export function readPrintSupportFailure(record){
  const saved=record?.editing?.support;
@@ -19,5 +46,6 @@ export function printSupportFailureFromDocument(doc){
  let prefix=doc.features;if(saved.featureId!==null){const at=doc.features.findIndex(f=>f.id===saved.featureId&&f.spec?.type==='printSupport');if(at<0)throw Error('失敗時のサポート工程が見つかりません');prefix=doc.features.slice(0,at);}
  if(!Array.isArray(failure.request.features)||!sameData(prefix,failure.request.features))throw Error('失敗時の履歴とモデルが一致しません');
  const bodies=currentBodyMeshRecords(prefix);if(!bodies.has(input.target))throw Error('失敗時の対象ボディが見つかりません');if(typeof input.id!=='string'||!input.id||input.id.length>100||bodies.has(input.id))throw Error('失敗時のサポートIDが不正です');
- return {format:'forma-cad-failure',version:1,id:'file-support-'+failure.createdAt,createdAt:failure.createdAt,document:{format:'forma-cad',version:1,units:'mm',features:structuredClone(doc.features),...(doc.drawing?{drawing:structuredClone(doc.drawing)}:{})},request:structuredClone(failure.request),editing:{...structuredClone(failure.editing),support:saved},error:structuredClone(failure.error)};
+ const calculation=savedCalculation(failure.calculation);
+ return {format:'forma-cad-failure',version:1,id:'file-support-'+failure.createdAt,createdAt:failure.createdAt,document:{format:'forma-cad',version:1,units:'mm',features:structuredClone(doc.features),...(doc.drawing?{drawing:structuredClone(doc.drawing)}:{})},request:structuredClone(failure.request),editing:{...structuredClone(failure.editing),support:saved},error:structuredClone(failure.error),...(calculation?{calculation}:{})};
 }

@@ -1,4 +1,5 @@
 import {createSupportCoverageView} from './print-support-coverage-view.js';
+import {createSupportGapComparison} from './print-support-gap-comparison.js';
 import {createSupportBatchPanel,supportBatchPackage,supportHistoryFeature,supportPreviewExportable} from './print-support-batch.js';
 import {createSupportClearanceView} from './print-support-clearance-view.js';
 import {createSupportContactView} from './print-support-contact-view.js';
@@ -14,7 +15,8 @@ import {remapRibExclusions,ribExclusionLocations} from './print-support-rib-rema
 import {supportPrintSettings} from './print-support-print-settings.js';
 import {installPrintSupportPresets} from './print-support-presets.js';
 import {failureDocument,failureRecord} from './failure-recovery-store.js';
-import {printSupportFailureContext,readPrintSupportFailure} from './print-support-failure.js';
+import {printSupportFailureContext,readPrintSupportFailure,supportCalculationLabel,supportRetryLabel} from './print-support-failure.js';
+import {cadErrorAdvice} from './cad-error-advice.js';
 import {supportExportPartName} from './print-support-preflight.js';
 import {installSupportRemoval} from './print-support-removal-view.js';
 import {supportMaterialEstimate} from './print-support-material.js';
@@ -55,10 +57,13 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const contactTools=document.createElement('details');contactTools.dataset.id='contact-tools';contactTools.innerHTML='<summary>接触層の確認・試験片</summary><label><input type="checkbox" data-id="contact-highlight">接触層を色分けして強調</label><small>ピンク：上面 ／ 青：底面。拡大する面を選べます。</small><div data-id="contact-focus-list"></div><button type="button" data-id="contact-all">すべて表示・元の視点に戻す</button><p data-id="trial-chart"></p><button type="button" data-id="trial-export">比較試験片3種類を3MF出力</button><small>上下の薄皮を付けた小さなコの字です。上下面のオン・オフ、線幅、上面の輪郭の帯、底面の端の逃げ、積層ピッチ、縦すき間を引き継ぎ、リブ間隔は8 mmに固定します。A／B／Cは本体前側の溝1／2／3本で区別します。元のモデルは変更しません。</small>';contact.after(contactTools);
  const strength=document.createElement('div');strength.dataset.id='strength-status';$('wallTies').closest('label').after(strength);const autoLabel=document.createElement('label');autoLabel.innerHTML='<input type="checkbox" data-id="autoReinforce">高さ・壁厚に応じて横つなぎを増やす';$('wallTies').closest('label').after(autoLabel,$('tieInterval').closest('label'),strength);
  const material=document.createElement('details');material.dataset.id='material-estimate';material.innerHTML='<summary>フィラメント量の概算</summary><p data-id="material-info"></p><small>CAD体積を全充填した場合の換算です。材料の密度は製品仕様に合わせて変更してください。実際の使用量・時間は、インフィル・壁数・流量などを設定したスライサーで確認してください。</small>';$('info').before(material);material.querySelector('summary').after($('filamentDiameter').closest('label'),$('materialDensity').closest('label'));$('materialDensity').closest('label').firstChild.textContent='材料の密度 (g/cm³)';
- const failurePanel=document.createElement('div');failurePanel.dataset.id='support-failure';failurePanel.hidden=true;failurePanel.innerHTML='<small data-id="failure-note">失敗時のモデルと設定を記録しました。上部の「失敗時の記録」からも復元できます。</small><button type="button" data-id="failure-save">失敗時のモデルと設定を保存</button>';$('error').after(failurePanel);
+ const failurePanel=document.createElement('div');failurePanel.dataset.id='support-failure';failurePanel.hidden=true;failurePanel.innerHTML='<small data-id="failure-note">失敗時のモデルと設定を記録しました。上部の「失敗時の記録」からも復元できます。</small><small data-id="failure-calculation" role="status" hidden></small><button type="button" data-id="failure-save">失敗時のモデルと設定を保存</button>';$('error').after(failurePanel);
  const retry=document.createElement('button');retry.type='button';retry.dataset.id='preview-retry';retry.textContent='この設定でプレビュー';retry.hidden=true;$('info').before(retry);
  const previewHint=document.createElement('small');previewHint.hidden=true;$('info').after(previewHint);
  const exportState=document.createElement('div');exportState.dataset.id='export-state';exportState.setAttribute('role','status');exportState.style.cssText='padding:10px;border:1px solid #8aaaba;border-radius:6px;margin:10px 0';$('export3mf').before(exportState);
+ const autoFaceButton=document.createElement('button');
+ autoFaceButton.type='button';autoFaceButton.dataset.id='auto-support-faces';autoFaceButton.hidden=true;
+ exportState.before(autoFaceButton);
  const reviewExport=document.createElement('button');
  reviewExport.type='button';reviewExport.dataset.id='review3mf';reviewExport.textContent='3MFの出力対象を確認';
  $('export3mf').before(reviewExport);
@@ -73,7 +78,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  $('rib-print-policies').onchange=()=>controls();
  const quick=document.createElement('button');quick.id='print-support-selected-face';quick.type='button';quick.textContent='この下面に連結リブサポート';quick.hidden=true;quick.style.cssText='pointer-events:auto;width:100%;margin-top:6px;background:#e2f7fb;color:#17475a;border-color:#79b1c8';document.getElementById('measurement').append(quick);
  let original=null,history=null,editing=null,id=null,selectedFaces=[],selectionBusy=false,revision=0,timer=null,inflight=false,busy=false,picking=false,cached=null,preview=null,hidden=[],fitted=false,exportFocus=false;
- let trialBusy=false,excludedRibs=[],excludedRibBlockers=[],ribPicking=false,lastFailure=null,materialInvalid=false;
+ let trialBusy=false,excludedRibs=[],excludedRibBlockers=[],ribPicking=false,lastFailure=null,materialInvalid=false,restoredBatch=null;
  const ribUndo=[],ribRedo=[];
  const planPanel=document.createElement('details');
  planPanel.dataset.id='rib-layout-plans';
@@ -101,6 +106,16 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const currentBatch=()=>[...batchEntries.values()].filter(entry=>entry.result&&batchPanel.selected.has(entry.input.target));
  const batchExportCount=()=>currentBatch().filter(supportPreviewExportable).length;
  const overridesFor=target=>faceOverrides.get(target)||[];
+ let gapBaseline=null;
+ const gapComparison=createSupportGapComparison({anchor:previewHint,scene,onRestore:value=>{
+  $('sideGap').value=value;resetStructure();schedule();
+ }});
+ function updateGapComparison(entries){
+  if(!gapBaseline)return;
+  if(!entries.length){gapComparison.fail();return;}
+  try{gapComparison.show(gapBaseline,entries);}
+  catch(error){gapComparison.fail();console.warn('横すき間の比較を表示できませんでした',error);}
+ }
  const comparisonPanel=document.createElement('div');
  comparisonPanel.dataset.id='rib-reinforcement-comparison';
  comparisonPanel.innerHTML='<strong>補強前後の比較</strong><small data-id="rib-comparison-summary" role="status"></small><button type="button" data-id="rib-comparison-before">補強前</button> <button type="button" data-id="rib-comparison-after">補強後</button> <button type="button" data-id="rib-comparison-undo">補強を元に戻す</button>';
@@ -136,6 +151,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(placementChanged||$('target').value!==target)resetStructure();
   faceOverrides.set(target,rows);$('target').value=target;schedule(false,comparison);if(message)notify(message);
  },onReset(target){if($('target').value===target)rememberRibEdit();faceOverrides.delete(target);resetStructure();schedule();}});
+ autoFaceButton.onclick=()=>coverageView.showAutoFaces();
  const faceView=createSupportFaceView({scene,host,meshes,camera});
  const ribView=createSupportRibView({host,canvas,camera,onToggle:pickRib});
  const roofView=createSupportRoofView({host,canvas,camera,onSelect(sectionId){if(!dialog.open||busy)return;roofView.setSelected(sectionId);controls();}});
@@ -158,9 +174,9 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return entries.length?{entries,history,preview}:null;
  }
  const removal=installSupportRemoval({anchor:material,host,scene,meshes,kernel,bodyName,getState:removalState,onChange:controls});
- function clear(){coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
- function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;clear();$('apply').disabled=true;return revision;}
- function close(){reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
+ function clear(){autoFaceButton.hidden=true;coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
+ function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;gapComparison.clear();clear();$('apply').disabled=true;return revision;}
+ function close(){gapBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
  const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
  function previewOutputs(){
   const entries=batching()?currentBatch():cached?[cached]:[];
@@ -217,6 +233,10 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   coverageView.controls({available:walls,blocked:busy||picking||inflight||batchPending,masked:removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length,
    activeTarget:coverageTarget,hasOverrides:overridesFor(coverageTarget).length>0});
   comparisonControls();
+  const blocked=busy||picking||inflight||batchPending;
+  const masked=removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length;
+  autoFaceButton.disabled=blocked||masked;
+  gapComparison.controls({blocked,masked});
   $('target').disabled=busy||batch;
   $('apply').textContent=batch?'成功分をまとめて作成（'+currentBatch().length+'）':editing?'変更を適用':'連結リブサポートを作成';
   $('export3mf').textContent=batch?'成功分をまとめて3MF出力（'+batchExportCount()+'）':'プレビューを3MF出力（本体＋薄壁）';
@@ -489,7 +509,11 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }
  $('wallDirection').onchange=()=>{resetStructure();schedule();};$('rib-rotate').onclick=()=>{const axis=cached?.result.supportPreview?.ribs[0]?.axis,current=$('wallDirection').value;$('wallDirection').value=axis===0?'x':axis===1?'y':current==='x'?'y':'x';resetStructure();schedule();};
  $('rib-pick').onclick=()=>{if(!cached)return;endRibBatch();ribPicking=!ribPicking;$('error').textContent='';controls();};$('rib-reset').onclick=()=>{rememberRibEdit();endRibBatch();excludedRibs=[];excludedRibBlockers=[];ribReview=[];reviewSource=null;schedule();};
- const spec=()=>({type:'printSupport',id,style:$('style').value,...($('style').value==='walls'&&Number($('sideGap').value)>0?{keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true}:{}),target:$('target').value,mode:$('mode').value,...(editing?.spec.batch===true?{batch:true,...(editing.spec.batchGroup?{batchGroup:editing.spec.batchGroup}:{})}:{}),...(overridesFor($('target').value).length?{faceOverrides:overridesFor($('target').value)}:{}),baseMode:$('baseMode').value,faces:$('mode').value==='face'?selectedFaces.map(f=>structuredClone(f)):[],wallDirection:$('wallDirection').value,...(wallOffset?{wallOffset}:{}),excludedRibs:[...excludedRibs],excludedRibBlockers:[...excludedRibBlockers],roofTabs:false,roofTabPlacements:[],...Object.fromEntries(keys.filter(key=>!$(key).closest('label').hidden).map(key=>[key,$(key).value.trim()?Number($(key).value):NaN])),...Object.fromEntries(toggles.map(key=>[key,$(key).checked])),...Object.fromEntries(['interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','topContactRimWidth'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))});
+ const batchSpec=()=>{
+  const source=editing?.spec??restoredBatch;
+  return source?.batch===true?{batch:true,...(source.batchGroup?{batchGroup:source.batchGroup}:{})}:{};
+ };
+ const spec=()=>({type:'printSupport',id,style:$('style').value,...($('style').value==='walls'&&Number($('sideGap').value)>0?{keepRibThickness:true,alignSideGapRibs:true,sectionSideGapRibs:true}:{}),target:$('target').value,mode:$('mode').value,...batchSpec(),...(overridesFor($('target').value).length?{faceOverrides:overridesFor($('target').value)}:{}),baseMode:$('baseMode').value,faces:$('mode').value==='face'?selectedFaces.map(f=>structuredClone(f)):[],wallDirection:$('wallDirection').value,...(wallOffset?{wallOffset}:{}),excludedRibs:[...excludedRibs],excludedRibBlockers:[...excludedRibBlockers],roofTabs:false,roofTabPlacements:[],...Object.fromEntries(keys.filter(key=>!$(key).closest('label').hidden).map(key=>[key,$(key).value.trim()?Number($(key).value):NaN])),...Object.fromEntries(toggles.map(key=>[key,$(key).checked])),...Object.fromEntries(['interfaceLineWidth','interfaceSpacing','bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset','topContactRimWidth'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))});
  function exportControls(phase='unavailable'){
   exportState.hidden=$('style').value!=='walls';const report=cached?.result.supportPreview?.exportStatus,state=report?.state||phase;exportState.dataset.state=state;host.dataset.supportExportStatus=JSON.stringify(report||{ok:false,state});exportState.replaceChildren();
   const title=document.createElement('strong');title.textContent=state==='ready'?'3MF：出力可能':state==='blocked'?'3MF：要確認':state==='checking'?'3MF：面の接続を検査中…':'3MF：未検査';title.style.color=state==='ready'?'#14704f':state==='blocked'?'#b43b24':'#31566b';exportState.append(title);
@@ -501,9 +525,26 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function completeSpec(){return {...spec(),...Object.fromEntries(keys.map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))};}
  $('face-clear').onclick=()=>{if(busy||selectionBusy)return;selectedFaces=[];resetStructure();if(picking){faceView.clear();controls();$('error').textContent='';}else schedule();};
  const presets=installPrintSupportPresets($('style').closest('label'),{read:completeSpec,download,apply:values=>{faceView.endPick();picking=false;resetStructure();for(const key of keys)if(values[key]!==undefined)$(key).value=values[key];for(const key of toggles)if(values[key]!==undefined)$(key).checked=values[key];if($('style').value!==values.style){clearRibEdits();excludedRibs=[];excludedRibBlockers=[];}for(const key of ['style','baseMode','wallDirection'])$(key).value=values[key];wallOffset=values.wallOffset||0;alignWidth();schedule();}});
- function rememberFailure(phase,error,input,result=null){
+ function showFailureDetails(record){
+  const calculation=record.calculation,stage=supportCalculationLabel(calculation),retryResult=supportRetryLabel(calculation?.retry);
+  const details=$('failure-calculation');
+  details.hidden=!stage&&!retryResult;
+  details.textContent=[stage&&'最後の処理 '+stage+'。',retryResult].filter(Boolean).join(' ');
+ }
+ function rememberFailure(phase,error,input,result=null,{calculation,requestHistory=history}={}){
   if(!input||error?.code==='cancelled'||error?.name==='AbortError')return;
-  try{const ids=[...new Set([input.target,...(result?.analysis.printSupport.baseBodyIds||[])])],context=printSupportFailureContext({features:original,history,input,fields:readAllFields(),featureId:editing?.id||null,phase,analysis:result?.analysis.printSupport||null,bodyNames:Object.fromEntries(ids.map(id=>[id,bodyName(id)])),build:new URL(import.meta.url).searchParams.get('v')||'development'});const record=recordFailure(context,error);if(record){lastFailure=record;failurePanel.hidden=false;$('failure-note').textContent='記録：'+new Date(record.createdAt).toLocaleString('ja-JP')+'（'+({preview:'プレビュー',export3mf:'3MF出力',apply:'確定',preflight:'3MF事前検査'}[phase])+'）。失敗時のモデルと設定を保存できます。上部の「失敗時の記録」からも復元できます。';$('failure-save').disabled=false;}}
+  try{
+   const ids=[...new Set([input.target,...(result?.analysis.printSupport.baseBodyIds||[])])],fields=readAllFields();
+   if(batching())for(const key of Object.keys(fields))if(input[key]!==undefined)fields[key]=typeof input[key]==='boolean'?input[key]:String(input[key]);
+   const context=printSupportFailureContext({features:requestHistory===history?original:requestHistory,history:requestHistory,input,fields,featureId:editing?.id||null,
+    phase,calculation,analysis:result?.analysis.printSupport||null,bodyNames:Object.fromEntries(ids.map(id=>[id,bodyName(id)])),build:new URL(import.meta.url).searchParams.get('v')||'development'});
+   const record=recordFailure(context,error);
+   if(record){
+    lastFailure=record;failurePanel.hidden=false;showFailureDetails(record);
+    $('failure-note').textContent='記録 '+new Date(record.createdAt).toLocaleString('ja-JP')+'（'+({preview:'プレビュー',export3mf:'3MF出力',apply:'確定',preflight:'3MF事前検査'}[phase])+'）。';
+    $('failure-save').disabled=false;
+   }
+  }
   catch(e){failurePanel.hidden=false;$('failure-note').textContent='失敗状態を記録できませんでした。'+e.message;$('failure-save').disabled=true;}
  }
  $('failure-save').onclick=()=>{if(!lastFailure)return;try{download(JSON.stringify(failureDocument(lastFailure)),'support-failure-'+lastFailure.createdAt+'.forma.json','application/json');}catch(e){$('failure-note').textContent='ファイル保存できませんでした。'+e.message;}};
@@ -519,7 +560,11 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   clear();preview=new THREE.Group();if(!result.outputs.length){const live=meshes.get(id);if(live){hidden.push([live,live.visible]);live.visible=false;}}for(const out of result.outputs){preview.add(supportOutputMesh(out));const live=meshes.get(out.id);if(live){hidden.push([live,live.visible]);live.visible=false;}}
   const bodies=result.supportPreview?.bodies||(result.supportPreview?.body?[result.supportPreview.body]:[]);for(const body of bodies){const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(body.vertices,3)).setIndex(body.triangles);geometry.computeVertexNormals();preview.add(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x6caec0,roughness:.6,transparent:true,opacity:result.supportPreview?.roof?.parts.length ? .25 : .6,depthWrite:false})));const live=meshes.get(body.id);if(live){hidden.push([live,live.visible]);live.visible=false;}}
   const a=result.analysis.printSupport,points=a.contacts.flatMap(c=>[new THREE.Vector3(...c.point),new THREE.Vector3(...c.tip),...(c.base?.kind==='model'?[new THREE.Vector3(...c.base.point),new THREE.Vector3(...c.base.tip)]:[])]),line=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color:0x186aad,depthTest:false}));line.renderOrder=12;preview.add(line);scene.add(preview);if(result.supportPreview?.selectedFaces){selectedFaces=result.supportPreview.selectedFaces.map(item=>structuredClone(item.selection));faceView.show(result.supportPreview.selectedFaces);}if(result.supportPreview?.ribs)ribView.show(result.supportPreview.ribs,preview,result.supportPreview.skins,{review:batching()?[]:ribReview,printRegions:result.supportPreview.printRegions,showMarkers:!batching()});if(result.supportPreview?.roof)roofView.show(result.supportPreview.roof,preview);contactView.show(result.supportPreview?.contact||[],preview);host.dataset.printSupport=JSON.stringify(a);
-  coverageView.show(result.supportPreview?.coverage||[]);
+  const coverage=result.supportPreview?.coverage||[];
+  coverageView.show(coverage);
+  const autoFaces=coverage.filter(row=>row.autoSupportReason).length;
+  autoFaceButton.hidden=!autoFaces;
+  autoFaceButton.textContent='斜面・曲面を表示（'+autoFaces+'面）';
   clearanceView.show(a.clearanceRegions||[],preview);
   if(!fitted){fitPreview(new THREE.Box3().setFromObject(preview));fitted=true;}
  }
@@ -550,7 +595,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
      try{
       const previous=currentBatch().map(entry=>supportHistoryFeature(entry.input,entry.result));
       const checked=validatePrintSupport(input);
-      const result=await kernel.run([...history,...previous],{...checked,preview:true},{document:original});
+      const result=await runSupportPreview(checked,request,previous.length?[...history,...previous]:history);
       if(!current())return;
       const issues=result.analysis.printSupport.ribs?.issues||[];
       if(!result.outputs.length||issues.length)throw Error(issues.join('。')||'リブを配置できませんでした');
@@ -571,13 +616,31 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
       coverage:[...results.flatMap(result=>result.supportPreview.coverage||[]),...failedCoverage]},
       analysis:{printSupport:{contacts:[],clearanceRegions:[...results.flatMap(result=>result.analysis.printSupport.clearanceRegions||[]),...failedClearance]}}});
     }else{coverageView.show(failedCoverage);clearanceView.show(failedClearance,scene);}
+    updateGapComparison(currentBatch());
     $('info').textContent=results.length?'橙色：作成できた連結リブサポート。ボディごとの結果は「複数ボディに一括配置」で確認できます。':'連結リブサポートを作成できませんでした。各ボディの結果を確認してください。';
    }finally{if(activeRun===job){activeRun=null;inflight=false;batchPending=false;if(dialog.open)controls();}}
   };
   timer=setTimeout(calculate,450);
  }
+ async function runSupportPreview(input,request,requestHistory=history){
+  const current=()=>request===revision&&dialog.open&&getFeatures()===original;
+  const previewSpec={...input,preview:true};
+  let calculation;
+  try{
+   const result=await kernel.run(requestHistory,previewSpec,{document:original,
+    onProgress:update=>{if(current()&&update.stage)$('info').textContent=supportCalculationLabel(update);},
+    onCalculation:trace=>{calculation=trace;},
+   });
+   if(current()&&calculation?.retry?.outcome==='succeeded')
+    rememberFailure('preview',cadErrorAdvice(calculation.retry.message,previewSpec),input,result,{calculation,requestHistory});
+   return result;
+  }catch(error){
+   if(current()&&error.code!=='preview-manual')rememberFailure('preview',error,input,null,{calculation,requestHistory});
+   throw error;
+  }
+ }
  async function calculateRibPreview(input,request){
-  const run=fields=>kernel.run(history,{...fields,preview:true},{document:original});
+  const run=fields=>runSupportPreview(fields,request);
   const isCurrent=()=>request===revision&&dialog.open&&getFeatures()===original;
   if(input.style!=='walls')return run(input);
   let sourceLayout=ribLayout;
@@ -609,14 +672,71 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(ribReview.length)$('rib-selection').open=true;
   return result;
  }
- function schedule(retryFailed=false,comparison=null){
+ function showPreviewInfo(a){
+  $('info').textContent='橙色：連結リブサポート '+a.count+(a.style==='walls'?'枚（薄壁・間隔 '+a.wallPitch+' mm） ／ 積層ピッチ '+a.layerHeight+' mm。下端は土台に接触します。':'本（ベッド上 '+a.bedBasedCount+'本・モデル上 '+a.modelBasedCount+'本） ／ ベッドの足 Ø'+a.footDiameter+' mm ／ 支柱 Ø'+a.postDiameter+' mm ／ 接点の縦すき間 '+a.topGap+' mm。'+(a.modelBasedCount?' モデル上の接点の縦すき間 '+a.bottomGap+' mm。':'')+(a.limited?' 本数の上限で配置を止めました。':'')+(a.skipped?' '+a.skipped+'候補を見送りました。':''))+(a.style==='walls'&&a.wallTies?.enabled?' 横つなぎ '+a.wallTies.count+'箇所（'+(a.wallTies.auto?'自動調整・指定上限 ':'高さ間隔 ')+a.wallTies.interval+' mm）。':'')+(a.style==='walls'&&a.skipped?' 土台に遮られた配置があります。対象面または支え始める場所を見直してください。':'')+(a.nonHorizontalFaces?' 斜面・曲面 '+a.nonHorizontalFaces+'面は薄壁の対象外です。3MFではこの近傍に自動サポートを使えます。':'')+(a.roof?.enabled?(a.roof.count?' 上面の薄皮 '+a.roof.count+'面（'+a.roof.layers+'層・'+Number(a.roof.thickness.toFixed(4))+' mm）。':' 薄皮：つなぐリブが2枚以上ある面はありません。'):'')+(a.roof?.seams?.enabled?' 分割線 '+a.roof.seams.count+'本・薄皮 '+a.roof.seams.sections+'区画'+(a.roof.seams.skipped?'（'+a.roof.seams.skipped+'本見送り）':'')+'。':'')+(a.windows?.enabled?(a.windows.count?' 窓抜き '+a.windows.count+'箇所・サポート体積 約'+a.windows.savedPercent.toFixed(1)+'%削減。':' 根元・接続部の保護条件に合う窓がないため、形状を維持しました。')+(a.windows.limited?' 窓の数の上限で一部を見送りました。':''):'')+(a.bottomSkin?.enabled?' 底面の薄皮 '+a.bottomSkin.count+'面（'+a.bottomSkin.layers+'層・'+Number(a.bottomSkin.thickness.toFixed(4))+' mm）。':'')+(a.contactInterface?.enabled?' 線状接触層：上面 '+a.contactInterface.upper+'面・底面 '+a.contactInterface.lower+'面（線幅 '+a.contactInterface.width+' mm・隙間 '+a.contactInterface.spacing+' mm）。':'')+(a.bottomSkin?.seams?.enabled?' 底面分割線 '+a.bottomSkin.seams.count+'本（見送り '+a.bottomSkin.seams.skipped+'本）。':'')+(a.omittedReinforcement?' 干渉する補強 '+a.omittedReinforcement+'箇所を省きました。':'');
+  if(a.skippedCeilings?.length){const heights=[...new Set(a.skippedCeilings.map(face=>Number(face.height.toFixed(2))))].sort((x,y)=>x-y);$('info').textContent+=' 薄皮が収まらない下面 '+a.skippedCeilings.length+'面（高さ '+heights.slice(0,4).join('、')+(heights.length>4?' など':'')+' mm）は自動配置を見送りました。3MFでもこの範囲は自動サポートを使えます。';}if(a.clearanceRegions?.some(region=>region.partial))$('info').textContent+=' 薄皮が干渉する範囲を省き、残りに配置しました。3MFでも省いた範囲は自動サポートを使えます。';
+  if(a.omittedExterior){const omitted=[a.omittedExterior.faces?'外側の張り出し '+a.omittedExterior.faces+'面':'',a.omittedExterior.ribPieces?'下面に届かないリブ片 '+a.omittedExterior.ribPieces+'個':''].filter(Boolean);$('info').textContent+=' '+omitted.join('・')+'を省きました。';}if(a.contactInterface?.skippedDisconnected)$('info').textContent+=' 分断を防ぐため、接触線を作れない薄皮 '+a.contactInterface.skippedDisconnected+' 面を平らなまま残しました。';
+  if(a.sideGapAlignedCeilings)$('info').textContent+=' 側壁のすき間を起点にリブを等間隔に配置しました。';
+  if(a.reusedStructure)$('info').textContent+=' リブ本体と横つなぎを再利用しました。';
+  if(a.ceilingReuse)$('info').textContent+=' 下面 '+a.ceilingReuse.rebuilt+'面を再計算し、'+a.ceilingReuse.reused+'面を再利用しました。';
+ }
+ function schedule(retryFailed=false,comparison=null,compareGap=false){
   if(reinforcementComparison?.showBefore)setComparisonView(false);
   if(comparison){comparison.ghost=null;comparison.after=null;}
   reinforcementComparison=comparison;
   endRibBatch();layoutPlans=[];$('rib-plan-list').replaceChildren();materialInvalid=false;
-  if(busy||picking)return;retry.hidden=true;const request=invalidate(true);controls();$('error').textContent='';$('info').textContent='';if(batching()){scheduleBatch(request,retryFailed);return;}let input;
-  try{input=validatePrintSupport(spec());}catch(e){$('error').textContent=e.message;return;}
-  const draft=fastView.show(input);if(draft){const live=meshes.get(id);if(live){hidden.push([live,live.visible]);live.visible=false;}}$('info').textContent=draft?'簡易プレビュー：配置の目安です。操作が止まると精密形状を計算します。':'支えられる下面と土台を探しています…';exportControls('checking');const calculate=async()=>{const job={};activeRun=job;inflight=true;try{const result=await calculateRibPreview(input,request);if(request!==revision||!dialog.open||getFeatures()!==original)return;if(result.supportPreview?.ribs){ribLayout=result.supportPreview.ribs;ribLayoutTarget=input.target;}show(result);if(input.mode==='face')input.faces=selectedFaces.map(f=>structuredClone(f));cached={input,result};const check=result.supportPreview?.exportStatus;if(check?.parts.some(part=>!part.ok))rememberFailure('preflight',Error(check.issues.map(issue=>supportExportPartName(issue,bodyName)+'：'+issue.message).join('。')),input,result);const a=result.analysis.printSupport;$('info').textContent='橙色：連結リブサポート '+a.count+(a.style==='walls'?'枚（薄壁・間隔 '+a.wallPitch+' mm） ／ 積層ピッチ '+a.layerHeight+' mm。下端は土台に接触します。':'本（ベッド上 '+a.bedBasedCount+'本・モデル上 '+a.modelBasedCount+'本） ／ ベッドの足 Ø'+a.footDiameter+' mm ／ 支柱 Ø'+a.postDiameter+' mm ／ 接点の縦すき間 '+a.topGap+' mm。'+(a.modelBasedCount?' モデル上の接点の縦すき間 '+a.bottomGap+' mm。':'')+(a.limited?' 本数の上限で配置を止めました。':'')+(a.skipped?' '+a.skipped+'候補を見送りました。':''))+(a.style==='walls'&&a.wallTies?.enabled?' 横つなぎ '+a.wallTies.count+'箇所（'+(a.wallTies.auto?'自動調整・指定上限 ':'高さ間隔 ')+a.wallTies.interval+' mm）。':'')+(a.style==='walls'&&a.skipped?' 土台に遮られた配置があります。対象面または支え始める場所を見直してください。':'')+(a.nonHorizontalFaces?' 斜面・曲面 '+a.nonHorizontalFaces+'面は薄壁の対象外です。3MFではこの近傍に自動サポートを使えます。':'')+(a.roof?.enabled?(a.roof.count?' 上面の薄皮 '+a.roof.count+'面（'+a.roof.layers+'層・'+Number(a.roof.thickness.toFixed(4))+' mm）。':' 薄皮：つなぐリブが2枚以上ある面はありません。'):'')+(a.roof?.seams?.enabled?' 分割線 '+a.roof.seams.count+'本・薄皮 '+a.roof.seams.sections+'区画'+(a.roof.seams.skipped?'（'+a.roof.seams.skipped+'本見送り）':'')+'。':'')+(a.windows?.enabled?(a.windows.count?' 窓抜き '+a.windows.count+'箇所・サポート体積 約'+a.windows.savedPercent.toFixed(1)+'%削減。':' 根元・接続部の保護条件に合う窓がないため、形状を維持しました。')+(a.windows.limited?' 窓の数の上限で一部を見送りました。':''):'')+(a.bottomSkin?.enabled?' 底面の薄皮 '+a.bottomSkin.count+'面（'+a.bottomSkin.layers+'層・'+Number(a.bottomSkin.thickness.toFixed(4))+' mm）。':'')+(a.contactInterface?.enabled?' 線状接触層：上面 '+a.contactInterface.upper+'面・底面 '+a.contactInterface.lower+'面（線幅 '+a.contactInterface.width+' mm・隙間 '+a.contactInterface.spacing+' mm）。':'')+(a.bottomSkin?.seams?.enabled?' 底面分割線 '+a.bottomSkin.seams.count+'本（見送り '+a.bottomSkin.seams.skipped+'本）。':'')+(a.omittedReinforcement?' 干渉する補強 '+a.omittedReinforcement+'箇所を省きました。':'');if(a.skippedCeilings?.length){const heights=[...new Set(a.skippedCeilings.map(face=>Number(face.height.toFixed(2))))].sort((x,y)=>x-y);$('info').textContent+=' 薄皮が収まらない下面 '+a.skippedCeilings.length+'面（高さ '+heights.slice(0,4).join('、')+(heights.length>4?' など':'')+' mm）は自動配置を見送りました。3MFでもこの範囲は自動サポートを使えます。';}if(a.clearanceRegions?.some(region=>region.partial))$('info').textContent+=' 薄皮が干渉する範囲を省き、残りに配置しました。3MFでも省いた範囲は自動サポートを使えます。';if(a.omittedExterior){const omitted=[a.omittedExterior.faces?'外側の張り出し '+a.omittedExterior.faces+'面':'',a.omittedExterior.ribPieces?'下面に届かないリブ片 '+a.omittedExterior.ribPieces+'個':''].filter(Boolean);$('info').textContent+=' '+omitted.join('・')+'を省きました。';}if(a.contactInterface?.skippedDisconnected)$('info').textContent+=' 分断を防ぐため、接触線を作れない薄皮 '+a.contactInterface.skippedDisconnected+' 面を平らなまま残しました。';if(a.sideGapAlignedCeilings)$('info').textContent+=' 側壁のすき間を起点にリブを等間隔に配置しました。';if(a.reusedStructure)$('info').textContent+=' リブ本体と横つなぎを再利用しました。';controls();if(exportFocus&&!$('export3mf').disabled){exportFocus=false;$('export3mf').scrollIntoView({block:'center'});$('export3mf').focus();}}catch(e){if(request===revision&&dialog.open){if(e.code!=='preview-manual')clear();if(e.supportClearanceRegions)clearanceView.show(e.supportClearanceRegions,scene);if(e.supportCoverage)coverageView.show(e.supportCoverage);$('info').textContent=e.code==='preview-manual'?'簡易表示中・精密確認待ち':'';$('error').textContent=e.message;if(e.code!=='preview-manual')rememberFailure('preview',e,input);}}finally{if(activeRun===job){activeRun=null;inflight=false;const next=pendingPreview;pendingPreview=null;if(dialog.open){if(next)next();else controls();}}}};timer=setTimeout(()=>{if(inflight)pendingPreview=calculate;else calculate();},450);
+  if(busy||picking)return;
+  if(compareGap){
+   const entries=batching()?currentBatch():cached?[cached]:[];
+   if(entries.length)gapBaseline={entries,value:entries[0].input.sideGap};
+  }else gapBaseline=null;
+  retry.hidden=true;
+  const request=invalidate(true);
+  if(gapBaseline)gapComparison.pending(gapBaseline);
+  controls();$('error').textContent='';$('info').textContent='';
+  if(batching()){scheduleBatch(request,retryFailed);return;}
+  let input;
+  try{input=validatePrintSupport(spec());}catch(e){$('error').textContent=e.message;gapComparison.fail();return;}
+  const draft=fastView.show(input);
+  if(draft){
+   const live=meshes.get(id);
+   if(live){hidden.push([live,live.visible]);live.visible=false;}
+  }
+  $('info').textContent=draft?'簡易プレビュー：配置の目安です。操作が止まると精密形状を計算します。':'支えられる下面と土台を探しています…';
+  exportControls('checking');
+  const calculate=async()=>{
+   const job={};
+   activeRun=job;inflight=true;
+   try{
+    const result=await calculateRibPreview(input,request);
+    if(request!==revision||!dialog.open||getFeatures()!==original)return;
+    if(result.supportPreview?.ribs){ribLayout=result.supportPreview.ribs;ribLayoutTarget=input.target;}
+    show(result);
+    if(input.mode==='face')input.faces=selectedFaces.map(f=>structuredClone(f));
+    cached={input,result};
+    updateGapComparison([cached]);
+    const check=result.supportPreview?.exportStatus;
+    if(check?.parts.some(part=>!part.ok))rememberFailure('preflight',Error(check.issues.map(issue=>supportExportPartName(issue,bodyName)+' ／ '+issue.message).join('。')),input,result);
+    showPreviewInfo(result.analysis.printSupport);
+    controls();
+    if(exportFocus&&!$('export3mf').disabled){exportFocus=false;$('export3mf').scrollIntoView({block:'center'});$('export3mf').focus();}
+   }catch(e){
+    if(request!==revision||!dialog.open)return;
+    if(e.code!=='preview-manual')clear();
+    if(e.supportClearanceRegions)clearanceView.show(e.supportClearanceRegions,scene);
+    if(e.supportCoverage)coverageView.show(e.supportCoverage);
+    $('info').textContent=e.code==='preview-manual'?'簡易表示中・精密確認待ち':'';
+    $('error').textContent=e.message;
+    gapComparison.fail();
+   }finally{
+    if(activeRun===job){
+     activeRun=null;inflight=false;
+     const next=pendingPreview;pendingPreview=null;
+     if(dialog.open){if(next)next();else controls();}
+    }
+   }
+  };
+  timer=setTimeout(()=>{if(inflight)pendingPreview=calculate;else calculate();},450);
  }
  function canExportPreview(){
   const batch=batching();
@@ -648,11 +768,21 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   catch(error){if(current())$('error').textContent=error.message;}
  };
  $('style').onchange=()=>{faceView.endPick();picking=false;clearRibEdits();excludedRibs=[];excludedRibBlockers=[];ribPicking=false;$('topGap').value=$('style').value==='walls'?$('layerHeight').value:printSupportDefaults.topGap;schedule();};$('layerHeight').oninput=()=>{if($('style').value==='walls')$('topGap').value=$('layerHeight').value;resetStructure();schedule();};$('target').onchange=()=>{fastView.target=$('target').value;faceView.endPick();picking=false;selectedFaces=[];$('mode').value='auto';clearRibEdits();excludedRibs=[];excludedRibBlockers=[];ribPicking=false;schedule();};$('mode').onchange=$('baseMode').onchange=()=>{faceView.endPick();picking=false;resetStructure();schedule();};
- for(const key of [...keys,...toggles])$(key).addEventListener('input',()=>{if(['filamentDiameter','materialDensity'].includes(key)){updateMaterial();return;}ribPicking=false;if(['edgeMargin','sideGap','edgeRibs','skipSmallExterior','wallPitch','wallThickness','bedZ','topGap','footThickness','wallBottomSkin','connectFeet','fitLineWidth'].includes(key)||(['wallLines','lineWidth'].includes(key)&&$('fitLineWidth').checked)){alignWidth();resetStructure();}schedule();});
+ for(const key of [...keys,...toggles])$(key).addEventListener('input',()=>{
+  if(['filamentDiameter','materialDensity'].includes(key)){updateMaterial();return;}
+  ribPicking=false;
+  if(['edgeMargin','sideGap','edgeRibs','skipSmallExterior','wallPitch','wallThickness','bedZ','topGap','footThickness',
+   'wallBottomSkin','connectFeet','fitLineWidth'].includes(key)||(['wallLines','lineWidth'].includes(key)&&$('fitLineWidth').checked)){
+   alignWidth();resetStructure();
+  }
+  schedule(false,null,key==='sideGap');
+ });
  $('pick').onclick=()=>{if(busy||selectionBusy)return;if(picking){faceView.endPick();picking=false;schedule();return;}const items=faceView.items;ribPicking=false;ribView.setDisplay();invalidate();try{faceView.beginPick(history,$('target').value,editing?.id);faceView.show(items);picking=true;controls();$('error').textContent='対象ボディの下面をクリックで追加・解除します。Shift＋ドラッグで回転できます。';}catch(e){picking=false;controls();$('error').textContent=e.message;}};
  $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(dialog.open)return;faceView.endPick();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;});
  dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
  function open(target=null,feature=null,selection=null,restored=null,initialTargets=[]){
+  gapBaseline=null;
+  restoredBatch=restored?.input?.batch===true?{batch:true,batchGroup:restored.input.batchGroup}:null;
   includeHidden.checked=true;
   savedExportStatus.textContent='';
   reinforcementComparison=null;comparisonPanel.hidden=true;
@@ -661,7 +791,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   $('target').replaceChildren(...ids.map(bodyId=>new Option(bodyName(bodyId),bodyId)));$('target').value=restored?.input.target||feature?.spec.target||target||ids[0];if(!$('target').value)$('target').value=ids[0];id=feature?.id||restored?.input.id||crypto.randomUUID();selectedFaces=structuredClone(restored?.input.faces||feature?.spec.faces||(selection?[selection]:[]));const values=restored?.input||feature?.spec||{...printSupportDefaults,...printSupportNewDefaults};$('style').value=restored?values.style||'posts':feature?(feature.spec.style||'posts'):printSupportNewDefaults.style;for(const key of keys){const legacy={bottomInterfaceLineWidth:'interfaceLineWidth',bottomInterfaceSpacing:'interfaceSpacing'}[key];$(key).value=values[key]??(legacy?values[legacy]??printSupportDefaults[legacy]:printSupportDefaults[key]);}for(const key of toggles)$(key).checked=['wallTies','autoReinforce'].includes(key)&&feature&&!restored?!!feature.spec[key]:values[key]??(key==='skipSmallExterior'?!restored:printSupportDefaults[key]);$('mode').value=restored?values.mode:feature?feature.spec.mode:selectedFaces.length?'face':'auto';$('baseMode').value=restored?values.baseMode||'bed':feature?(feature.spec.baseMode||'bed'):values.baseMode;$('wallDirection').value=values.wallDirection||'auto';wallOffset=values.wallOffset||0;planPanel.open=false;clearRibEdits();ribLayoutTarget=$('target').value;excludedRibs=[...(values.excludedRibs||[])];excludedRibBlockers=[...(values.excludedRibBlockers||[])];faceOverrides=new Map();if(values.faceOverrides?.length)faceOverrides.set($('target').value,structuredClone(values.faceOverrides));batchEntries=new Map();batchIds=new Map();batchAdjustments=new Map();batchGroup=crypto.randomUUID();targetCount=ids.length;batchPanel.init(ids,initialTargets.filter(id=>ids.includes(id)).slice(0,12));coverageView.resetDisplay();$('rib-print-policies').checked=false;ribPicking=false;ribView.setDisplay();roofView.setSelected(null);busy=false;picking=false;cached=null;fitted=false;exportFocus=false;$('apply').textContent=feature?'変更を適用':'連結リブサポートを作成';lastFailure=null;materialInvalid=false;failurePanel.hidden=true;presets.reload();if(restored)for(const key of [...keys,...toggles,'style','mode','baseMode','wallDirection','target']){const value=restored.fields[key];if(value!==undefined){if(toggles.includes(key))$(key).checked=value===true;else if(key!=='target'||ids.includes(value))$(key).value=value;}}dialog.show();if(restored){invalidate();controls();retry.hidden=false;$('info').textContent='失敗した設定を復元しました。値を変更するか「この設定でプレビュー」を押してください。';$('error').textContent='';}else schedule();
  }
  quick.onclick=()=>{const selection=getFace();if(selection)open(selection.bodyId,null,selection);};
- return {open,restoreFailure(record,{fromFile=false}={}){const saved=readPrintSupportFailure(record),feature=getFeatures().find(f=>f.id===saved.featureId&&f.spec?.type==='printSupport')||null;open(saved.input.target,feature,null,saved);lastFailure=structuredClone(record);failurePanel.hidden=false;if(fromFile)$('failure-note').textContent='ファイルから失敗時のモデルと設定を復元しました。計算・出力は自動実行しません。';},openForExport(feature){open(feature.spec.target,feature);exportFocus=true;},close,sync(){coverageView.sync();clearanceView.sync();faceView.sync();ribView.sync();roofView.sync();removal.sync(busy||picking||ribPicking||ribBatch||contactView.active);if(dialog.open&&getFeatures()!==original)close();const face=getFace();quick.hidden=dialog.open||!!document.querySelector('dialog[open]')||!face||face.normal[2]>-.5;},get active(){return dialog.open;},get ribRangeActive(){return dialog.open&&ribBatch&&!!cached&&!busy&&!removal.active;},selectRibRange(rect){
+ return {open,restoreFailure(record,{fromFile=false}={}){const saved=readPrintSupportFailure(record),feature=getFeatures().find(f=>f.id===saved.featureId&&f.spec?.type==='printSupport')||null;open(saved.input.target,feature,null,saved);lastFailure=structuredClone(record);failurePanel.hidden=false;showFailureDetails(lastFailure);if(fromFile)$('failure-note').textContent='ファイルから失敗時のモデルと設定を復元しました。計算・出力は自動実行しません。';},openForExport(feature){open(feature.spec.target,feature);exportFocus=true;},close,sync(){coverageView.sync();clearanceView.sync();faceView.sync();ribView.sync();roofView.sync();removal.sync(busy||picking||ribPicking||ribBatch||contactView.active);if(dialog.open&&getFeatures()!==original)close();const face=getFace();quick.hidden=dialog.open||!!document.querySelector('dialog[open]')||!face||face.normal[2]>-.5;},get active(){return dialog.open;},get ribRangeActive(){return dialog.open&&ribBatch&&!!cached&&!busy&&!removal.active;},selectRibRange(rect){
   if(!this.ribRangeActive)return;
   if(!rect.add)ribBatchSelection.clear();
   for(const ribId of ribView.range(rect))ribBatchSelection.add(ribId);

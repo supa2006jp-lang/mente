@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import {clipTriangle} from './box-selection.js';
 import {bridgeRibSuggestion,nearestRibLanding,supportMeshTriangles} from './print-support-bridges.js';
+import {supportAutoFaceColor,supportAutoFaceLabel,supportAutoFaceMessage} from './print-support-auto-faces.js';
 
 export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyName,onSave,onReset}){
  const panel=document.createElement('details');panel.dataset.id='support-coverage';
- panel.innerHTML='<summary>支えの範囲・下面ごとの設定</summary><label><input type="checkbox" data-coverage="show">3MFの支えの範囲を色分け</label><small><b style="color:#08775a">緑：リブで支える範囲</b> ／ <b style="color:#155ca6">青：自動サポートに任せる範囲</b> ／ <b style="color:#a02b68">紫：指定した除外範囲</b> ／ <b style="color:#a64900">橙：輪郭からリブまで距離がある箇所</b></small><label>設定する下面<select data-coverage="face"></select></label><div data-coverage="warning" hidden></div><div data-coverage="zones" hidden></div><div data-coverage="edit" hidden></div><button type="button" data-coverage="reset">このボディの個別設定をすべて解除</button>';
+ panel.innerHTML='<summary>支えの範囲・下面ごとの設定</summary><label><input type="checkbox" data-coverage="show">3MFの支えの範囲を色分け</label><small><b style="color:#08775a">緑：リブで支える範囲</b> ／ <b style="color:#155ca6">青：自動サポートに任せる範囲</b> ／ <b style="color:#a02b68">紫：指定した除外範囲</b> ／ <b style="color:#a64900">橙：輪郭からリブまで距離がある箇所</b></small><label>確認する面<select data-coverage="face"></select></label><small data-coverage="auto-note" role="status" hidden></small><div data-coverage="warning" hidden></div><div data-coverage="zones" hidden></div><div data-coverage="edit" hidden></div><button type="button" data-coverage="reset">このボディの個別設定をすべて解除</button>';
  const get=key=>panel.querySelector('[data-coverage="'+key+'"]');
  const labels=document.createElement('div');
  labels.style.cssText='position:absolute;inset:0;pointer-events:none;overflow:hidden';
@@ -30,7 +31,8 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  }
  bridgeToggle.onchange=()=>changeOverlay(bridgeToggle,skinToggle);
  skinToggle.onchange=()=>changeOverlay(skinToggle,bridgeToggle);
- const bridgeMeshes=[],skinMeshes=[],comparisonMeshes=[];
+ const bridgeMeshes=[],skinMeshes=[],comparisonMeshes=[],autoFaceMeshes=[];
+ const autoNote=get('auto-note');
  let comparisonBefore=false;
  const ray=new THREE.Raycaster(),plane=new THREE.Plane(new THREE.Vector3(0,0,1)),corner=new THREE.Vector3(),cursor=new THREE.Vector3();
  const contourLines=new Map();
@@ -54,7 +56,7 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  function clear(){
   stopDrawing();
   if(group){group.removeFromParent();group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}
-  group=areas=null;rows=[];markers=[];faceMeshes=[];bridgeMeshes.length=skinMeshes.length=comparisonMeshes.length=0;comparisonBefore=false;contourLines.clear();labels.replaceChildren();select.replaceChildren(new Option('自動判定（画面で指定）',''));edit.hidden=warning.hidden=zones.hidden=true;edit.replaceChildren();warning.replaceChildren();zones.replaceChildren();showBridgeSummary();
+  group=areas=null;rows=[];markers=[];faceMeshes=[];bridgeMeshes.length=skinMeshes.length=comparisonMeshes.length=autoFaceMeshes.length=0;comparisonBefore=false;contourLines.clear();labels.replaceChildren();select.replaceChildren(new Option('自動判定（画面で指定）',''));edit.hidden=warning.hidden=zones.hidden=autoNote.hidden=true;autoNote.textContent='';edit.replaceChildren();warning.replaceChildren();zones.replaceChildren();showBridgeSummary();
  }
  function showBridgeSummary(){
   const spans=rows.filter(row=>!focused||row.selection===focused).map(row=>row.bridges).filter(Boolean);
@@ -113,6 +115,13 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   }
   const row=rows[index];
   focused=row?.selection??null;
+  autoNote.hidden=!row?.autoSupportReason;
+  autoNote.textContent=row?.autoSupportReason?supportAutoFaceMessage(row.autoSupportReason):'';
+  for(const mesh of autoFaceMeshes){
+   const active=mesh.userData.coverageRow===row;
+   mesh.renderOrder=active?21:19;
+   mesh.material.opacity=autoNote.hidden ? .8 : active ? .95 : .35;
+  }
   showBridgeSummary();
   const warnings=row?.boundaryWarnings||[];
   warning.hidden=!warnings.length;warning.replaceChildren();
@@ -396,7 +405,15 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
   return true;
  }
  function pick(event){
-  if(!draw||draw.mode==='proposal')return pickBridge(event);
+  if(!draw||draw.mode==='proposal'){
+   if(pickBridge(event))return true;
+   if(!display.checked||busy||muted||!autoFaceMeshes.length||!pointRay(event))return false;
+   const hit=ray.intersectObjects(autoFaceMeshes,false)[0];
+   if(!hit)return false;
+   panel.open=true;
+   focus(rows.indexOf(hit.object.userData.coverageRow));
+   return true;
+  }
   if(!pointRay(event)){showPlacement('下面が見えるよう、少し斜めに回転してください');return true;}
   if(draw.mode==='box'&&(!draw.startRay||draw.zone)){
    draw.startRay=ray.ray.clone();draw.zone=null;
@@ -455,8 +472,12 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
     const material=new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,transparent:true,opacity:.8,depthTest:false,depthWrite:false});
     const part=new THREE.Mesh(geometry,material);part.renderOrder=19+layer;part.userData.coverageRow=row;areas.add(part);return part;
    };
-   const faceMesh=add(row.face,row.suppressed?0x818995:row.supported===true?0x15a97d:0x347fd0,0);
+   const faceMesh=add(row.face,row.suppressed?0x818995:row.supported===true?0x15a97d:supportAutoFaceColor,0);
    if(faceMesh&&row.editable){faceMesh.geometry.computeBoundingBox();faceMeshes.push(faceMesh);}
+   if(faceMesh&&row.autoSupportReason){
+    autoFaceMeshes.push(faceMesh);
+    select.add(new Option(bodyName(row.selection.bodyId)+' ／ '+supportAutoFaceLabel(row.autoSupportReason)+' '+autoFaceMeshes.length,String(index)));
+   }
    if(!row.suppressed&&row.supported!==true)add(row.supported,0x15a97d,1);
    add(row.caution,0xffbb2f,2);
    for(const area of row.manualExcluded||[])add(area,0xcc4e9a,2);
@@ -485,6 +506,10 @@ export function createSupportCoverageView({anchor,host,canvas,camera,scene,bodyN
  reset.onclick=()=>{if(!busy&&target)onReset(target);};
  clear();
  return {show,clear,sync,pick,
+  showAutoFaces(){
+   if(!autoFaceMeshes.length||busy)return;
+   panel.open=true;display.checked=true;visibility();sync();
+  },
   compareWith(row,showBefore){
    if(row&&group&&!comparisonMeshes.length)addBridgeMesh(row,comparisonMeshes);
    comparisonBefore=showBefore;visibility();

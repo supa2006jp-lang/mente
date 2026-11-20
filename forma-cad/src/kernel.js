@@ -640,10 +640,11 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    if(made.shape){onProgress?.({stage:'サポートの表示・保存用データを作成しています'});emit(p.id,made.shape);onProgress?.({stage:'3MF出力用の形状を検査しています'});}analysis={...analysis,printSupport:made.analysis,supportLinks:p.lockToModel===false?[]:[{id:p.id+'-model-link',bodies:[...new Set([p.target,...made.analysis.baseBodyIds,p.id])],mode:'support'}]};
    const blockers=p.preview||p.batch===true||p.saveSupportExport===true
     ?made.blockers?.map(shape=>{const {vertices,triangles}=printSupportExportMesh(shape);return {vertices,triangles};})||[]:[];
+   const autoSupportFaces=made.autoSupportFaces||[];
    if(p.batch===true||p.saveSupportExport===true)analysis.supportExport={
-    complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,baseBodyIds:made.analysis.baseBodyIds,blockers};
+    complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,baseBodyIds:made.analysis.baseBodyIds,blockers,autoSupportFaces};
    if(!p.preview)return {outputs,remove,analysis};
-   const supportPackage=blockers.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers}:null;
+   const supportPackage=blockers.length?{complete:made.analysis.complete,layerHeight:made.analysis.layerHeight,bodies:[...new Set([p.target,...made.analysis.baseBodyIds])].map(id=>({id,...printSupportExportMesh(bodies.get(id))})).concat(made.shape?[{id:p.id,...printSupportExportMesh(made.shape)}]:[]),blockers,...(autoSupportFaces.length?{autoSupportFaces}:{})}:null;
    const exportStatus=inspectPrintSupportPackage(supportPackage,{targetId:p.target,supportId:p.id});
    if(analysis.supportExport)analysis.supportExport.complete=exportStatus.ok;
    return {outputs,remove,analysis,supportPreview:{...(made.contactPreview?{contact:made.contactPreview}:{}),body:{id:p.target,...cadMesh(bodies.get(p.target))},...(made.selectedFaces?{selectedFaces:made.selectedFaces}:{}),...(made.roofPreview?{roof:made.roofPreview}:{}),...(made.ribPreview?{ribs:made.ribPreview,skins:made.skinPreview}:{}),...(made.coverage?{coverage:made.coverage}:{}),...(made.printRegions?{printRegions:made.printRegions}:{}),exportStatus},...(supportPackage?{supportPackage}:{})};

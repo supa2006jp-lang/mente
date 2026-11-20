@@ -13,7 +13,7 @@ const merge=(a,b)=>({
 // Between successive contour vertices the tessellated limits are linear.
 // Group adjoining strips with similar limits and use the tightest clearance
 // of each group. The solid cutter still verifies clearance on the exact faces.
-export function supportRibSections(original,clear,axis,p,budget){
+export function supportRibSections(original,clear,axis,p,budget,reportRequired){
  if(!original||!clear.length)return [];
  const other=1-axis,full=supportMeshTriangles(original),trimmed=clear.map(supportMeshTriangles);
  const stations=[...new Set([original,...clear].flatMap(mesh=>supportBoundaryPaths(mesh)
@@ -78,6 +78,7 @@ export function supportRibSections(original,clear,axis,p,budget){
   const at=left<=right?i-1:i;
   sections.splice(at,2,merge(sections[at],sections[at+1]));i=Math.max(-1,at-1);
  }
+ reportRequired?.(sections.length);
  while(sections.length>budget){
   let best=Infinity,at=-1;
   for(let i=1;i<sections.length;i++){
