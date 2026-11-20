@@ -1,5 +1,5 @@
 import {canOverrideDrawingDimensionValue,dimensionValue,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
-import {drawingProjectionNames} from './drawing-view-preferences.js';
+import {drawingProjectionNames,validDrawingScale} from './drawing-view-preferences.js';
 import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
@@ -13,7 +13,7 @@ const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
 export function readDrawingState(value){if(value==null)return null;const fail=()=>{throw Error('図面編集データが不正です');};if(value.version!==1||typeof value.signature!=='string'||!Array.isArray(value.dimensions)||value.dimensions.length>500)fail();
- const s=structuredClone(value);if(!Number.isFinite(s.scale)||s.scale<.0001||s.scale>1000||typeof s.hidden!=='boolean'||typeof s.comment!=='string'||s.comment.length>2000||!Array.isArray(s.targets)||s.targets.some(id=>typeof id!=='string')||!['visible','selected'].includes(s.targetMode))fail();
+ const s=structuredClone(value);if(!validDrawingScale(s.scale)||typeof s.hidden!=='boolean'||typeof s.comment!=='string'||s.comment.length>2000||!Array.isArray(s.targets)||s.targets.some(id=>typeof id!=='string')||!['visible','selected'].includes(s.targetMode))fail();
  const o=s.options;if(!o||!['auto','A4','A3'].includes(o.paper)||!['landscape','portrait'].includes(o.orientation)||typeof o.frame!=='boolean')fail();if(o.viewPriority!==undefined&&!['balanced','front'].includes(o.viewPriority)||o.isoMode!==undefined&&!['full','small','hidden'].includes(o.isoMode))fail();if(o.layout!==undefined&&!['projection','compact'].includes(o.layout))fail();for(const key of ['name','material','date'])if(typeof o[key]!=='string'||o[key].length>100)fail();
  if(o.revision!==undefined&&(typeof o.revision!=='string'||o.revision.length>20))fail();
  if(o.projectionLocked!==undefined&&typeof o.projectionLocked!=='boolean')fail();
@@ -87,10 +87,12 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    pointIds.add(item.id);
   }
  }
- if(o.viewScales!==undefined){
-  if(!o.viewScales||typeof o.viewScales!=='object'||Array.isArray(o.viewScales)||
-   Object.entries(o.viewScales).some(([id,scale])=>id!=='iso'&&!viewNames.has(id)||!Number.isFinite(scale)||scale<.0001||scale>1000))fail();
+ for(const scales of [o.viewScales,o.pdfViewScales])if(scales!==undefined){
+  if(!scales||typeof scales!=='object'||Array.isArray(scales)||
+   Object.entries(scales).some(([id,scale])=>id!=='iso'&&!viewNames.has(id)||!validDrawingScale(scale)))fail();
  }
+ if(o.pdfPageScales!==undefined&&(!o.pdfPageScales||typeof o.pdfPageScales!=='object'||Array.isArray(o.pdfPageScales)||
+  Object.entries(o.pdfPageScales).some(([key,scale])=>!/^(?:[1-9]|[12]\d|3[0-2])$/.test(key)||!validDrawingScale(scale))))fail();
  if(o.pageAssignments!==undefined){
   const assignment=o.pageAssignments,validPage=n=>Number.isInteger(n)&&n>=1&&n<=assignment.pageCount;
   const validMap=(map,allowed)=>map&&typeof map==='object'&&!Array.isArray(map)&&Object.entries(map).every(([id,page])=>allowed.has(id)&&validPage(page));

@@ -5,6 +5,7 @@ import {drawingPDFHasMultiplePages,drawingPDFPages} from '../src/drawing-pdf-pag
 import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {readDrawingState} from '../src/drawing-state.js';
+import {parseDrawingScale} from '../src/drawing-view-preferences.js';
 
 const rect=(w,h)=>({visible:[`M 0 0 L ${w} 0 L ${w} ${-h} L 0 ${-h} Z`],hidden:[]});
 const part={bounds:[[0,0,0],[60,40,20]],bodyCount:1,views:{
@@ -109,4 +110,41 @@ test('PDF placement and compact exterior dimensions round-trip in drawing state'
  assert.deepEqual(readDrawingState(state),state);
  assert.throws(()=>readDrawingState({...state,options:{...state.options,pdfPlacement:'other'}}));
  assert.throws(()=>readDrawingState({...state,options:{...state.options,uniqueOverallDimensions:'true'}}));
+});
+
+test('custom scale input accepts ratios and decimals within the saved drawing range',()=>{
+ for(const input of ['1:2.5','１：２．５','0.4','.4','2 / 5'])assert.equal(parseDrawingScale(input),.4);
+ assert.equal(parseDrawingScale('3:2'),1.5);
+ for(const input of ['0','-5','1:0','1:4:3','1e1','1001','1:11000','NaN',''])assert.equal(parseDrawingScale(input),null);
+});
+
+test('page scales and resized PDF views are independent of the editor scale',()=>{
+ const assigned={pageCount:2,views:{front:2,'section-a':2},comments:{}};
+ const config={...options,pdfLayout:'manual',pageAssignments:assigned,pdfPageScales:{1:.5,2:.375},pdfViewScales:{'section-a':.6}};
+ const editor=drawingSheet(part,1,true,[frontDimension],'',config);
+ for(const placement of ['keep','auto']){
+  const [first,second]=drawingPDFPages(part,1,true,[frontDimension],'',{...config,pdfPlacement:placement},editor);
+  assert.equal(first.pageScale,.5);
+  assert.equal(second.pageScale,.375);
+  assert.equal(first.layout.top.width,30);
+  assert.equal(second.layout.front.width,22.5);
+  assert.equal(second.layout['section-a'].width,24);
+  assert.deepEqual(second.dimensions[0].b,frontDimension.b);
+  assert.ok(Math.abs(second.dimensions[0].at[1]*.375-frontDimension.at[1])<1e-9);
+  assert.equal(header(first),'SCALE 1:2 / mm');
+  assert.equal(header(second),'縮尺は各図に記載 / mm');
+ }
+ assert.equal(editor.layout.top.scale,1);
+ assert.equal(editor.layout['section-a'].width,40);
+ const state={version:1,signature:'scales',targets:['part'],targetMode:'visible',scale:.37,hidden:true,comment:'',dimensions:[],options:config};
+ assert.deepEqual(readDrawingState(state),state);
+ assert.throws(()=>readDrawingState({...state,options:{...config,pdfPageScales:{33:1}}}));
+ assert.throws(()=>readDrawingState({...state,options:{...config,pdfViewScales:{'section-missing':1}}}));
+});
+
+test('a fixed PDF scale stays editable when the shapes overflow',()=>{
+ const [first,second]=drawingPDFPages(part,1,true,[],'',{...options,pdfLayout:'manual',pdfPlacement:'auto',pdfPageScales:{1:7,2:.5}});
+ assert.equal(first.layout.front.scale,7);
+ assert.equal(second.layout['section-a'].scale,.5);
+ assert.ok(first.layout.front.x+first.layout.front.width>first.width);
 });

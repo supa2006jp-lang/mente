@@ -1,6 +1,7 @@
 import {drawingViewport} from './drawing-viewport.js';
 import {drawingPrintSVG} from './drawing-print-palette.js';
 import {loadDrawingCommentFont} from './drawing-comments.js';
+import {drawingScaleSummary} from './drawing-view-preferences.js';
 
 export function installDrawingPDFPreview({download,onIssue,onEdit}){
  const dialog=document.createElement('dialog');
@@ -26,7 +27,9 @@ export function installDrawingPDFPreview({download,onIssue,onEdit}){
   viewport.setSheet(page);viewport.reset();
   q('page').value=String(index);
   q('prev').disabled=index===0;q('next').disabled=index===pages.length-1;
-  q('status').textContent=page.width+' × '+page.height+' mm · '+(index+1)+' / '+pages.length+' ページ'+
+  const scales=Object.values(page.layout).map(view=>view.scale);
+  const scale=scales.length?' · '+drawingScaleSummary(scales).header.replace(' / mm',''):'';
+  q('status').textContent=page.width+' × '+page.height+' mm · '+(index+1)+' / '+pages.length+' ページ'+scale+
    (blocked?' · 図面に戻って配置を調整してください':'');
  }
  q('prev').onclick=()=>{if(index>0){index--;show();}};

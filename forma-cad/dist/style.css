@@ -803,11 +803,14 @@ button.form-control-point.invalid { background:#bc2634; }
 .navigation[data-collapsed] ~ .view-help { display:none !important; }
 #interior-edge-adjustment #fillet-interior-candidates { background:#e1f3df !important; border-color:#78a987 !important; color:#185438 !important; }
 
-#drawing-alignment,#drawing-page-assignments{padding:7px 10px;border:1px solid #486072;border-radius:6px;margin:6px 0}
-.drawing-controls > #drawing-page-assignments{box-sizing:border-box;flex:0 0 100%;min-width:0;margin:0}
-#drawing-alignment summary,#drawing-page-assignments summary{cursor:pointer}
-#drawing-alignment .drawing-controls,#drawing-page-assignments .drawing-controls{margin-top:7px;gap:8px}
-#drawing-alignment-items,#drawing-page-items{max-height:180px;overflow:auto}
+#drawing-alignment,#drawing-page-assignments,#drawing-page-scales{padding:7px 10px;border:1px solid #486072;border-radius:6px;margin:6px 0}
+.drawing-controls > #drawing-page-assignments,.drawing-controls > #drawing-page-scales{box-sizing:border-box;flex:0 0 100%;min-width:0;margin:0}
+#drawing-alignment summary,#drawing-page-assignments summary,#drawing-page-scales summary{cursor:pointer}
+#drawing-alignment .drawing-controls,#drawing-page-assignments .drawing-controls,#drawing-page-scales .drawing-controls{margin-top:7px;gap:8px}
+#drawing-alignment-items,#drawing-page-items,#drawing-page-scales .drawing-controls{max-height:180px;overflow:auto}
+#drawing-scale-manual,#drawing-page-scales input,.drawing-view-scale-row input{width:9em}
+.drawing-view-scale-row{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+#drawing-preview [data-view-resize]{cursor:nwse-resize}
 #drawing-alignment-items label{white-space:nowrap}
 #drawing-page-items label{display:inline-flex;align-items:center;gap:6px}
 #drawing-page-count{width:65px}

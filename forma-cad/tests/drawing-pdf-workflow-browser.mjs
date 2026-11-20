@@ -62,8 +62,8 @@ try{
  const [pageLayoutBox,assignmentsBox]=await Promise.all([field('pdf-layout').boundingBox(),assignments.boundingBox()]);
  assert(assignmentsBox.y>=pageLayoutBox.y+pageLayoutBox.height);
  assert.deepEqual(await assignments.evaluate(panel=>[
-  panel.previousElementSibling?.querySelector('select')?.id,panel.nextElementSibling?.id,
- ]),['drawing-pdf-layout','drawing-pdf-placement-label']);
+  panel.previousElementSibling?.querySelector('select')?.id,panel.nextElementSibling?.id,panel.nextElementSibling?.nextElementSibling?.id,
+ ]),['drawing-pdf-layout','drawing-page-scales','drawing-pdf-placement-label']);
  const pagesNote=field('pdf-pages-note');
  assert(await pagesNote.isVisible());
  assert.match(await pagesNote.textContent(),/2 ページ.*編集するページ/);
@@ -181,6 +181,72 @@ try{
  await page.locator('#export-format').selectOption('pdf');
  await page.locator('#export-confirm').click();
  await field('page-edit').waitFor();
+ await field('close').click();
+
+ await open({...drawing,dimensions:[width]});
+ const scaleOn=async(host,view)=>Number((await geometry(host,view)).match(/scale\(([^)]+)\)/)[1]);
+ await field('scale-manual').fill('１：２．５');
+ await field('scale-manual').press('Enter');
+ assert.equal(await scaleOn(editor,'front'),.4);
+ assert.equal(await field('scale').inputValue(),'0.4');
+ assert.equal(await editor.locator('[data-dimension] text').textContent(),'60');
+ const resize=name=>editor.locator('[data-view-resize="'+name+'"]');
+ await drag(resize('front'),-12,-5);
+ const resizedProjection=await scaleOn(editor,'front');
+ assert.ok(resizedProjection<.4);
+ assert.equal(await scaleOn(editor,'top'),resizedProjection);
+ await field('undo').click();
+ assert.equal(await scaleOn(editor,'front'),.4);
+
+ await field('pdf-placement').selectOption('auto');
+ await field('page-scales').evaluate(details=>details.open=true);
+ const pageScale=number=>field('page-scales').locator('[data-pdf-page-scale="'+number+'"]');
+ await pageScale(1).fill('7');await pageScale(1).press('Enter');
+ assert.equal(await scaleOn(editor,'front'),7);
+ await field('pdf-preview-open').click();
+ assert.ok(await preview.locator('[data-pdf-issue=layout]').count());
+ assert.ok(await field('pdf-preview-save').isDisabled());
+ await field('pdf-preview-close').click();
+ for(const [number,value,view,scale] of [[1,'1:2','front',.5],[2,'0.375','section-a',.375]]){
+  await pageScale(number).fill(value);await pageScale(number).press('Enter');
+  assert.equal(await field('page-edit').inputValue(),String(number-1));
+  assert.equal(await scaleOn(editor,view),scale);
+ }
+ const segment=await geometry(editor,'section-a');
+ await drag(resize('section-a'),-10,-6);
+ const sectionScale=await scaleOn(editor,'section-a');
+ assert.ok(sectionScale<.375&&sectionScale>0);
+ const place=t=>t.slice(0,t.indexOf('scale('));
+ assert.equal(place(await geometry(editor,'section-a')),place(segment));
+ await field('undo').click();assert.equal(await scaleOn(editor,'section-a'),.375);
+ await field('redo').click();assert.equal(await scaleOn(editor,'section-a'),sectionScale);
+ await field('pdf-preview-open').click();
+ assert.equal(await scaleOn(print,'front'),.5);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'60');
+ await field('pdf-preview-next').click();
+ assert.equal(await scaleOn(print,'section-a'),sectionScale);
+ assert.equal(await print.locator('[data-view-resize]').count(),0);
+ assert.equal(await print.locator('[data-comment=true]').textContent(),'切断位置を確認');
+ const [resizedPDF]=await Promise.all([page.waitForEvent('download'),field('pdf-preview-save').click()]);
+ const resizedBytes=await fs.readFile(await resizedPDF.path());
+ assert.match(resizedBytes.toString('latin1'),/\/Count 2/);
+ if(process.env.FORMA_TEST_PDF_DIR){
+  const folder=process.env.FORMA_TEST_PDF_DIR;
+  await fs.writeFile(path.join(folder,'drawing-page-scales.pdf'),resizedBytes);
+  await fs.writeFile(path.join(folder,'drawing-page-scales.json'),JSON.stringify({front:.5,section:sectionScale}));
+ }
+ await field('pdf-preview-close').click();
+ await field('close').click();
+ const [scaledProject]=await Promise.all([page.waitForEvent('download'),page.locator('#save').click()]);
+ const scaled=(await decodeProjectDocument(await fs.readFile(await scaledProject.path(),'utf8'))).document.drawing;
+ assert.equal(scaled.scale,.4);
+ assert.deepEqual(scaled.options.pdfPageScales,{1:.5,2:.375});
+ assert.equal(scaled.options.pdfViewScales['section-a'],sectionScale);
+ await open(scaled);
+ await field('page-edit').selectOption('1');
+ assert.equal(await scaleOn(editor,'section-a'),sectionScale);
+ await field('page-edit').selectOption('-1');
+ assert.equal(await scaleOn(editor,'section-a'),.4);
  assert.deepEqual(errors,[]);
- console.log('PASS on-page PDF editing, placement, warning navigation, overflow, export and manufacturing dimensions');
+ console.log('PASS on-page PDF editing, custom page scales, corner resizing, undo/redo, overflow, export and project reload');
 }finally{await browser?.close();server.close();}

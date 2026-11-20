@@ -63,6 +63,14 @@ export function drawingProjectedFrame(name,bounds){
 }
 export const drawingViewFactor=(name,options={})=>name==='front'&&options.viewPriority==='front'?1.4:name==='iso'&&options.isoMode==='small'?.5:1;
 export const drawingViewScale=(name,scale,options={},factor=1)=>options.viewScales?.[name]??scale*drawingViewFactor(name,options)*factor;
+export const minDrawingScale=.0001,maxDrawingScale=1000;
+export const validDrawingScale=value=>Number.isFinite(value)&&value>=minDrawingScale&&value<=maxDrawingScale;
+export function parseDrawingScale(text){
+ const parts=text.normalize('NFKC').trim().split(/\s*[:/]\s*/);
+ if(parts.length>2||parts.some(part=>!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(part)))return null;
+ const value=Number(parts[0])/Number(parts[1]??1);
+ return validDrawingScale(value)?value:null;
+}
 export function drawingScaleLabel(scale){return scale>=1?Number(scale.toFixed(4))+':1':'1:'+Number((1/scale).toFixed(4));}
 export function drawingScaleSummary(scales){
  const scale=scales[0];

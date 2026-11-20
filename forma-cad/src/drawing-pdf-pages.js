@@ -1,6 +1,6 @@
 import {drawingViewVisible} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
-import {optimizeDrawingLayout} from './drawing-auto-layout.js';
+import {drawingViewFrames,optimizeDrawingLayout,rescaleDrawingAnnotations} from './drawing-auto-layout.js';
 import {drawingSheet} from './drawing-sheet.js';
 
 const isAuxiliaryView=name=>name.startsWith('section-')||name.startsWith('detail-');
@@ -27,35 +27,45 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
  const comments=(options.comments??[]).filter(note=>note.text.trim());
  const names=Object.keys(withDetails(data,options.details).views).filter(name=>drawingViewVisible(name,options));
  const pages=[];
+ let originalFrames;
 
  function add(views,table,text,notes){
   const dimensionIndices=[];
   const selected=new Set(views);
-  const pageDimensions=dimensions.filter((d,index)=>{
+  let pageDimensions=dimensions.filter((d,index)=>{
    if(!selected.has(d.view))return false;
    dimensionIndices.push(index);
    return true;
   });
   const pageOptions={...options,pageViews:views,pageHoleTable:table,comments:notes};
+  const specified=options.pdfPageScales?.[pages.length+1];
+  const pageScale=specified??scale;
+  const resized=views.filter(id=>options.pdfViewScales?.[id]!==undefined);
+  if(resized.length)pageOptions.viewScales={...options.viewScales,...Object.fromEntries(resized.map(id=>[id,options.pdfViewScales[id]]))};
+  if(pageScale!==scale||resized.length){
+   originalFrames??=drawingViewFrames(data,options,scale);
+   pageDimensions=rescaleDrawingAnnotations(pageDimensions,drawingViewFrames(data,pageOptions,pageScale),scale,pageScale,originalFrames);
+  }
+  const noteIds=notes.map(note=>note.id).concat(text.trim()?['comment']:[]);
   if(source){
-   const noteIds=new Set(notes.map(note=>note.id));
-   if(text.trim())noteIds.add('comment');
-   const pageNotes=source.notes.filter(note=>noteIds.has(note.id)).map(note=>{
+   const pageNotes=source.notes.filter(note=>noteIds.includes(note.id)).map(note=>{
     const at=overrides[note.id];
     return at?{...note,x:at[0],y:at[1]}:note;
    });
-   pages.push({scale,dimensions:pageDimensions,dimensionIndices,comment:text,options:{...pageOptions,positions:{...positions,...overrides},
+   pages.push({scale:pageScale,dimensions:pageDimensions,dimensionIndices,comment:text,options:{...pageOptions,positions:{...positions,...overrides},
     pageSize:[source.width,source.height],pageNotes}});
    return;
   }
   pageOptions.layout='compact';
-  const key=layouts&&JSON.stringify([views,table,text,notes.map(note=>note.id)]);
+  const fixedScale=specified!==undefined;
+  const items=[...views,...noteIds,...(table?['holeTable']:[])];
+  const positioned=fixedScale&&items.every(id=>overrides[id]);
+  const key=layouts&&!positioned&&JSON.stringify([views,table,text,noteIds,pageScale,resized.map(id=>options.pdfViewScales[id]),fixedScale]);
   let result=layouts?.get(key);
   if(!result){
-   result=views.length||text.trim()||notes.length||table?
-    optimizeDrawingLayout(data,{scale,dimensions:pageDimensions,comment:text,options:pageOptions}):
-    {scale,dimensions:[],positions:{},paper:options.paper==='auto'?'A4':options.paper};
-   layouts?.set(key,result);
+   result=!positioned&&items.length?optimizeDrawingLayout(data,{scale:pageScale,dimensions:pageDimensions,comment:text,options:pageOptions,fixedScale}):null;
+   result??={scale:pageScale,dimensions:pageDimensions,positions:{},paper:options.paper==='auto'?'A4':options.paper};
+   if(key)layouts.set(key,result);
   }
   pages.push({scale:result.scale,dimensions:result.dimensions,dimensionIndices,comment:text,
    options:{...pageOptions,paper:result.paper,positions:{...result.positions,...overrides}}});
@@ -68,6 +78,7 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
     return placed?{...d,at:placed.at,alongOffset:placed.alongOffset}:d;
    }),page.comment,{...page.options,pageNumber:index+1,pageCount:pages.length}),
    dimensionIndices:page.dimensionIndices,
+   pageScale:page.scale,
   }));
  }
 
