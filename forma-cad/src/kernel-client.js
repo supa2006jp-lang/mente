@@ -27,7 +27,7 @@ function activity(client,id,p,state,extra={}){
  }
 }
 export function freshSvgEngine(features,spec){const operation=spec?.type==='preview'?spec.operation:spec;return operation?.type==='svgWrap'||spec?.type==='replay'&&features.slice(spec.start||0).some(f=>f.spec?.type==='svgWrap');}
-const fatalKernelError=message=>/indirect call to null|null function|memory access out of bounds|unreachable|table index|function signature mismatch|aborted|RuntimeError/i.test(message||'');
+const fatalKernelError=message=>/indirect call to null|null function|(?:memory access|index) out of bounds|unreachable|table index|function signature mismatch|aborted|RuntimeError/i.test(message||'');
 // Requests run one at a time. A queued request cannot time out an active CAD job.
 export function kernelTimeout(features,spec){
  if(['geometryHistoryTrace','assemblyAudit','assemblyAuditPair'].includes(spec.type))return 32000;

@@ -13,4 +13,12 @@ const bad=client.run(features,spec),badPromise=assert.rejects(bad,e=>e.rawMessag
 const ordinary=client.run([],{type:'move'});assert.equal(workers.length,6);workers[5].onmessage({data:{id:5,result:'ready'}});await ordinary;
 // Cancellation after automatic recovery still rejects the active and queued jobs.
 const cancel=client.run(features,spec),cancelled=assert.rejects(cancel,/キャンセル/),next=client.run([],{type:'move'}),nextCancelled=assert.rejects(next,/キャンセル/);workers[6].onmessage({data:{id:6,error:'memory access out of bounds'}});client.reset();await Promise.all([cancelled,nextCancelled]);assert.ok(workers[7].dead);assert.equal(client.pending.size,0);
-console.log('PASS isolated SVG engine, replay scope, one automatic recovery with original input, queued jobs preserved, repeated trap, fresh subsequent engine, and cancellation');
+// Some browsers report a WebAssembly bounds trap without the memory or table prefix.
+const support={type:'printSupport',id:'support',target:'body',style:'walls',sideGap:.5,preview:true};
+const preview=client.run(features,support);
+workers[8].onmessage({data:{id:8,error:'index out of bounds'}});
+assert.ok(workers[8].dead);
+assert.deepEqual(workers[9].messages[0],{features,spec:support,id:8});
+workers[9].onmessage({data:{id:8,result:{outputs:['support']}}});
+assert.deepEqual(await preview,{outputs:['support']});
+console.log('PASS isolated SVG engine, replay scope, automatic recovery with original input, queued jobs preserved, repeated trap, fresh subsequent engine, and cancellation');

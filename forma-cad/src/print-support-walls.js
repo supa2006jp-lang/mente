@@ -62,7 +62,7 @@ function prepareWallSupports(bodies,settings,onProgress){
  const model=bodies.get(p.target);if(!model)throw Error('サポートを付けるボディを選択してください');
  const skipSmallExterior=p.mode==='auto'&&p.skipSmallExterior===true;
  const modelBounds=skipSmallExterior||p.sideGap?bounds(model):null;
- let omittedExterior=0,omittedRibPieces=0;
+ let omittedExterior=0,omittedRibPieces=0,nonHorizontalFaces=0;
  const manualBlockers=[],skinPreview=[],exclusionPreview=[];
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,owned=[],hold=s=>(owned.push(s),s),walls=[],wallRecords=[],candidateRibs=[],ribIssues=[],excludedScope=[],ties=[],roofs=[],roofTabs=[],roofPreview=[],roofPlacements=[],roofMatched=[],tieLevels=new Set(),blockers=[],baseBodyIds=new Set();let omitted=0,faceCount=0,shape=null,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0,windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
  const skinChecks=[];
@@ -76,7 +76,9 @@ function prepareWallSupports(bodies,settings,onProgress){
   }
   selectedFacePreview=p.preview&&selection?supportSelectedFaceMeshes(selection):null;
   for(const face of faces){
-   const n=tuple(face.normalAt()),b=bounds(face);if(n[2]>-.5||b[0][2]<=settings.bedZ+settings.topGap+1)continue;
+   const n=tuple(face.normalAt());
+   if(n[2]>=0||n[2]>-.5*Math.hypot(...n))continue;
+   const b=bounds(face);if(b[0][2]<=settings.bedZ+settings.topGap+1)continue;
    const horizontal=face.geomType==='PLANE'&&n[2]<=-.999999,z=tuple(face.center)[2];
    const override=horizontal?matchSupportFaceOverride(face,settings.faceOverrides||[],z):null;
    if(override)usedOverrides.add(override);
@@ -84,7 +86,15 @@ function prepareWallSupports(bodies,settings,onProgress){
    const item=p.preview&&face.geomType==='PLANE'?supportCoverageFace(face,p.target,p,override,horizontal):null;
    const coverage=item?{item,height:z,faceBounds:b,index:-1}:null;
    if(coverage)coverageRows.push(coverage);
-   if(!horizontal){if(p.mode==='face')throw Error('薄壁型は水平な平面の下面を選択してください');omitted++;continue;}
+   if(!horizontal){
+    if(p.mode==='face')throw Error('薄壁型は水平な平面の下面を選択してください');
+    nonHorizontalFaces++;
+    // Blockers act on each slice. Leave the layers around this face available
+    // for slicer support if a neighboring horizontal blocker reaches them.
+    const [low,high]=b,margin=p.layerHeight;
+    excludedScope.push({low:[low[0]-margin,low[1]-margin,low[2]-margin],high:[high[0]+margin,high[1]+margin,high[2]+margin]});
+    continue;
+   }
    if(skipSmallExterior&&!p.noSupport?.length&&!p.edgeAssist&&!p.localRibs?.length&&isSmallExteriorLip(face,b,model,modelBounds,z,item?.face)){
     const blocker=scopedBlocker(face,p,z,[]);
     if(coverage)coverage.item.suppressed=true;
@@ -387,6 +397,7 @@ function prepareWallSupports(bodies,settings,onProgress){
   if(p.sideGap)analysis.sideGap=p.sideGap;
   if(alignedCeilings)analysis.sideGapAlignedCeilings=alignedCeilings;
   if(sectionCount)analysis.sideGapSections=sectionCount;
+  if(nonHorizontalFaces)analysis.nonHorizontalFaces=nonHorizontalFaces;
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
   if(omittedExterior||omittedRibPieces)analysis.omittedExterior={faces:omittedExterior,ribPieces:omittedRibPieces};
   if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;

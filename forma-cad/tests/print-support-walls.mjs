@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {unzipSync,strFromU8} from 'three/addons/libs/fflate.module.js';
+import {BufferGeometry,Float32BufferAttribute,Mesh,MeshBasicMaterial,DoubleSide,Raycaster,Vector3} from 'three';
 import {runOperation,kernelBodies} from '../src/kernel.js';
 import {printSupportDefaults,validatePrintSupport} from '../src/print-support.js';
 import {printSupport3mf} from '../src/print-support-3mf.js';
@@ -17,6 +18,25 @@ assert.equal(JSON.stringify(doc),snapshot);const saved=JSON.parse(JSON.stringify
 const zip=unzipSync(printSupport3mf(out.supportPackage)),config=strFromU8(zip['Metadata/model_settings.config']),model=strFromU8(zip['3D/3dmodel.model']);assert.match(config,/subtype="support_blocker"/);assert.match(config,/key="layer_height" value="0.3"/);assert.doesNotMatch(config,/enable_support/,'leave auto support enabled elsewhere');assert.equal((config.match(/subtype="normal_part"/g)||[]).length,2);assert.match(model,/unit="millimeter"/);assert(!Object.keys(zip).some(p=>/gcode/.test(p)),'export geometry and scope only; never pre-slice a print job');
 const floating=[record('plate',R.makeBox([0,0,60],[60,30,64]))],bed=runOperation(floating,{...spec,target:'plate'}),bedShapes=kernelBodies([...floating,{kind:'cadop',...bed}]);try{near(bounds(bedShapes.get('walls'))[0][2],0);assert.equal(bed.analysis.printSupport.components,1,'connected wide bed base');}finally{bedShapes.forEach(s=>s.delete());}
 const outer=R.makeCylinder(20,4,[0,0,50]),hole=R.makeCylinder(10,6,[0,0,49]);let ring;try{ring=outer.cut(hole);}finally{outer.delete();hole.delete();}const ringBefore=[record('ring',ring)],ringOut=runOperation(ringBefore,{...spec,target:'ring',connectFeet:false}),ringShapes=kernelBodies([...ringBefore,{kind:'cadop',...ringOut}]);try{const point=R.makeVertex([0,0,25]);try{assert(R.measureDistanceBetween(point,ringShapes.get('walls'))>9);}finally{point.delete();}}finally{ringShapes.forEach(s=>s.delete());}
+// A sloped underside close to a horizontal ceiling must remain eligible for slicer support.
+const plate=R.makeBox([0,0,20],[40,20,20.35]);
+const slope=R.draw([20,20.4]).lineTo([32,23.4]).lineTo([32,26]).lineTo([20,26]).close().sketchOnPlane('XZ').extrude(-10);
+const stepped=R.makeCompound([plate,slope]);
+plate.delete();slope.delete();
+const mixed=runOperation([record('mixed',stepped)],{...spec,target:'mixed'});
+assert.equal(mixed.analysis.printSupport.nonHorizontalFaces,1);
+assert.equal(mixed.analysis.printSupport.faceCount,1);
+assert(mixed.supportPreview.exportStatus.ok,JSON.stringify(mixed.supportPreview.exportStatus.issues));
+const material=new MeshBasicMaterial({side:DoubleSide});
+const blockers=mixed.supportPackage.blockers.map(({vertices,triangles})=>new Mesh(
+ new BufferGeometry().setAttribute('position',new Float32BufferAttribute(vertices,3)).setIndex(triangles),material
+));
+try{
+ const hits=(x,y,z)=>new Raycaster(new Vector3(x,y,z),new Vector3(0,0,1)).intersectObjects(blockers,false);
+ assert.equal(hits(26,5,20.2).length,0,'the sloped underside is outside the blocker');
+ assert(hits(26,5,19.8).length>0,'lower slices retain the blocker');
+ assert(hits(10,5,20.2).length>0,'the neighboring horizontal ceiling remains blocked');
+}finally{blockers.forEach(mesh=>mesh.geometry.dispose());material.dispose();}
 for(const bad of [{wallPitch:0},{wallThickness:4},{layerHeight:0},{topGap:.2},{topGap:.4}])assert.throws(()=>validatePrintSupport({...spec,...bad}));assert.throws(()=>printSupport3mf({...out.supportPackage,complete:false}));assert.throws(()=>printSupport3mf({...out.supportPackage,layerHeight:NaN}));assert.equal(validatePrintSupport({type:'printSupport',target:'channel'}).style,'posts');
 await fs.mkdir('.sites-runtime/support-slicing',{recursive:true});await fs.writeFile('.sites-runtime/support-slicing/walls.3mf',printSupport3mf(out.supportPackage));await fs.writeFile('.sites-runtime/print-support-walls-fixture.forma.json',JSON.stringify({format:'forma-cad',version:1,features:doc.features}));
 console.log('PASS dense planar walls, solid landing with zero penetration, layer-aligned top gap, connected bed base, native holes, closed STL, scoped blocker 3MF, persisted preview exclusion and replay');
