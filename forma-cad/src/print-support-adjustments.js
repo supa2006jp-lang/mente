@@ -129,10 +129,14 @@ function usable(result){
 }
 
 const omitted=result=>result?.analysis?.printSupport?.skippedCeilings?.length??0;
+function placedFaces(result){
+ const preview=result?.supportPreview;
+ return new Set([...(preview?.ribs??[]).filter(rib=>!rib.excluded),...(preview?.columns??[])].map(part=>part.ceilingId));
+}
 
 function improves(result,original,changes){
  if(!usable(result))return false;
- const covered=new Set(result.supportPreview.ribs?.filter(rib=>!rib.excluded).map(rib=>rib.ceilingId));
+ const covered=placedFaces(result);
  const coverage=result.supportPreview.coverage??[];
  if(changes.some(({key,right,selection})=>selection&&!right&&(key==='wallRoof'||key==='wallBottomSkin')&&
   !coverage.some(row=>sameSupportFace(row.selection,selection)&&covered.has(row.ceilingId))))return false;
@@ -140,7 +144,7 @@ function improves(result,original,changes){
  if(!before)return true;
  if(after.faceCount<before.faceCount||omitted(result)>omitted(original)||
     (after.roof?.count??0)<(before.roof?.count??0)||(after.bottomSkin?.count??0)<(before.bottomSkin?.count??0))return false;
- if(original.supportPreview?.ribs?.some(rib=>!rib.excluded&&rib.ceilingId&&!covered.has(rib.ceilingId)))return false;
+ if([...placedFaces(original)].some(id=>id&&!covered.has(id)))return false;
  const rows=new Map(coverage.filter(row=>row.ceilingId).map(row=>[row.ceilingId,row]));
  for(const row of original.supportPreview?.coverage??[]){
   if(!row.ceilingId)continue;
@@ -212,7 +216,7 @@ function hintMessage(hint){
 
 function trialSummary(state,original,number){
  const result=state.result,hints=adjustmentHints(state);
- const covered=new Set((result?.supportPreview?.ribs??[]).filter(rib=>!rib.excluded).map(rib=>rib.ceilingId)),faces=[];
+ const covered=placedFaces(result),faces=[];
  const coverage=result?.supportPreview?.coverage??state.error?.supportCoverage??[];
  for(const row of coverage){
   if(!row.ceilingId||!row.selection)continue;
@@ -220,6 +224,7 @@ function trialSummary(state,original,number){
   const notes=hints.filter(hint=>hint.ceilingId===row.ceilingId||sameSupportFace(hint.selection,row.selection)).map(hintMessage);
   const status=placed?(notes.length?'一部配置':'配置'):'配置できず';
   if(row.suppressed)notes.push('外側の小片を省略');
+  if(result?.supportPreview?.columns?.some(column=>column.ceilingId===row.ceilingId))notes.push('柱型で補完');
   if(placed)for(const [field,role,label] of [['wallRoof','upper','上面'],['wallBottomSkin','lower','底面']])
    if(row.override?.[field]===false&&row.skin?.[role]?.enabled===false)notes.push(label+'の薄皮なし');
   faces.push({selection:row.selection,number:row.ceilingNumber,placed,status,notes});
@@ -228,11 +233,12 @@ function trialSummary(state,original,number){
   if(!hint.selection||faces.some(face=>sameSupportFace(face.selection,hint.selection)))continue;
   faces.push({selection:hint.selection,number:hint.number,placed:false,status:'配置できず',notes:[hintMessage(hint)]});
  }
- const hasParts=!!result?.outputs?.length;
+ const hasParts=!!result?.outputs?.length,ready=usable(result);
  const notices=state.error?[state.error.message]:[...(result?.analysis?.printSupport?.ribs?.issues??[]),
   ...(result?.supportPreview?.exportStatus?.issues??[]).map(issue=>issue.message)];
- return {number,changes:number?describeSupportAdjustment(original,state.input):[],status:usable(result)?'ready':hasParts?'preflight':'failed',
-  faces,notices:[...new Set(notices.filter(Boolean))],quality:hasParts?supportQuality(result):null};
+ return {number,changes:number?describeSupportAdjustment(original,state.input):[],status:ready?'ready':hasParts?'preflight':'failed',
+  faces,notices:[...new Set(notices.filter(Boolean))],quality:hasParts?supportQuality(result):null,
+  mass:result?.analysis?.printSupport?.material?.massG??null,...(ready?{settings:structuredClone(state.input)}:{})};
 }
 
 export async function adjustSupportPreview(input,{

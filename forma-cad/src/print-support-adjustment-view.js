@@ -35,12 +35,12 @@ export function createSupportAdjustmentPermissions(anchor,onChange){
 
 const rounded=value=>Number(value.toFixed(2));
 
-export function createSupportAdjustmentReview({anchor,scene,host,bodyName,loadFace,fitPreview}){
+export function createSupportAdjustmentReview({anchor,scene,host,bodyName,loadFace,fitPreview,onPreview,onAdopt}){
  const panel=document.createElement('details'),heading=document.createElement('summary'),status=document.createElement('small'),list=document.createElement('div');
  panel.dataset.id='auto-adjust-trials';panel.hidden=true;
  status.setAttribute('role','status');
  panel.append(heading,status,list);anchor.append(panel);
- let revision=0,blocked=false,highlight,active;
+ let revision=0,blocked=false,highlight,active,reports=[],viewed=null;
  function clearFocus(){
   revision++;
   if(highlight){
@@ -85,7 +85,8 @@ export function createSupportAdjustmentReview({anchor,scene,host,bodyName,loadFa
   for(const button of list.querySelectorAll('button'))button.disabled=blocked;
   if(blocked&&active)clearFocus();
  }
- function show(reports){
+ function show(next){
+  reports=next;
   clearFocus();list.replaceChildren();
   const total=reports.reduce((sum,{report})=>sum+report.trials.length,0);
   panel.hidden=!total;
@@ -99,10 +100,11 @@ export function createSupportAdjustmentReview({anchor,scene,host,bodyName,loadFa
    for(const trial of report.trials){
     const details=document.createElement('details'),caption=document.createElement('summary');
     details.dataset.supportTrial=String(trial.number);
-    const adopted=trial.number>0&&report.selected===trial.number;
-    details.open=adopted||report.selected===null&&trial.number===0;
+    const adopted=report.selected===trial.number;
+    const previewed=viewed?.target===target&&viewed.number===trial.number;
+    details.open=adopted||previewed||report.selected===null&&trial.number===0;
     const label=trial.number?'候補 '+trial.number:'調整前';
-    const result=adopted?'採用':trial.status==='ready'?'検査通過':trial.status==='preflight'?'3MF要確認':'作成できず';
+    const result=adopted?'適用中':trial.status==='ready'?'検査通過':trial.status==='preflight'?'3MF要確認':'作成できず';
     caption.textContent=label+' ／ '+result;
     details.append(caption);
     if(trial.changes.length){
@@ -111,7 +113,8 @@ export function createSupportAdjustmentReview({anchor,scene,host,bodyName,loadFa
     if(trial.quality){
      const {faces,roofArea,gap}=trial.quality,metrics=document.createElement('small');
      metrics.textContent='配置 '+faces+'面 ／ 上面の薄皮 '+rounded(roofArea)+' mm²'+
-      (gap===null?'':' ／ 支えのない最大幅 '+rounded(gap)+' mm（目安）');
+      (gap===null?'':' ／ 支えのない最大幅 '+rounded(gap)+' mm（目安）')+
+      (trial.mass===null?'':' ／ 材料 約 '+rounded(trial.mass)+' g');
      details.append(metrics);
     }
     for(const note of trial.notices){
@@ -130,10 +133,27 @@ export function createSupportAdjustmentReview({anchor,scene,host,bodyName,loadFa
      button.onclick=()=>focus(button,face);
      details.append(button);
     }
+    if(trial.settings&&(!adopted||viewed)){
+     const preview=document.createElement('button');
+     preview.type='button';preview.dataset.supportTrialPreview=String(trial.number);
+     preview.textContent=adopted||previewed?'現在の配置に戻す':'この候補をプレビュー';
+     preview.onclick=()=>onPreview(target,adopted||previewed?null:trial);
+     details.append(preview);
+     if(previewed){
+      const adopt=document.createElement('button');
+      adopt.type='button';adopt.className='accent';adopt.dataset.supportTrialAdopt=String(trial.number);
+      adopt.textContent='この候補を採用';adopt.onclick=()=>onAdopt(target,trial);
+      details.append(' ',adopt);
+     }
+    }
     list.append(details);
    }
   }
   controls(blocked);
  }
- return {show,controls,clearFocus,clear(){panel.open=false;show([]);}};
+ return {show,controls,clearFocus,
+  setPreview(choice){if(viewed||choice){viewed=choice;show(reports);}},
+  select(target,number){viewed=null;show(reports.map(entry=>entry.target===target?
+   {...entry,report:{...entry.report,selected:number}}:entry));},
+  clear(){viewed=null;panel.open=false;show([]);}};
 }

@@ -19,6 +19,7 @@ import {printSupportFailureContext,readPrintSupportFailure,supportCalculationLab
 import {cadErrorAdvice} from './cad-error-advice.js';
 import {supportExportPartName} from './print-support-preflight.js';
 import {installSupportRemoval} from './print-support-removal-view.js';
+import {createSupportSliceReview} from './print-support-slice-view.js';
 import {supportMaterialEstimate} from './print-support-material.js';
 import {createSupportFaceView} from './print-support-face-view.js';
 import {cadPosition} from './cad-coordinates.js';
@@ -33,6 +34,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  fields.push(['bottomSkinLayers','底面の薄皮の層数',1,6],['bottomSectionLength','底面の分割間隔',10,60],['bottomSeamWidth','底面の分割線の幅',.4,1.2]);
  fields.push(['bottomInterfaceLineWidth','底面の接触線の幅',.4,1.5],['bottomInterfaceSpacing','底面の線の隙間',.1,1.5],['bottomContactInset','底面の端の逃げ',0,2]);
  fields.push(['filamentDiameter','フィラメント径',1,3.5],['materialDensity','材料の密度',.5,3]);
+ fields.push(['fallbackDiameter','補完用の柱径',.8,6]);
  dialog.innerHTML='<form><div style="display:flex;justify-content:space-between"><strong>連結リブサポート</strong><button type="button" data-id="close" aria-label="閉じる">×</button></div><p>下向きの面を、ベッドや下側のモデルから支えます。平らな天井は薄壁型、斜めの面などは柱型を使います。本体とは別ボディで作成します。STLでは普通の形状として扱われ、自動サポートが追加される場合があります。印刷する向きを決めてから追加してください。</p><label>サポートの形<select data-id="style"><option value="walls">リブ型（薄壁・平らな天井向け）</option><option value="posts">柱型（従来）</option></select></label><label>対象ボディ<select data-id="target"></select></label><label>配置する範囲<select data-id="mode"><option value="auto">平面の下面を自動で探す</option><option value="face">選んだ下面だけ（複数可）</option></select></label><label>支え始める場所<select data-id="baseMode"><option value="bedOrModel">ベッドとモデルの上面</option><option value="bed">ベッドのみ</option></select></label><div data-id="face-row" hidden><button type="button" data-id="pick">下面を選ぶ</button><button type="button" data-id="face-clear">選択をすべて解除</button><small data-id="face-info"></small><div data-id="face-list"></div><small>下面をクリックで追加・解除します。同じボディ内で32面まで選べます。選び終えたら「選択を終了してプレビュー」を押してください。</small></div><div class="support-fields">'+fields.map(([key,label,min,max])=>'<label data-field="'+key+'">'+label+(key==='roofLayers'?' (層)':key==='wallLines'?' (本)':key==='maxSupports'?'':' (mm)')+'<input data-id="'+key+'" type="number" min="'+min+'" max="'+max+'" step="'+(['maxSupports','roofLayers','wallLines'].includes(key)?'1':'any')+'" required></label>').join('')+'</div><label><input type="checkbox" data-id="wallRoof">上面を薄皮でつなぐ</label><small data-id="roof-note"></small><details data-id="roof-removal"><summary>上面の分割線</summary><label><input type="checkbox" data-id="roofSeams">薄皮に分割線を入れる</label><small>分割線は薄皮だけに入れ、リブと横つなぎを残します。</small></details><label><input type="checkbox" data-id="wallWindows">中央を窓抜きして節約</label><small data-id="windows-note">根元・上端・横つなぎの接続部を残します。削減率はCAD体積の比較です。実際の使用量と強度・外しやすさはスライスと試し刷りで確認してください。</small><label><input type="checkbox" data-id="wallTies">一定の高さごとに薄壁を横につなぐ</label><label><input type="checkbox" data-id="connectFeet">足同士をつなぐ</label><label><input type="checkbox" data-id="braces">支柱間に斜め補強を入れる</label><label><input type="checkbox" data-id="lockToModel">本体・土台とまとめて移動する</label><p data-id="info" role="status"></p><p data-id="error" role="alert" style="color:#ba4420"></p><div class="editor-actions"><button type="button" data-id="cancel">キャンセル</button><button type="submit" data-id="apply" class="accent" disabled>連結リブサポートを作成</button></div><p data-id="wall-note">横つなぎは薄壁同士をつなぎ、接続部を細くしています。取り外すときは接続部を切り離してください。薄壁の下端は土台に接触します。Bambu Studioでは下の3MFを「プロジェクト」として開いてください。対応範囲だけ自動サポートを除外し、他の箇所の設定は変えません。</p><button type="button" data-id="export3mf" disabled>プレビューを3MF出力（本体＋薄壁）</button><details><summary>印刷時の確認</summary><p>このサポートは通常のモデルとして出力されます。接点のすき間は積層高さに合わせて調整し、スライス後に接点の層と自動サポートとの重なりを確認してください。薄壁型は積層ピッチ0.3 mm・上側のすき間0.3 mmが初期値です。スライサーの積層ピッチと合わせてください。</p><p>本体や別のボディにぶつかる支柱・補強は配置しません。柱型でモデルの上面から支えるときは、下側にも接点のすき間を残します。曲面の下面・土台には対応していません。</p></details></form>';
  const style=document.createElement('style');style.textContent='#print-support-dialog label{display:block;color:#193a50;margin:8px 0}#print-support-dialog input:not([type="checkbox"]),#print-support-dialog select{width:100%;box-sizing:border-box}#print-support-dialog .support-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px}#print-support-dialog button{background:#e2f0f7;color:#193a50;border:1px solid #8aaaba;border-radius:6px;padding:8px}#print-support-dialog button.accent{background:#078baa;color:white;border-color:#08778b}#print-support-dialog button:disabled{opacity:.5}#print-support-dialog input[type="checkbox"]{width:auto;display:inline;margin-right:7px}#print-support-dialog .editor-actions{background:transparent;display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}#print-support-dialog [hidden]{display:none!important}#print-support-dialog small{display:block;font-size:12px;line-height:1.5}';dialog.append(style);document.body.append(dialog);const $=id=>dialog.querySelector('[data-id="'+id+'"]');
  const savedExportPanel=document.createElement('div');
@@ -65,10 +67,15 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  autoSettings.innerHTML='<label><input type="checkbox" data-id="auto-adjust" checked>作成できる設定に自動調整</label>'+
   '<small data-id="auto-adjust-status" role="status"></small><button type="button" data-id="auto-adjust-undo" hidden>自動調整前の設定に戻す</button>';
  $('baseMode').closest('label').after(autoSettings);
+ const columnSettings=document.createElement('div');
+ columnSettings.innerHTML='<label><input type="checkbox" data-id="fallbackPosts">リブを置けない下面を柱型で補う</label><small data-id="column-status" role="status"></small>';
+ autoSettings.after(columnSettings);
+ $('fallbackPosts').closest('label').after($('fallbackDiameter').closest('label'));
  const adjustmentPermissions=createSupportAdjustmentPermissions(autoSettings,()=>{
   if(dialog.open&&$('auto-adjust').checked)schedule();
  });
- const adjustmentReview=createSupportAdjustmentReview({anchor:autoSettings,scene,host,bodyName,fitPreview,async loadFace(selection){
+ const adjustmentReview=createSupportAdjustmentReview({anchor:autoSettings,scene,host,bodyName,fitPreview,
+  onPreview:previewTrial,onAdopt:adoptTrial,async loadFace(selection){
   const entry=batching()?batchEntries.get(selection.bodyId):cached;
   const row=entry?.result?.supportPreview?.coverage?.find(item=>sameSupportFace(item.selection,selection));
   if(row)return row.face;
@@ -76,7 +83,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    faces:[selection],bedZ:0,topGap:0},{document:original});
   return result.selectedFaces[0];
  }});
- let autoAdjustment=null;
+ let autoAdjustment=null,trialPreview=null;
  const previewHint=document.createElement('small');previewHint.hidden=true;$('info').after(previewHint);
  const exportState=document.createElement('div');exportState.dataset.id='export-state';exportState.setAttribute('role','status');exportState.style.cssText='padding:10px;border:1px solid #8aaaba;border-radius:6px;margin:10px 0';$('export3mf').before(exportState);
  const autoFaceButton=document.createElement('button');
@@ -182,17 +189,21 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  });
  const clearanceView=createSupportClearanceView({anchor:$('info'),host,camera});
  const fastView=createSupportFastPreview({scene,host});let activeRun=null,pendingPreview=null;
- const ray=new THREE.Raycaster(),keys=fields.map(([key])=>key),toggles=['topContactRim','topContactLines','bottomContactLines','contactLines','bottomSeams','wallBottomSkin','edgeRibs','skipSmallExterior','fitLineWidth','wallRoof','roofSeams','wallWindows','wallTies','autoReinforce','connectFeet','braces','lockToModel'];
+ const ray=new THREE.Raycaster(),keys=fields.map(([key])=>key),toggles=['topContactRim','topContactLines','bottomContactLines','contactLines','bottomSeams','wallBottomSkin','edgeRibs','skipSmallExterior','fallbackPosts','fitLineWidth','wallRoof','roofSeams','wallWindows','wallTies','autoReinforce','connectFeet','braces','lockToModel'];
  function removalState(){
-  if(!dialog.open||materialInvalid||inflight||batchPending)return null;
+  if(!dialog.open||trialPreview||materialInvalid||inflight||batchPending)return null;
   const ready=batching()?currentBatch():cached?[cached]:[];
   const entries=ready.flatMap(({input,result})=>result.outputs.map(output=>({
-   target:input.target,result,output:result.supportPackage?.bodies.find(body=>body.id===output.id)||output,
+   target:input.target,result,output:result.supportPackage?.bodies.find(body=>body.id===output.id)||output,brep:output.brep,wallThickness:input.wallThickness,
   })));
   return entries.length?{entries,history,preview}:null;
  }
  const removal=installSupportRemoval({anchor:material,host,scene,meshes,kernel,bodyName,getState:removalState,onChange:controls});
- function clear(){autoFaceButton.hidden=true;adjustmentReview.clearFocus();coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
+ const sliceReview=createSupportSliceReview({anchor:$('export3mf'),scene,host,kernel,fitPreview,bodyName,onChange:controls,getEntries(){
+  if(!dialog.open||inflight||batchPending||getFeatures()!==original)return [];
+  return (batching()?currentBatch():cached?[cached]:[]).filter(supportPreviewExportable);
+ }});
+ function clear(){clearTrialPreview();sliceReview.reset();autoFaceButton.hidden=true;adjustmentReview.clearFocus();coverageView.clear();clearanceView.clear();contactView.clear();fastView.clear();removal.reset();faceView.clear();ribView.clear();roofView.clear();$('roof-legend').replaceChildren();for(const [mesh,visible]of hidden)mesh.visible=getBodyVisibility(mesh.userData.bodyId)??visible;hidden=[];if(preview){scene.remove(preview);preview.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});preview=null;}delete host.dataset.printSupport;delete host.dataset.supportExportStatus;exportState.replaceChildren();}
  function invalidate(cancel=true){revision++;batchPending=false;clearTimeout(timer);pendingPreview=null;if(cancel&&(inflight||selectionBusy||trialBusy)){activeRun=null;kernel.reset();inflight=false;selectionBusy=false;trialBusy=false;}cached=null;gapComparison.clear();adjustmentReview.clear();clear();$('apply').disabled=true;return revision;}
  function close(){gapBaseline=null;reinforcementComparison=null;comparisonPanel.hidden=true;batchEntries.clear();faceView.endPick();endRibBatch();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;if(dialog.open)dialog.close();}
  const savedExportIds=visibleOnly=>dialog.open&&original===getFeatures()?getSavedExportIds(visibleOnly):[];
@@ -201,7 +212,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   return entries.filter(supportPreviewExportable).map(({input,result})=>({id:input.id,target:input.target,pkg:result.supportPackage}));
  }
  function newSupportPreviews(){
-  if(editing||batchPending||picking||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length)return [];
+  if(editing||batchPending||picking||removal.active||trialPreview||materialInvalid||ribPicking||ribBatch||ribReview.length)return [];
   return previewOutputs();
  }
  function syncSavedExport(){
@@ -247,6 +258,14 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  const skinAvailable=key=>$(key).checked||overridesFor($('target').value).some(row=>row[key]===true);
  function controls(){const walls=$('style').value==='walls',roof=walls&&skinAvailable('wallRoof');$('sideGap').closest('label').hidden=!walls;$('roof-removal').hidden=!roof;$('roofSeams').closest('label').hidden=!roof;for(const key of ['roofSectionLength','roofSeamWidth'])$(key).closest('label').hidden=!roof||!$('roofSeams').checked;$('wallRoof').closest('label').hidden=!walls;$('roofLayers').closest('label').hidden=!walls||!$('wallRoof').checked;$('roof-note').hidden=!walls||!$('wallRoof').checked;$('roof-note').textContent='厚さ '+Number((Number($('roofLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mm。本体との上側のすき間は維持し、両端のリブの間だけをつなぎます。';$('wallWindows').closest('label').hidden=!walls;$('windows-note').hidden=!walls;$('wallTies').closest('label').hidden=!walls;$('tieInterval').closest('label').hidden=!walls||!$('wallTies').checked;for(const key of ['edgeMargin','wallPitch','wallThickness','layerHeight'])$(key).closest('label').hidden=!walls;for(const key of ['spacing','footDiameter','postDiameter','tipDiameter','bottomGap','braceDiameter','maxSupports'])$(key).closest('label').hidden=walls;$('braces').closest('label').hidden=walls;$('wall-note').hidden=$('export3mf').hidden=!walls;for(const el of dialog.querySelectorAll('input,select,button'))el.disabled=busy;$('apply').disabled=busy||!cached;$('export3mf').disabled=busy||!cached?.result.supportPackage?.complete;$('face-row').hidden=$('mode').value!=='face';$('braceDiameter').disabled=busy||!$('braces').checked;$('bottomGap').disabled=busy||$('baseMode').value==='bed';faceControls();placementControls(roof);ribControls(walls,roof);presets.sync(busy);failurePanel.hidden=!lastFailure;exportControls();improvementControls(walls);exteriorLabel.hidden=!walls||$('mode').value!=='auto';
   autoSettings.hidden=!walls;
+  columnSettings.hidden=!walls;
+  const useColumns=walls&&$('fallbackPosts').checked;
+  $('fallbackDiameter').closest('label').hidden=!useColumns;
+  $('bottomGap').closest('label').hidden=walls&&!(useColumns&&$('baseMode').value==='bedOrModel');
+  const columns=(batching()?currentBatch():cached?[cached]:[]).map(entry=>entry.result.analysis.printSupport.columnFallback).filter(Boolean);
+  const columnCount=columns.reduce((sum,stats)=>sum+stats.count,0);
+  $('column-status').textContent=columnCount?columnCount+'本を配置 ／ '+columns.reduce((sum,stats)=>sum+stats.faces,0)+'面を補完':
+   useColumns&&columns.length?'補完した柱はありません。':'';
   $('auto-adjust').disabled=busy||picking;
   $('auto-adjust-undo').hidden=!autoAdjustment;
   adjustmentPermissions.controls({enabled:walls&&$('auto-adjust').checked,disabled:busy||picking});
@@ -258,8 +277,11 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   comparisonControls();
   const blocked=busy||picking||inflight||batchPending;
   const masked=removal.active||ribPicking||ribBatch||contactView.active||!!ribReview.length;
+  sliceReview.panel.hidden=!walls;
+  sliceReview.sync(blocked||masked||!!trialPreview);
+  if(masked)sliceReview.clearFocus();
   adjustmentReview.controls(blocked||masked);
-  $('auto-adjust-undo').disabled=blocked||masked;
+  $('auto-adjust-undo').disabled=blocked||masked||!!trialPreview;
   autoFaceButton.disabled=blocked||masked;
   gapComparison.controls({blocked,masked});
   $('target').disabled=busy||batch;
@@ -272,6 +294,9 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
    const count=batchExportCount();
    exportState.dataset.state=count&&!batchPending?'ready':batchPending?'checking':'unavailable';
    exportState.textContent=batchPending?'3MF：対象ごとに検査中…':count?'3MF出力可能：'+count+'ボディ。出力可能な対象・リブと必要な土台をまとめます。':'3MF出力可能なボディはありません。';
+  }
+  if(trialPreview||sliceReview.checking){
+   for(const control of [$('apply'),$('export3mf'),$('rib-pick'),$('rib-batch'),$('contact-highlight'),$('trial-export')])control.disabled=true;
   }
   reviewExport.hidden=!walls;
   reviewExport.disabled=$('export3mf').disabled||picking;
@@ -327,7 +352,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function removeFace(index){if(busy||selectionBusy)return;selectedFaces=selectedFaces.filter((_,i)=>i!==index);const items=faceView.items.filter((_,i)=>i!==index);resetStructure();if(picking){faceView.show(items);controls();$('error').textContent='';}else schedule();}
  function improvementControls(walls){contactControls(walls);const rim=walls&&$('contactLines').checked&&$('topContactLines').checked&&skinAvailable('wallRoof');$('topContactRim').closest('label').hidden=$('top-rim-note').hidden=!rim;$('topContactRim').disabled=busy;for(const key of ['topContactRimWidth'])$(key).closest('label').hidden=!rim||!$('topContactRim').checked;contact.hidden=!walls;$('contactLines').disabled=busy||!(skinAvailable('wallRoof')||skinAvailable('wallBottomSkin'));for(const [flag,skin,keys]of [['topContactLines','wallRoof',['interfaceLineWidth','interfaceSpacing']],['bottomContactLines','wallBottomSkin',['bottomInterfaceLineWidth','bottomInterfaceSpacing','bottomContactInset']]]){const on=walls&&$('contactLines').checked;$(flag).closest('label').hidden=!on;$(flag).disabled=busy||!skinAvailable(skin);for(const key of keys)$(key).closest('label').hidden=!on||!$(flag).checked||!skinAvailable(skin);}$('contact-note').textContent='本体側1層を上下別の線幅・隙間にします。上面の縦すき間は維持し、底面は本体に線で接触します。「底面の端の逃げ」で接触する1層だけ外周から離し、剥がし始めを作ります。0で従来の形です。ベッド上は広いまま残します。';bottomRemoval.hidden=!walls||!skinAvailable('wallBottomSkin');for(const key of ['bottomSectionLength','bottomSeamWidth'])$(key).closest('label').hidden=!walls||!skinAvailable('wallBottomSkin')||!$('bottomSeams').checked;$('wallBottomSkin').closest('label').hidden=!walls;$('bottomSkinLayers').closest('label').hidden=!walls||!$('wallBottomSkin').checked;$('footThickness').disabled=$('connectFeet').disabled=busy||walls&&$('wallBottomSkin').checked;$('bottom-skin-note').textContent='底面のリブを '+Number((Number($('bottomSkinLayers').value)*Number($('layerHeight').value)).toFixed(4))+' mmの薄皮でまとめます。従来の足の代わりになり、土台との接触は維持します。外しやすさは試し刷りで確認してください。';$('edgeRibs').closest('label').hidden=$('edge-ribs-note').hidden=!walls;faceView.setHidden(removal.active||contactView.active||$('mode').value!=='face');
   $('autoReinforce').closest('label').hidden=!walls||!$('wallTies').checked;strength.hidden=!walls;const a=cached?.result.analysis.printSupport,risks=a?.strength?.ribs||[],warnings=risks.filter(r=>r.severity!=='low');strength.replaceChildren();if(walls){const note=document.createElement('small');note.textContent=($('autoReinforce').checked&&$('wallTies').checked?'自動補強：指定間隔を上限に横つなぎを増やします。':$('wallTies').checked?'手動の補強間隔を使います。':'横つなぎはオフです。')+(a?.wallTies?.intervals?.length?' 配置間隔の目安 '+a.wallTies.intervals.join(' / ')+' mm。':'')+' 紫：補強要確認／黄：注意。高さと壁厚・実際に作れた横つなぎからの目安です。材料強度や揺れを保証しません。';strength.append(note);if(warnings.length){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='補強を確認したいリブ（'+warnings.length+'枚）';details.append(summary);for(const r of warnings){const line=document.createElement('small');line.textContent='リブ '+r.number+'：'+r.message+'（補強のない高さ '+r.unsupportedSpan.toFixed(1)+' mm／壁厚 '+Number($('wallThickness').value)+' mm）';details.append(line);}strength.append(details);}}
-  const m=a?.material,n=v=>Number(v.toFixed(2));$('material-info').textContent=m?'サポート '+n(m.volume/1000)+' cm³ ／ 約 '+n(m.lengthM)+' m ／ 約 '+n(m.massG)+' g'+(a.bottomSkin?.enabled?'（底面薄皮を含む）':'')+(a.windows?.enabled?'。窓抜き前 '+n(m.beforeWindows.massG)+' g → '+n(m.massG)+' g（約 '+n(m.saved.massG)+' g・'+n(m.saved.lengthM)+' m削減）':''):'プレビュー後に体積から換算します。';removal.sync(busy||picking||ribPicking||ribBatch||contactView.active);$('apply').disabled||=removal.active||materialInvalid;$('export3mf').disabled||=removal.active||materialInvalid;if(materialInvalid)$('material-info').textContent='フィラメント径と材料の密度を範囲内で入力してください。';
+  const m=a?.material,n=v=>Number(v.toFixed(2));$('material-info').textContent=m?'サポート '+n(m.volume/1000)+' cm³ ／ 約 '+n(m.lengthM)+' m ／ 約 '+n(m.massG)+' g'+(a.bottomSkin?.enabled?'（底面薄皮を含む）':'')+(a.windows?.enabled?'。窓抜き前 '+n(m.beforeWindows.massG)+' g → '+n(m.massG)+' g（約 '+n(m.saved.massG)+' g・'+n(m.saved.lengthM)+' m削減）':''):'プレビュー後に体積から換算します。';removal.sync(busy||picking||ribPicking||ribBatch||contactView.active||sliceReview.checking||!!trialPreview);$('apply').disabled||=removal.active||materialInvalid;$('export3mf').disabled||=removal.active||materialInvalid;if(materialInvalid)$('material-info').textContent='フィラメント径と材料の密度を範囲内で入力してください。';
  }
  function contactControls(walls){
   contactTools.hidden=!walls||batching();const available=!!cached&&contactView.items.length>0,counts={upper:0,lower:0};$('contact-highlight').disabled=busy||removal.active||!available;$('contact-highlight').checked=contactView.active;$('contact-all').disabled=busy||!available;$('contact-focus-list').replaceChildren(...contactView.items.map(item=>{const button=document.createElement('button');button.type='button';button.dataset.contactFocus=item.id;button.textContent=(item.role==='upper'?'上面 ':'底面 ')+(++counts[item.role])+'を拡大';button.disabled=busy||removal.active;button.onclick=()=>{contactView.focus(item.id);controls();};return button;}));
@@ -549,7 +574,15 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  function readAllFields(){return Object.fromEntries([...keys,...toggles,'style','mode','baseMode','wallDirection','target'].map(key=>[key,toggles.includes(key)?$(key).checked:$(key).value]));}
  function completeSpec(){return {...spec(),...Object.fromEntries(keys.map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))};}
  $('face-clear').onclick=()=>{if(busy||selectionBusy)return;selectedFaces=[];resetStructure();if(picking){faceView.clear();controls();$('error').textContent='';}else schedule();};
- const presets=installPrintSupportPresets($('style').closest('label'),{read:completeSpec,download,apply:values=>{faceView.endPick();picking=false;resetStructure();for(const key of keys)if(values[key]!==undefined)$(key).value=values[key];for(const key of toggles)if(values[key]!==undefined)$(key).checked=values[key];if($('style').value!==values.style){clearRibEdits();excludedRibs=[];excludedRibBlockers=[];}for(const key of ['style','baseMode','wallDirection'])$(key).value=values[key];wallOffset=values.wallOffset||0;alignWidth();schedule();}});
+ const presets=installPrintSupportPresets($('style').closest('label'),{read:completeSpec,download,apply:values=>{
+  const settings={fallbackPosts:printSupportDefaults.fallbackPosts,fallbackDiameter:printSupportDefaults.fallbackDiameter,...values};
+  faceView.endPick();picking=false;resetStructure();
+  for(const key of keys)if(settings[key]!==undefined)$(key).value=settings[key];
+  for(const key of toggles)if(settings[key]!==undefined)$(key).checked=settings[key];
+  if($('style').value!==settings.style){clearRibEdits();excludedRibs=[];excludedRibBlockers=[];}
+  for(const key of ['style','baseMode','wallDirection'])$(key).value=settings[key];
+  wallOffset=settings.wallOffset||0;alignWidth();schedule();
+ }});
  function showFailureDetails(record){
   const calculation=record.calculation,stage=supportCalculationLabel(calculation),retryResult=supportRetryLabel(calculation?.retry);
   const details=$('failure-calculation');
@@ -594,6 +627,8 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   if(!fitted){fitPreview(new THREE.Box3().setFromObject(preview));fitted=true;}
  }
  function updateMaterial(){
+  clearTrialPreview();
+  sliceReview.reset();
   removal.reset();if(!cached||inflight||busy){schedule();return;}try{const input=validatePrintSupport({...cached.input,...Object.fromEntries(['filamentDiameter','materialDensity'].map(key=>[key,$(key).value.trim()?Number($(key).value):NaN]))}),a=cached.result.analysis.printSupport,m=a.material;if(!m){schedule();return;}cached={input,result:{...cached.result,analysis:{...cached.result.analysis,printSupport:{...a,material:supportMaterialEstimate(m.volume,input,m.beforeWindows.volume)}}}};materialInvalid=false;$('error').textContent='';host.dataset.printSupport=JSON.stringify(cached.result.analysis.printSupport);}catch(e){materialInvalid=true;$('error').textContent=e.message;}controls();
  }
  dialog.addEventListener('forma-preview-retry',()=>schedule(false,reinforcementComparison));
@@ -606,6 +641,64 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
   }
   if(JSON.stringify(before.faceOverrides??[])!==JSON.stringify(after.faceOverrides??[]))
    faceOverrides.set(after.target,structuredClone(after.faceOverrides??[]));
+ }
+ function clearTrialPreview(){
+  if(!trialPreview)return;
+  trialPreview.group.removeFromParent();
+  trialPreview.group.traverse(mesh=>{mesh.geometry?.dispose();mesh.material?.dispose();});
+  for(const [mesh,visible] of trialPreview.hidden)mesh.visible=visible;
+  for(const [label,value] of trialPreview.labels)label.hidden=value;
+  trialPreview=null;
+  adjustmentReview.setPreview(null);
+ }
+ async function previewTrial(target,trial){
+  if(busy||inflight||picking||ribPicking||ribBatch||removal.active||contactView.active||sliceReview.checking)return;
+  if(!trial){clearTrialPreview();controls();return;}
+  if(!trial.settings)return;
+  const current=previewOutputIsCurrent(),batch=batching();
+  const previous=batch?currentBatch().filter(entry=>entry.input.target!==target).map(entry=>supportHistoryFeature(entry.input,entry.result)):[];
+  clearTrialPreview();busy=true;trialBusy=true;controls();
+  sliceReview.clearFocus();
+  $('error').textContent='';
+  try{
+   const input=validatePrintSupport({...trial.settings,filamentDiameter:Number($('filamentDiameter').value),materialDensity:Number($('materialDensity').value)});
+   const result=await kernel.run([...history,...previous],{...input,preview:true},{document:original});
+   if(!current())return;
+   if(!result.supportPreview?.exportStatus?.ok||result.analysis.printSupport.ribs?.issues.length)
+    throw Error('現在の配置では、この候補の検査に通りませんでした。');
+   const group=new THREE.Group(),hidden=[],labels=[];
+   for(const mesh of preview?.children||[])if(mesh.userData.supportOutputId===input.id){hidden.push([mesh,mesh.visible]);mesh.visible=false;}
+   for(const label of host.querySelectorAll('[data-support-rib-labels],[data-support-roof-labels]')){
+    labels.push([label,label.hidden]);label.hidden=true;
+   }
+   for(const output of result.outputs)group.add(supportOutputMesh(output));
+   scene.add(group);
+   trialPreview={target,number:trial.number,input,result,group,hidden,labels};
+   adjustmentReview.setPreview(trialPreview);
+  }catch(error){if(current())$('error').textContent=error.message;}
+  finally{if(current()){busy=false;trialBusy=false;controls();}}
+ }
+ function adoptTrial(target,trial){
+  if(busy||inflight||batchPending||!trialPreview||target!==trialPreview.target||trial.number!==trialPreview.number)return;
+  const {input,result}=trialPreview,batch=batching();
+  const previous=batch?batchEntries.get(target):cached;
+  clearTrialPreview();gapBaseline=null;gapComparison.clear();
+  if(batch){
+   batchEntries.set(target,{...previous,input,result,error:null,coverage:[],clearance:[],adjustment:null,
+    trialReport:{...previous.trialReport,selected:trial.number}});
+   adjustmentReview.select(target,trial.number);renderBatchPreview();
+  }else{
+   const before=validatePrintSupport(spec());
+   applyAutoSettings(before,input);
+   autoAdjustment={before,after:input};
+   if(result.supportPreview?.ribs){ribLayout=result.supportPreview.ribs;ribLayoutTarget=target;}
+   cached={input,result};
+   adjustmentReview.select(target,trial.number);show(result);
+   showPreviewInfo(result.analysis.printSupport);
+  }
+  $('error').textContent='';
+  $('auto-adjust-status').textContent=(trial.number?'候補 '+trial.number:'調整前の配置')+'を採用しました。';
+  controls();
  }
  $('auto-adjust-undo').onclick=()=>{
   if(!autoAdjustment||busy||inflight||picking)return;
@@ -649,25 +742,31 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
      }
      controls();
     }
-    const prepared=currentBatch(),results=prepared.map(entry=>entry.result),failedCoverage=[...batchEntries.values()].flatMap(entry=>entry.coverage||[]);
-    const failedClearance=[...batchEntries.values()].flatMap(entry=>entry.clearance||[]);
-    if(results.length){
-     show({outputs:results.flatMap(result=>result.outputs),supportPreview:{
-      bodies:results.map(result=>result.supportPreview.body),
-      ribs:results.flatMap(result=>(result.supportPreview.ribs||[]).map(rib=>({...rib,id:result.supportPreview.body.id+':'+rib.id}))),
-      printRegions:results.flatMap(result=>result.supportPreview.printRegions||[]),
-      coverage:[...results.flatMap(result=>result.supportPreview.coverage||[]),...failedCoverage]},
-      analysis:{printSupport:{contacts:[],clearanceRegions:[...results.flatMap(result=>result.analysis.printSupport.clearanceRegions||[]),...failedClearance]}}});
-    }else{coverageView.show(failedCoverage);clearanceView.show(failedClearance,scene);}
+    const prepared=currentBatch();
+    renderBatchPreview();
     updateGapComparison(currentBatch());
     adjustmentReview.show([...batchEntries].filter(([,entry])=>entry.trialReport)
      .map(([target,entry])=>({target,report:entry.trialReport})));
     const adjusted=prepared.filter(entry=>entry.adjustment).length;
     $('auto-adjust-status').textContent=adjusted?adjusted+'ボディを自動調整しました。「複数ボディに一括配置」で変更内容を確認できます。':'';
-    $('info').textContent=results.length?'橙色：作成できた連結リブサポート。ボディごとの結果は「複数ボディに一括配置」で確認できます。':'連結リブサポートを作成できませんでした。各ボディの結果を確認してください。';
    }finally{if(activeRun===job){activeRun=null;inflight=false;batchPending=false;if(dialog.open)controls();}}
   };
   timer=setTimeout(calculate,450);
+ }
+ function renderBatchPreview(){
+  const results=currentBatch().map(entry=>entry.result);
+  const failedCoverage=[...batchEntries.values()].flatMap(entry=>entry.coverage||[]);
+  const failedClearance=[...batchEntries.values()].flatMap(entry=>entry.clearance||[]);
+  if(results.length){
+   show({outputs:results.flatMap(result=>result.outputs),supportPreview:{
+    bodies:results.map(result=>result.supportPreview.body),
+    ribs:results.flatMap(result=>(result.supportPreview.ribs||[]).map(rib=>({...rib,id:result.supportPreview.body.id+':'+rib.id}))),
+    columns:results.flatMap(result=>result.supportPreview.columns||[]),
+    printRegions:results.flatMap(result=>result.supportPreview.printRegions||[]),
+    coverage:[...results.flatMap(result=>result.supportPreview.coverage||[]),...failedCoverage]},
+    analysis:{printSupport:{contacts:[],clearanceRegions:[...results.flatMap(result=>result.analysis.printSupport.clearanceRegions||[]),...failedClearance]}}});
+  }else{coverageView.show(failedCoverage);clearanceView.show(failedClearance,scene);}
+  $('info').textContent=results.length?'橙色：作成できた連結リブサポート。ボディごとの結果は「複数ボディに一括配置」で確認できます。':'連結リブサポートを作成できませんでした。各ボディの結果を確認してください。';
  }
  async function runSupportPreview(input,request,requestHistory,failures){
   const current=()=>request===revision&&dialog.open&&getFeatures()===original;
@@ -820,7 +919,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  }
  function canExportPreview(){
   const batch=batching();
-  return !busy&&!picking&&!removal.active&&!materialInvalid&&
+  return !busy&&!picking&&!removal.active&&!trialPreview&&!sliceReview.checking&&!materialInvalid&&
    (batch?!batchPending&&batchExportCount()>0:!ribReview.length&&!ribBatch&&!ribPicking&&!!cached?.result.supportPreview?.exportStatus?.ok);
  }
  async function savePreviewOutput(pkg,current){
@@ -859,7 +958,7 @@ export function createPrintSupportDialog({getControls=()=>null,scene,host,canvas
  });
  $('pick').onclick=()=>{if(busy||selectionBusy)return;if(picking){faceView.endPick();picking=false;schedule();return;}const items=faceView.items;ribPicking=false;ribView.setDisplay();invalidate();try{faceView.beginPick(history,$('target').value,editing?.id);faceView.show(items);picking=true;controls();$('error').textContent='対象ボディの下面をクリックで追加・解除します。Shift＋ドラッグで回転できます。';}catch(e){picking=false;controls();$('error').textContent=e.message;}};
  $('close').onclick=$('cancel').onclick=close;dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{if(dialog.open)return;faceView.endPick();ribPicking=false;ribView.setDisplay();invalidate();busy=false;picking=false;});
- dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
+ dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(trialPreview||sliceReview.checking)return;if(batching()){if(busy||batchPending||removal.active||!currentBatch().length||!dialog.querySelector('form').reportValidity())return;const request=revision,entries=currentBatch();busy=true;controls();try{await applyBatch(entries,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(entries.length+'ボディに連結リブサポートを追加しました');}}catch(error){if(request===revision)$('error').textContent=error.message;}finally{if(request===revision){busy=false;controls();}}return;}if(busy||removal.active||materialInvalid||ribPicking||ribBatch||ribReview.length||!cached||cached.result.analysis.printSupport.ribs?.issues.length||!dialog.querySelector('form').reportValidity())return;const request=revision,{input,result}=cached,{supportPreview,supportPackage,...stored}=result;busy=true;controls();try{await apply(input,stored,editing,original,()=>request===revision&&dialog.open);if(request===revision){close();notify(editing?'連結リブサポートを更新しました':'連結リブサポートを別ボディとして追加しました');}}catch(e){if(request===revision){$('error').textContent=e.message;if(getFeatures()===original)rememberFailure('apply',e,input,result);}}finally{if(request===revision){busy=false;controls();}}};
  function open(target=null,feature=null,selection=null,restored=null,initialTargets=[]){
   gapBaseline=null;
   autoAdjustment=null;$('auto-adjust').checked=true;$('auto-adjust-status').textContent='';
