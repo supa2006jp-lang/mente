@@ -1,40 +1,15 @@
 import {BufferAttribute,BufferGeometry,DoubleSide,Ray,Vector3} from 'three';
 import {MeshBVH} from 'three-mesh-bvh';
-
-export function supportSlicePoint(matrix,point){
- return [0,1,2].map(i=>matrix[i]*point[0]+matrix[i+3]*point[1]+matrix[i+6]*point[2]+matrix[i+9]);
-}
-
-export function supportSliceBounds(vertices){
- const low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
- for(let i=0;i<vertices.length;i++){
-  const axis=i%3,value=vertices[i];
-  if(value<low[axis])low[axis]=value;
-  if(value>high[axis])high[axis]=value;
- }
- return [low,high];
-}
-
-const cellSize=4;
-const cell=(x,y)=>Math.floor(x/cellSize)+','+Math.floor(y/cellSize);
+import {supportSlicePoint,supportSliceBounds,indexSupportPath,supportLayerHasPath} from './print-support-slice-geometry.js';
+import {measureSupportCeilings,measureSupportLateralGaps} from './print-support-slice-measurements.js';
+import {compareSupportSlices} from './print-support-slice-comparison.js';
+export {supportSlicePoint,supportSliceBounds} from './print-support-slice-geometry.js';
 const direction=new Vector3(0,0,1);
 const numeric='([-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+))';
 const values=new RegExp('([XYZIJE])\\s*'+numeric,'ig');
 const zHeight=new RegExp('^;\\s*Z_HEIGHT:\\s*'+numeric,'i');
 const layerHeight=new RegExp('^;\\s*(?:LAYER_HEIGHT|HEIGHT):\\s*'+numeric,'i');
 const pathWidth=new RegExp('^;\\s*LINE_WIDTH:\\s*'+numeric,'i');
-
-function addPath(layer,path){
- const {ax,ay,bx,by}=path,count=Math.max(1,Math.ceil(Math.max(Math.abs(bx-ax),Math.abs(by-ay))/cellSize));
- const inserted=new Set();
- for(let i=0;i<=count;i++){
-  const key=cell(ax+(bx-ax)*i/count,ay+(by-ay)*i/count);
-  if(inserted.has(key))continue;
-  inserted.add(key);
-  if(!layer.cells.has(key))layer.cells.set(key,[]);
-  layer.cells.get(key).push(path);
- }
-}
 
 function arcPoints(from,to,fields,clockwise){
  if(!('I' in fields||'J' in fields))return [to];
@@ -63,7 +38,7 @@ export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
    const z=zHeight.exec(line);
    if(z){
     const height=Number(z[1]);
-    if(!layers.has(height))layers.set(height,{z:height,height:null,cells:new Map()});
+    if(!layers.has(height))layers.set(height,{z:height,height:null,cells:new Map(),paths:[]});
     layer=layers.get(height);continue;
    }
    const h=layerHeight.exec(line);
@@ -103,7 +78,8 @@ export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
     const length=Math.hypot(to.x-from.x,to.y-from.y);
     if(length>.0001){
      if(++paths>1_600_000)throw Error('積層経路が多すぎます。確認するプレートを分けて書き出してください');
-     addPath(layer,{ax:from.x,ay:from.y,bx:to.x,by:to.y,width,normal});
+     const path={ax:from.x,ay:from.y,bx:to.x,by:to.y,width,normal,widthKnown:hasWidth};
+     layer.paths.push(path);indexSupportPath(layer.cells,path);
      if(hasWidth&&feature==='outer wall'){
       const rounded=Number(width.toFixed(3));
       outerWidths.set(rounded,(outerWidths.get(rounded)||0)+length);
@@ -135,29 +111,28 @@ export function readSupportSliceLayers(gcode,objectId,lineWidth=.4){
 }
 
 function hasPath(layer,x,y,normalOnly){
- const cx=Math.floor(x/cellSize),cy=Math.floor(y/cellSize);
- for(let i=cx-1;i<=cx+1;i++)for(let j=cy-1;j<=cy+1;j++){
-  for(const path of layer.cells.get(i+','+j)||[]){
-   if(normalOnly&&!path.normal)continue;
-   const {ax,ay,bx,by,width}=path,dx=bx-ax,dy=by-ay;
-   const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)));
-   if((x-ax-t*dx)**2+(y-ay-t*dy)**2<=(width/2+.04)**2)return true;
-  }
- }
- return false;
+ return supportLayerHasPath(layer,x,y,normalOnly?path=>path.normal:null);
 }
 
 function intervalsFor(mesh){
  const geometry=new BufferGeometry().setAttribute('position',new BufferAttribute(new Float32Array(mesh.vertices),3)).setIndex(Array.from(mesh.triangles));
  const origin=new Vector3(),ray=new Ray(origin,direction),tree=new MeshBVH(geometry,{indirect:true});
- const bottom=supportSliceBounds(mesh.vertices)[0][2]-1;
- return {at(x,y){
+ const bounds=supportSliceBounds(mesh.vertices),bottom=bounds[0][2]-1,cache=new Map();
+ function at(x,y){
+  if(x<bounds[0][0]-1e-6||x>bounds[1][0]+1e-6||y<bounds[0][1]-1e-6||y>bounds[1][1]+1e-6)return [];
+  const key=x.toFixed(6)+','+y.toFixed(6);
+  if(cache.has(key))return cache.get(key);
   origin.set(x,y,bottom);
   const sorted=tree.raycast(ray,DoubleSide).map(result=>result.point.z).sort((a,b)=>a-b);
   const heights=sorted.filter((z,i)=>!i||z-sorted[i-1]>1e-5);
-  if(heights.length%2)return [];
-  return Array.from({length:heights.length/2},(_,i)=>heights.slice(i*2,i*2+2));
- },dispose(){geometry.dispose();}};
+  const ranges=heights.length%2?[]:Array.from({length:heights.length/2},(_,i)=>heights.slice(i*2,i*2+2));
+  if(cache.size>=30000)cache.clear();
+  cache.set(key,ranges);
+  return ranges;
+ }
+ return {id:mesh.id,bounds,at,contains(x,y,z){
+  return z>=bounds[0][2]-1e-6&&z<=bounds[1][2]+1e-6&&at(x,y).some(([low,high])=>z>=low-1e-6&&z<=high+1e-6);
+ },dispose(){cache.clear();geometry.dispose();}};
 }
 
 const valuesAcross=(low,high,count)=>Array.from({length:count},(_,i)=>low+(high-low)*(i+.5)/count);
@@ -203,7 +178,7 @@ function gapAt(layers,{x,y,matrix,zone,model,baseModels,source,top,bottom,last,f
     let prior=i-1;
     while(prior>last&&!hasPath(layers[prior],px,py,false))prior--;
     const gap=Math.max(0,layers[i].z-layers[i].height-layers[prior].z);
-    gaps.push({role:'upper',layers:i-prior-1,gap,point:[x,y,center(zone.ceiling,top)]});break;
+    gaps.push({role:'upper',layers:i-prior-1,gap,surface:main[0],point:[x,y,center(zone.ceiling,top)]});break;
    }
   }
  }
@@ -217,7 +192,7 @@ function gapAt(layers,{x,y,matrix,zone,model,baseModels,source,top,bottom,last,f
     let prior=first-1;
     while(prior>base&&!hasPath(layers[prior],px,py,false))prior--;
     gaps.push({role:'lower',layers:first-prior-1,gap:Math.max(0,layers[first].z-layers[first].height-layers[prior].z),
-     point:[x,y,center(landing[1],bottom)]});break;
+     surface:landing[1],point:[x,y,center(landing[1],bottom)]});break;
    }
   }
  }
@@ -249,7 +224,7 @@ function checkZone(zone,context){
  return {kind:zone.kind,id:zone.id,ceilingId:zone.ceilingId,number:zone.number,checked,found,unsliced,missingPoints,contacts};
 }
 
-export function inspectSupportSlicePaths({gcode,objectId,matrix,sources,models},onProgress){
+export function inspectSupportSlicePaths({gcode,objectId,matrix,sources,models,previous},onProgress){
  onProgress?.({stage:'スライス済みの積層経路を解析しています'});
  const {layers,pathBounds,printSettings}=readSupportSliceLayers(gcode,objectId,sources[0]?.lineWidth);
  const vertices=models.flatMap(mesh=>{
@@ -259,20 +234,25 @@ export function inspectSupportSlicePaths({gcode,objectId,matrix,sources,models},
  const [low,high]=supportSliceBounds(vertices);
  if([0,1].some(i=>pathBounds[1][i]<low[i]||pathBounds[0][i]>high[i]))
   throw Error('プレート上のモデル位置と積層経路を照合できませんでした');
- const checks=new Map();
+ const checks=new Map(),activeSources=[];
  try{
   for(const mesh of models)checks.set(mesh.id,intervalsFor(mesh));
   const rows=[];
   for(const source of sources){
    const solid=intervalsFor(source.mesh);
-   try{
-    const model=checks.get(source.target),baseModels=source.baseIds.map(id=>checks.get(id)).filter(Boolean);
-    for(const [i,zone] of sliceZones(source).entries()){
-     if(i%15===0)onProgress?.({stage:'リブ・薄皮の積層経路と接点を照合しています'});
-     rows.push({target:source.target,...checkZone(zone,{layers,matrix,source,model,baseModels,solid})});
-    }
-   }finally{solid.dispose();}
+   const model=checks.get(source.target),baseModels=source.baseIds.map(id=>checks.get(id)).filter(Boolean);
+   activeSources.push({...source,solid,model});
+   for(const [i,zone] of sliceZones(source).entries()){
+    if(i%15===0)onProgress?.({stage:'リブ・薄皮の積層経路と接点を照合しています'});
+    rows.push({target:source.target,...checkZone(zone,{layers,matrix,source,model,baseModels,solid})});
+   }
   }
-  return {rows,layerCount:layers.length,printSettings};
- }finally{for(const check of checks.values())check.dispose();}
+  const context={sources:activeSources,layers,matrix,models:[...checks.values()],searchLayer};
+  const lateral=measureSupportLateralGaps(context,onProgress),ceilings=measureSupportCeilings(context,onProgress);
+  const comparison=compareSupportSlices(previous,rows,context);
+  return {rows,layerCount:layers.length,printSettings,lateral,ceilings,comparison};
+ }finally{
+  for(const check of checks.values())check.dispose();
+  for(const source of activeSources)source.solid.dispose();
+ }
 }

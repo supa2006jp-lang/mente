@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {supportSliceBounds} from './print-support-slice-paths.js';
 import {readSupportSliceProject} from './print-support-slice-project.js';
 import {proposeSupportSliceRepair} from './print-support-slice-repair.js';
+import {captureSupportSliceReport,createSupportSliceHistory,supportSliceComparisonScope} from './print-support-slice-comparison.js';
+import {renderSupportSliceMeasurements} from './print-support-slice-measurement-view.js';
 
 const roleNames={rib:'リブ',upper:'上面の薄皮',lower:'底面の薄皮',column:'補完の柱'};
 const rowState=row=>!row.checked&&!row.unsliced?'unknown':!row.found?'missing':
@@ -15,11 +17,14 @@ function sliceInputs(entries){
   const pkg=result.supportPackage,preview=result.supportPreview;
   pkg.bodies.forEach(body=>parts.set(body.id,body));supportIds.add(input.id);
   const mesh=pkg.bodies.find(body=>body.id===input.id);
-  sources.push({target:input.target,mesh,topGap:input.topGap,bedZ:input.bedZ,wallThickness:input.wallThickness,lineWidth:input.lineWidth,
+  sources.push({target:input.target,mesh,topGap:input.topGap,sideGap:input.sideGap,bedZ:input.bedZ,wallThickness:input.wallThickness,lineWidth:input.lineWidth,
    baseIds:[...new Set([input.target,...result.analysis.printSupport.baseBodyIds])],
    ribs:(preview.ribs||[]).map(({id,number,axis,center,ceiling,bounds,excluded,ceilingId,thickness})=>({id,number,axis,center,ceiling,bounds,excluded,ceilingId,thickness})),
    skins:(preview.skins||[]).flat().map(({vertices,side,ribs,ceilingId})=>({side,ribs,ceilingId,bounds:supportSliceBounds(vertices)})),
    columns:(preview.columns||[]).map(({point,radius,top,bottom})=>({point,radius,top,bottom})),
+   ceilings:(preview.coverage||[]).filter(row=>!row.autoSupportReason&&row.face?.triangles.length)
+    .map(({face,ceilingId,ceilingNumber},index)=>({id:ceilingId??'face-'+index,number:ceilingNumber??index+1,
+     face:{vertices:face.vertices,triangles:face.triangles}})),
   });
  }
  return {parts:[...parts.values()],sources,models:[...parts.values()].filter(part=>!supportIds.has(part.id))};
@@ -28,12 +33,13 @@ function sliceInputs(entries){
 export function createSupportSliceReview({anchor,scene,host,kernel,getEntries,fitPreview,bodyName,onChange,previewRepair,adoptRepair}){
  const panel=document.createElement('details');
  panel.dataset.id='slice-review';
- panel.innerHTML='<summary>スライス済み3MFで印刷経路を確認</summary><small>この配置をBambu Studioでスライスし、スライス済み3MFを選んでください。</small>'+
+ panel.innerHTML='<summary>スライス済み3MFで印刷経路を確認</summary><small>この配置をBambu Studioでスライスし、スライス済み3MFを選んでください。同じタブで同じ本体の結果を続けて読み込むと比較できます。</small>'+
   '<button type="button" data-slice="open">スライス済み3MFを選ぶ</button><input type="file" accept=".3mf" data-slice="file" hidden>'+
   '<button type="button" data-slice="clear" hidden>確認マークを消す</button><div data-slice="status" role="status"></div><div data-slice="results"></div>';
  anchor.after(panel);
  const q=id=>panel.querySelector('[data-slice="'+id+'"]');
  let serial=0,checking=false,blocked=false,focus=null;
+ const history=createSupportSliceHistory();
  let selectedRepair=null,repairViewed=false;
  const repair=document.createElement('div');
  repair.dataset.slice='repair';repair.hidden=true;
@@ -64,31 +70,46 @@ export function createSupportSliceReview({anchor,scene,host,kernel,getEntries,fi
  control('adopt').onclick=()=>{if(repairViewed&&selectedRepair)adoptRepair(selectedRepair);};
  const file=q('file');
  function clearFocus(){
-  if(focus){focus.removeFromParent();focus.geometry.dispose();focus.material.dispose();focus=null;}
+  if(focus){
+   focus.removeFromParent();
+   focus.traverse(item=>{item.geometry?.dispose();item.material?.dispose();});
+   focus=null;
+  }
   q('clear').hidden=true;
   for(const button of q('results').querySelectorAll('[aria-pressed]'))button.setAttribute('aria-pressed','false');
   delete host.dataset.supportSliceFocus;
+  delete host.dataset.supportSliceOverlay;
  }
- function highlight(button,points,color){
+ function overlay(button,items,{fit=true,...measurement}={}){
   clearFocus();
-  if(!points.length)return;
-  const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(points.flat(),3));
-  geometry.computeBoundingBox();
-  focus=new THREE.Points(geometry,new THREE.PointsMaterial({color,size:8,sizeAttenuation:false,depthTest:false,depthWrite:false}));
-  focus.renderOrder=40;scene.add(focus);
-  fitPreview(geometry.boundingBox.clone().expandByScalar(3));
+  const group=new THREE.Group(),vertices=values=>new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(values,3));
+  let size=0;
+  for(const {lines,points,color} of items){
+   if(lines?.length){
+    const paths=new THREE.LineSegments(vertices(lines),new THREE.LineBasicMaterial({color,depthTest:false,depthWrite:false}));
+    paths.renderOrder=40;group.add(paths);size+=lines.length/3;
+   }
+   if(points?.length){
+    const marks=new THREE.Points(vertices(points),new THREE.PointsMaterial({color,size:8,sizeAttenuation:false,depthTest:false,depthWrite:false}));
+    marks.renderOrder=41;group.add(marks);size+=points.length/3;
+   }
+  }
+  if(!size)return;
+  focus=group;scene.add(group);
+  if(fit)fitPreview(new THREE.Box3().setFromObject(group).expandByScalar(3));
   button.setAttribute('aria-pressed','true');q('clear').hidden=false;
-  host.dataset.supportSliceFocus=String(points.length);
+  host.dataset.supportSliceFocus=String(size);
+  if(measurement.kind)host.dataset.supportSliceOverlay=JSON.stringify(measurement);
  }
  function rowButton(label,points,color,plan){
   const button=document.createElement('button');
   button.type='button';button.textContent=label;button.disabled=!points.length;button.dataset.empty=String(!points.length);
   button.style.cssText='display:block;text-align:left;margin:5px 0;width:100%;';
   button.setAttribute('aria-pressed','false');
-  button.onclick=()=>{if(!blocked&&!checking){highlight(button,points,color);selectRepair(button,plan);}};
+  button.onclick=()=>{if(!blocked&&!checking){overlay(button,[{points:points.flat(),color}]);selectRepair(button,plan);}};
   return button;
  }
- function show(result,plate,entries){
+ function show(result,plate,entries,reference){
   const area=q('results'),{rows,layerCount,printSettings}=result;
   area.replaceChildren();
   const states=rows.map(rowState);
@@ -108,6 +129,11 @@ export function createSupportSliceReview({anchor,scene,host,kernel,getEntries,fi
     if(touching.length)area.append(rowButton('空き層がない上側の接点を表示（'+touching.length+'点）',touching.map(check=>check.point),0xffab24));
    }
   }
+  area.append(renderSupportSliceMeasurements(result,reference,{bodyName,
+   showOverlay(button,items,measurement){
+    if(blocked||checking)return;
+    selectRepair(null,null);overlay(button,items,measurement);
+   },clearOverlay:clearFocus}));
   const names=new Set(rows.map(row=>row.target));
   for(const [i,row] of rows.entries()){
    if(states[i]==='found')continue;
@@ -132,7 +158,7 @@ export function createSupportSliceReview({anchor,scene,host,kernel,getEntries,fi
   blocked=disabled;
   const ready=getEntries().length>0;
   q('open').disabled=file.disabled=blocked||checking||!ready;
-  for(const button of q('results').querySelectorAll('button'))button.disabled=blocked||checking||button.dataset.empty==='true';
+  for(const control of q('results').querySelectorAll('button,select,input'))control.disabled=blocked||checking||control.dataset.empty==='true';
   control('try').disabled=checking||blocked&&!allowRepair;
   control('adopt').disabled=checking||!allowRepair;
  }
@@ -153,11 +179,15 @@ export function createSupportSliceReview({anchor,scene,host,kernel,getEntries,fi
    const bytes=new Uint8Array(await chosen.arrayBuffer());
    if(!current())return;
    const {parts,sources,models}=sliceInputs(entries);
+   const scope=supportSliceComparisonScope(sources,models),reference=history.previous(scope);
    const {matrix,objectId,gcode,plate}=readSupportSliceProject(bytes,parts);
-   const result=await kernel.run([],{type:'printSupportSliceReview',matrix,objectId,gcode,sources,models},{
+   const result=await kernel.run([],{type:'printSupportSliceReview',matrix,objectId,gcode,sources,models,previous:reference?.report},{
     foreground:true,onProgress:update=>{if(current()&&update.stage)q('status').textContent=update.stage;},
    });
-   if(current())show(result,plate,entries);
+   if(current()){
+    show(result,plate,entries,reference);
+    history.remember(scope,{name:chosen.name,report:captureSupportSliceReport(result.rows)});
+   }
   }catch(error){if(current())q('status').textContent=error.message;}
   finally{if(request===serial){checking=false;onChange();}}
  };
