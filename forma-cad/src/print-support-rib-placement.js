@@ -2,7 +2,10 @@
 // sides of the first/last fin to that profile instead of leaving half a pitch.
 export function supportRibPlacement(low,high,p){
  const span=high-low,usable=Math.max(0,span-p.wallThickness);
- const count=p.edgeRibs?(usable<1e-6?1:Math.ceil(usable/p.wallPitch)+1):Math.max(1,Math.ceil(span/p.wallPitch));
+ if(p.keepThickness&&span<p.wallThickness-1e-6)return {count:0,centers:[],cells:[]};
+ const nominalSpan=p.nominalSpan??span,nominalUsable=Math.max(0,nominalSpan-p.wallThickness);
+ const requested=p.edgeRibs?(nominalUsable<1e-6?1:Math.ceil(nominalUsable/p.wallPitch)+1):Math.max(1,Math.ceil(nominalSpan/p.wallPitch));
+ const count=p.keepThickness?Math.min(requested,Math.max(1,Math.floor((span-1e-6)/p.wallThickness))):requested;
  const half=p.wallThickness/2,shift=(p.wallOffset||0)*span/count;
  const centers=Array.from({length:count},(_,i)=>{
   const center=p.edgeRibs?(count===1?(low+high)/2:low+half+usable*i/(count-1)):low+span*(i+.5)/count;

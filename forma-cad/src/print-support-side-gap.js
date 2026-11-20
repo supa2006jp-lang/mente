@@ -54,7 +54,7 @@ function cylinderGuard(face,[low,high],gap){
 export function createSupportSideGap(bodies,scope,gap){
  const tools=[];
  const dispose=()=>tools.forEach(({shape})=>shape.delete());
- if(!gap)return {cuts:()=>false,trim:shape=>shape,dispose};
+ if(!gap)return {cuts:()=>false,trim:shape=>shape,trimRib:shape=>shape,dispose};
  try{
   for(const body of bodies.values()){
    if(!intersects(bounds(body),scope,gap))continue;
@@ -87,6 +87,29 @@ export function createSupportSideGap(bodies,scope,gap){
    const box=bounds(shape);
    let trimmed=shape;
    for(const tool of tools)if(intersects(tool.box,box))trimmed=own(trimmed.cut(tool.shape));
+   return trimmed;
+  },
+  trimRib(shape,axis,own){
+   const box=bounds(shape);
+   let trimmed=shape;
+   for(const tool of tools){
+    if(!intersects(tool.box,box))continue;
+    const overlap=trimmed.intersect(tool.shape);
+    try{
+     if(Math.abs(R.measureVolume(overlap))<=tolerance)continue;
+     const parts=overlap.solids;
+     try{
+      for(const part of parts){
+       const [low,high]=bounds(part);
+       // Remove the entire strip at the obstruction to keep its remaining width.
+       low[axis]=box[0][axis]-1;high[axis]=box[1][axis]+1;
+       const cutter=R.makeBox(low,high);
+       try{trimmed=own(trimmed.cut(cutter));}finally{cutter.delete();}
+       if(Math.abs(R.measureVolume(trimmed))<=tolerance)return null;
+      }
+     }finally{parts.forEach(part=>part.delete());}
+    }finally{overlap.delete();}
+   }
    return trimmed;
   },
   cuts(shape){

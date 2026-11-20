@@ -15,6 +15,8 @@ export function validatePrintSupport(input){
  p.edgeMargin=input.edgeMargin??.5;if(!Number.isFinite(p.edgeMargin)||p.edgeMargin<.1||p.edgeMargin>2)throw Error('外周からの余白は0.1〜2 mmで指定してください');
  p.sideGap=input.sideGap??0;
  if(!Number.isFinite(p.sideGap)||p.sideGap<0||p.sideGap>2)throw Error('側壁との横すき間は0〜2 mmで指定してください');
+ // Older history entries replay their original rib positions until edited.
+ if(input.keepRibThickness!==undefined&&typeof input.keepRibThickness!=='boolean')throw Error('リブの厚みを保つ設定が不正です');
  p.bottomSeams=input.bottomSeams??false;if(typeof p.bottomSeams!=='boolean')throw Error('底面薄皮の分割線の設定が不正です');for(const [key,min,max]of [['bottomSectionLength',10,60],['bottomSeamWidth',.4,1.2]])if(!Number.isFinite(p[key])||p[key]<min||p[key]>max)throw Error('底面薄皮の分割間隔は10〜60 mm、幅は0.4〜1.2 mmで指定してください');
  p.wallBottomSkin=input.wallBottomSkin??false;p.bottomSkinLayers=input.bottomSkinLayers??2;if(typeof p.wallBottomSkin!=='boolean'||!Number.isInteger(p.bottomSkinLayers)||p.bottomSkinLayers<1||p.bottomSkinLayers>6)throw Error('底面の薄皮の層数は1〜6層で指定してください');p.edgeRibs=input.edgeRibs??false;if(typeof p.edgeRibs!=='boolean')throw Error('端のリブ配置の設定が不正です');p.autoReinforce=input.autoReinforce??false;p.filamentDiameter=input.filamentDiameter??1.75;p.materialDensity=input.materialDensity??1.24;
  if(typeof p.autoReinforce!=='boolean')throw Error('自動補強の設定が不正です');

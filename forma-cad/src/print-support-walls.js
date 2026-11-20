@@ -124,8 +124,8 @@ function prepareWallSupports(bodies,settings,onProgress){
      skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
      break;
     }
-    const pb=bounds(prism),axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1;
-    const beforeGap=prism;
+    const keepThickness=!!sideGap&&p.keepRibThickness===true;
+    const beforeGap=prism,originalBounds=bounds(prism);
     if(sideGap)prism=sideGap.trim(prism,hold);
     const volume=prism!==beforeGap?Math.abs(R.measureVolume(prism)):null;
     const gapTrimmed=volume!==null&&Math.abs(R.measureVolume(beforeGap))-volume>1e-6;
@@ -135,9 +135,18 @@ function prepareWallSupports(bodies,settings,onProgress){
      skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
      break;
     }
-    const placement=supportRibPlacement(pb[0][axis],pb[1][axis],{...p,edgeRibs:p.edgeRibs||p.edgeAssist,ribAxis:axis,noSupport:manualZones.map(item=>item.zone)});
+    const protectWidth=keepThickness&&gapTrimmed,pb=protectWidth?bounds(prism):originalBounds;
+    const axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1;
+    const placement=supportRibPlacement(pb[0][axis],pb[1][axis],{...p,keepThickness,nominalSpan:originalBounds[1][axis]-originalBounds[0][axis],
+     edgeRibs:p.edgeRibs||p.edgeAssist,ribAxis:axis,noSupport:manualZones.map(item=>item.zone)});
+    if(!placement.count){
+     skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
+     sideGapLimited||=keepThickness;
+     break;
+    }
     const stripes=placement.centers.map((center,i)=>({center,band:[
-     i===0?pb[0][axis]-1:placement.cells[i][0],i===placement.count-1?pb[1][axis]+1:placement.cells[i][1]],foot:placement.cells[i]}));
+     i===0?originalBounds[0][axis]-1:placement.cells[i][0],
+     i===placement.count-1?originalBounds[1][axis]+1:placement.cells[i][1]],foot:placement.cells[i]}));
     for(const rib of p.localRibs||[]){
      const center=rib.at[axis],half=p.wallThickness/2,other=1-axis;
      if(center-half<pb[0][axis]-1e-6||center+half>pb[1][axis]+1e-6||rib.at[other]+rib.length/2<=pb[0][other]||rib.at[other]-rib.length/2>=pb[1][other])continue;
@@ -151,7 +160,10 @@ function prepareWallSupports(bodies,settings,onProgress){
     for(const {center,band,foot,rib} of stripes){
      onProgress?.({stage:'薄壁サポートを作成しています（'+(walls.length+records.length+1)+'枚目）'});const other=1-axis,a=[pb[0][0]-1,pb[0][1]-1,p.bedZ-1],b=[pb[1][0]+1,pb[1][1]+1,z+1];a[axis]=center-p.wallThickness/2;b[axis]=center+p.wallThickness/2;
      if(rib){a[other]=rib.at[other]-rib.length/2;b[other]=rib.at[other]+rib.length/2;}
-     const stripe=hold(R.makeBox(a,b));let wall=hold(prism.intersect(stripe));if(R.measureVolume(wall)<.001)continue;
+     const stripe=hold(R.makeBox(a,b));
+     let wall=hold((protectWidth?beforeGap:prism).intersect(stripe));
+     if(R.measureVolume(wall)<.001)continue;
+     if(protectWidth){wall=sideGap.trimRib(wall,axis,hold);if(!wall||R.measureVolume(wall)<.001)continue;}
      if(p.connectFeet&&!p.wallBottomSkin&&!rib){const fa=[...a],fb=[...b];[fa[axis],fb[axis]]=foot;fa[2]=p.bedZ;fb[2]=p.bedZ+p.footThickness;const footBox=hold(R.makeBox(fa,fb)),base=hold(prism.intersect(footBox));if(R.measureVolume(base)>.001)wall=hold(wall.fuse(base));}
      if(p.baseMode==='bed'){let blocked=false;for(const model of bodies.values()){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){blocked=true;break;}}if(blocked){blockedRibs++;continue;}}
      else{
@@ -186,7 +198,7 @@ function prepareWallSupports(bodies,settings,onProgress){
       const partId=pieces.length===1?ribId:ribId+'#'+JSON.stringify(piece.bounds.flat().map(n=>Number(n.toFixed(6))))+':'+part;
       const exclusionId=whole?ribId:partId,excluded=whole||p.excludedRibs.includes(partId);
       const candidate={id:partId,ribId,exclusionId,number:candidateRibs.length+faceCandidates.length+1,axis,center,ceiling:z,excluded,local:!!rib,bounds:piece.bounds,
-       band:[Math.max(low[axis],pb[0][axis]),Math.min(high[axis],pb[1][axis])],autoBlocked:p.excludedRibBlockers.includes(exclusionId)};
+       band:[Math.max(low[axis],originalBounds[0][axis]),Math.min(high[axis],originalBounds[1][axis])],autoBlocked:p.excludedRibBlockers.includes(exclusionId)};
       if(p.preview&&(!p.contactLines||excluded)){const display=piece.shape.intersect(stripe);try{Object.assign(candidate,cadMesh(display));}finally{display.delete();}}
       faceCandidates.push(candidate);
       if(!excluded){records.push({id:partId,shape:piece.shape,axis,center,local:!!rib});continue;}
@@ -317,7 +329,7 @@ function prepareWallSupports(bodies,settings,onProgress){
   blockers.push(...manualBlockers.splice(0));
   if(p.mode==='auto'&&usedOverrides.size!==(p.faceOverrides?.length||0))throw Error('個別設定の下面が見つかりません。設定する下面を選び直してください');
   if(!candidateRibs.length){
-   const error=firstSkinFailure||Error(sideGapLimited?'側壁との横すき間を確保できる場所がありません。すき間を小さくするか、対象面を選び直してください':omittedExterior?'外側の細い張り出しを省きました。支える場合は対象面を選ぶか、外側の小片を省く設定を外してください':'薄壁を置ける水平な下面がありません。土台と高さを確認してください');
+   const error=firstSkinFailure||Error(sideGapLimited?(p.keepRibThickness?'指定した厚みと':'')+'側壁との横すき間を確保できる場所がありません。すき間を小さくするか、対象面を選び直してください':omittedExterior?'外側の細い張り出しを省きました。支える場合は対象面を選ぶか、外側の小片を省く設定を外してください':'薄壁を置ける水平な下面がありません。土台と高さを確認してください');
    if(firstSkinFailure)error.supportClearanceRegions=clearanceRegions;
    if(coverage.length)error.supportCoverage=coverage;
    throw error;
