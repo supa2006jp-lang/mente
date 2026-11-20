@@ -92,6 +92,70 @@ test('where a wall approaches part of a rib, clearance shortens the rib without 
  }finally{[...boxes,wall,roof].forEach(shape=>shape.delete());}
 });
 
+test('a partial side wall starts a full-length rib at the clearance and the roof reaches that rib',()=>{
+ for(const axis of [0,1])for(const fromLow of [true,false]){
+  const point=(s,t,z)=>axis===0?[t,s,z]:[s,t,z];
+  const roof=R.makeBox(point(0,0,20),point(36,12,23));
+  const wall=R.makeBox(point(0,fromLow?-1:12,0),point(16,fromLow?0:13,20));
+  const bodies=new Map(Object.entries({roof,wall})),sideGap=.7;
+  try{
+   withRibs(bodies,{sideGap,keepRibThickness:true,alignSideGapRibs:true,
+    wallDirection:axis===0?'y':'x',wallRoof:true,wallOffset:.25},result=>{
+    const {ribPreview,roofPreview,analysis}=result;
+    const first=fromLow?ribPreview[0]:ribPreview.at(-1);
+    const edge=fromLow?sideGap:12-sideGap;
+    near(first.bounds[fromLow?0:1][axis],edge);
+    near(first.bounds[0][1-axis],.1);
+    near(first.bounds[1][1-axis],35.9);
+    assert.equal(ribPreview.length,4);
+    const pitch=ribPreview[1].center-ribPreview[0].center;
+    for(const [index,rib] of ribPreview.entries()){
+     near(widthOf(rib),.8);
+     near(rib.center,ribPreview[0].center+index*pitch);
+    }
+    near(R.measureDistanceBetween(result.shape,wall),sideGap);
+    const skin=roofPreview.parts.find(part=>part.role==='roof');
+    near(skin.bounds[fromLow?0:1][axis],edge);
+    assert.equal(analysis.sideGapAlignedCeilings,1);
+   });
+  }finally{wall.delete();roof.delete();}
+ }
+});
+
+test('a wall anchors the first rib even with the open-edge setting off',()=>{
+ const roof=R.makeBox([0,0,20],[36,12,23]),wall=R.makeBox([0,-1,0],[16,0,20]);
+ const bodies=new Map(Object.entries({roof,wall}));
+ try{
+  withRibs(bodies,{sideGap:.7,keepRibThickness:true,alignSideGapRibs:true,edgeRibs:false},({ribPreview})=>{
+   near(ribPreview[0].bounds[0][1],.7);
+   assert.ok(ribPreview.length>=3);
+   const pitch=ribPreview[1].center-ribPreview[0].center;
+   assert.ok(pitch<=5+1e-6);
+   for(const [i,rib] of ribPreview.entries())near(rib.center,ribPreview[0].center+i*pitch);
+   assert.ok(ribPreview.at(-1).bounds[1][1]<11.9);
+  });
+ }finally{wall.delete();roof.delete();}
+});
+
+test('repositioning restores the roof when clearance removes an entire rib',()=>{
+ const roof=R.makeBox([0,0,20],[36,4,22]);
+ // Only a tiny remnant of the original outside rib fits past this corner.
+ const wall=R.makeBox([0,-3,0],[35.9-Math.sqrt(3)-.000025,-.9,20]);
+ const bodies=new Map(Object.entries({roof,wall}));
+ const settings={sideGap:2,keepRibThickness:true,wallRoof:true,wallPitch:10};
+ try{
+  withRibs(bodies,settings,({ribPreview,analysis})=>{
+   assert.equal(ribPreview.length,1);
+   assert.equal(analysis.roof.count,0);
+  });
+  withRibs(bodies,{...settings,alignSideGapRibs:true},({ribPreview,analysis})=>{
+   assert.equal(ribPreview.length,2);
+   near(ribPreview[0].bounds[0][1],1.1);
+   assert.equal(analysis.roof.count,1);
+  });
+ }finally{wall.delete();roof.delete();}
+});
+
 test('a strip too narrow for the nominal thickness is skipped',()=>{
  roofWithWalls(1,2.6,bodies=>{
   assert.throws(()=>withRibs(bodies,{sideGap:1,keepRibThickness:true},()=>{}),/指定した厚みと側壁との横すき間/);

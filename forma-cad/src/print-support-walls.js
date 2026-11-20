@@ -63,7 +63,7 @@ function prepareWallSupports(bodies,settings,onProgress){
  let omittedExterior=0,omittedRibPieces=0;
  const manualBlockers=[],skinPreview=[],exclusionPreview=[];
  const selection=p.mode==='face'?resolveSupportFaces(model,p):null,faces=selection?.faces||model.faces,owned=[],hold=s=>(owned.push(s),s),walls=[],wallRecords=[],candidateRibs=[],ribIssues=[],excludedScope=[],ties=[],roofs=[],roofTabs=[],roofPreview=[],roofPlacements=[],roofMatched=[],tieLevels=new Set(),blockers=[],baseBodyIds=new Set();let omitted=0,faceCount=0,shape=null,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0,windows={enabled:false,count:0,skipped:0,limited:false,removedVolume:0,savedPercent:0};
- let sideGap,sideGapLimited=false;
+ let sideGap,sideGapLimited=false,alignedCeilings=0;
  try{
   if(p.sideGap){
    const scope=[[...modelBounds[0]],[...modelBounds[1]]];
@@ -137,7 +137,11 @@ function prepareWallSupports(bodies,settings,onProgress){
     }
     const protectWidth=keepThickness&&gapTrimmed,pb=protectWidth?bounds(prism):originalBounds;
     const axis=p.wallDirection==='x'?1:p.wallDirection==='y'?0:pb[1][0]-pb[0][0]>=pb[1][1]-pb[0][1]?0:1;
-    const placement=supportRibPlacement(pb[0][axis],pb[1][axis],{...p,keepThickness,nominalSpan:originalBounds[1][axis]-originalBounds[0][axis],
+    const wallsAtEdge=protectWidth&&p.alignSideGapRibs?sideGap.placement(beforeGap,originalBounds,axis,p.wallThickness):{};
+    const anchorLow=wallsAtEdge.low!==undefined,anchorHigh=wallsAtEdge.high!==undefined;
+    if(anchorLow)pb[0][axis]=Math.max(pb[0][axis],wallsAtEdge.low);
+    if(anchorHigh)pb[1][axis]=Math.min(pb[1][axis],wallsAtEdge.high);
+    const placement=supportRibPlacement(pb[0][axis],pb[1][axis],{...p,keepThickness,anchorLow,anchorHigh,nominalSpan:originalBounds[1][axis]-originalBounds[0][axis],
      edgeRibs:p.edgeRibs||p.edgeAssist,ribAxis:axis,noSupport:manualZones.map(item=>item.zone)});
     if(!placement.count){
      skippedScopes.push(hold(scopedBlocker(face,p,z,[])));
@@ -288,6 +292,7 @@ function prepareWallSupports(bodies,settings,onProgress){
     }
     if(records.length){
      faceCount++;const blocker=scopedBlocker(face,p,z,zoneTools.map(tool=>{const [low,high]=bounds(tool);return {low,high};}));
+     if(anchorLow||anchorHigh)alignedCeilings++;
      if(R.measureVolume(blocker)>.001){
       if(coverage){
        coverage.index=blockers.length;
@@ -342,6 +347,7 @@ function prepareWallSupports(bodies,settings,onProgress){
   for(const candidate of candidateRibs)if(!candidate.excluded){const b=candidate.bounds;candidate.risk=supportRibRisk({height:b[1][2]-b[0][2],thickness:p.wallThickness,bottom:b[0][2],top:b[1][2],levels:tieAttachments.filter(a=>a.ribs.includes(candidate.id)).map(a=>a.z)});}
   const analysis={style:'walls',edgeMargin:p.edgeMargin,count:walls.length,contacts:[],topGap:p.topGap,bottomGap:0,baseMode:p.baseMode,baseBodyIds:[...baseBodyIds],modelBasedCount:baseBodyIds.size?walls.length:0,bedBasedCount:baseBodyIds.size?0:walls.length,footDiameter:p.footDiameter,postDiameter:p.wallThickness,reinforcements:ties.length,skipped:omitted,omittedReinforcement:skippedTies,limited:false,bedZ:p.bedZ,wallPitch:p.wallPitch,wallThickness:p.wallThickness,layerHeight:p.layerHeight,faceCount,blockerCount:blockers.length,complete:omitted===0&&!ribIssues.length,wallTies:{enabled:p.wallTies,interval:p.tieInterval,count:ties.length,levels:[...tieLevels].sort((a,b)=>a-b),thickness:2*p.layerHeight,neckWidth:Math.min(Math.max(1.6,Math.min(3,2*p.wallThickness)),Math.max(.6,p.wallThickness))}};
   if(p.sideGap)analysis.sideGap=p.sideGap;
+  if(alignedCeilings)analysis.sideGapAlignedCeilings=alignedCeilings;
   if(skippedCeilings.length)analysis.skippedCeilings=skippedCeilings;
   if(omittedExterior||omittedRibPieces)analysis.omittedExterior={faces:omittedExterior,ribPieces:omittedRibPieces};
   if(clearanceRegions.length)analysis.clearanceRegions=clearanceRegions;

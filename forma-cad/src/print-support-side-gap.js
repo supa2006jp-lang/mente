@@ -10,13 +10,19 @@ const intersects=(a,b,margin=0)=>a[0].every((low,i)=>{
  return low-pad<b[1][i]-tolerance&&a[1][i]+pad>b[0][i]+tolerance;
 });
 
-function planeGuard(face,gap){
+function planeGuard(face,box,gap){
  const normal=face.normalAt();
  try{
-  const [x,y]=normal.toTuple(),horizontal=Math.hypot(x,y);
+  const [x,y,z]=normal.toTuple(),horizontal=Math.hypot(x,y);
   if(horizontal<tolerance)return null;
   const displacement=new R.Vector([gap*x/horizontal,gap*y/horizontal,0]);
-  try{return R.basicFaceExtrusion(face,displacement);}finally{displacement.delete();}
+  try{
+   const shape=R.basicFaceExtrusion(face,displacement);
+   const axis=Math.abs(y)<tolerance?0:Math.abs(x)<tolerance?1:null;
+   if(axis===null||Math.abs(z)>=tolerance)return {shape};
+   const sign=Math.sign(axis===0?x:y),wall=(box[0][axis]+box[1][axis])/2;
+   return {shape,alignment:{axis,sign,wall,limit:wall+sign*gap}};
+  }finally{displacement.delete();}
  }finally{normal.delete();}
 }
 
@@ -54,7 +60,7 @@ function cylinderGuard(face,[low,high],gap){
 export function createSupportSideGap(bodies,scope,gap){
  const tools=[];
  const dispose=()=>tools.forEach(({shape})=>shape.delete());
- if(!gap)return {cuts:()=>false,trim:shape=>shape,trimRib:shape=>shape,dispose};
+ if(!gap)return {cuts:()=>false,trim:shape=>shape,trimRib:shape=>shape,placement:()=>({}),dispose};
  try{
   for(const body of bodies.values()){
    if(!intersects(bounds(body),scope,gap))continue;
@@ -63,9 +69,9 @@ export function createSupportSideGap(bodies,scope,gap){
     for(const face of faces){
      const box=bounds(face);
      if(!intersects(box,scope,gap))continue;
-     const shape=face.geomType==='PLANE'?planeGuard(face,gap):
-      face.geomType==='CYLINDRE'?cylinderGuard(face,box,gap):null;
-     if(shape)tools.push({shape,box:bounds(shape)});
+     const tool=face.geomType==='PLANE'?planeGuard(face,box,gap):
+      face.geomType==='CYLINDRE'?{shape:cylinderGuard(face,box,gap)}:null;
+     if(tool?.shape)tools.push({...tool,box:bounds(tool.shape)});
     }
    }finally{faces.forEach(face=>face.delete());}
    const edges=body.edges;
@@ -83,6 +89,24 @@ export function createSupportSideGap(bodies,scope,gap){
   }
  }catch(error){dispose();throw error;}
  return {
+  placement(prism,prismBounds,axis,thickness){
+   const [lo,hi]=prismBounds.map(row=>row[axis]),result={};
+   // An edge beside a partial wall still needs a continuous first rib.
+   // Use the wall's clearance line where its guard reaches the outer strip.
+   for(const tool of tools){
+    const wall=tool.alignment;
+    if(!wall||wall.axis!==axis||!intersects(tool.box,prismBounds))continue;
+    const fromLow=wall.sign>0;
+    if(fromLow?(wall.wall>=lo+thickness||wall.limit<=lo):(wall.wall<=hi-thickness||wall.limit>=hi))continue;
+    const overlap=prism.intersect(tool.shape);
+    try{
+     if(Math.abs(R.measureVolume(overlap))<=tolerance)continue;
+     if(fromLow)result.low=Math.max(result.low??lo,wall.limit);
+     else result.high=Math.min(result.high??hi,wall.limit);
+    }finally{overlap.delete();}
+   }
+   return result;
+  },
   trim(shape,own){
    const box=bounds(shape);
    let trimmed=shape;

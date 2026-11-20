@@ -4,10 +4,18 @@ export function supportRibPlacement(low,high,p){
  const span=high-low,usable=Math.max(0,span-p.wallThickness);
  if(p.keepThickness&&span<p.wallThickness-1e-6)return {count:0,centers:[],cells:[]};
  const nominalSpan=p.nominalSpan??span,nominalUsable=Math.max(0,nominalSpan-p.wallThickness);
- const requested=p.edgeRibs?(nominalUsable<1e-6?1:Math.ceil(nominalUsable/p.wallPitch)+1):Math.max(1,Math.ceil(nominalSpan/p.wallPitch));
+ const align=p.anchorLow||p.anchorHigh;
+ const leading=p.anchorLow||p.edgeRibs?0:.5,trailing=p.anchorHigh||p.edgeRibs?0:.5;
+ const required=align?Math.ceil(usable/p.wallPitch+1-leading-trailing-1e-6):1;
+ const preferred=p.edgeRibs?(nominalUsable<1e-6?1:Math.ceil(nominalUsable/p.wallPitch)+1):Math.max(1,Math.ceil(nominalSpan/p.wallPitch));
+ const requested=Math.max(preferred,required);
  const count=p.keepThickness?Math.min(requested,Math.max(1,Math.floor((span-1e-6)/p.wallThickness))):requested;
  const half=p.wallThickness/2,shift=(p.wallOffset||0)*span/count;
  const centers=Array.from({length:count},(_,i)=>{
+  if(align){
+   if(count===1)return p.anchorLow&&!p.anchorHigh?low+half:p.anchorHigh&&!p.anchorLow?high-half:(low+high)/2;
+   return low+half+usable*(i+leading)/(count-1+leading+trailing);
+  }
   const center=p.edgeRibs?(count===1?(low+high)/2:low+half+usable*i/(count-1)):low+span*(i+.5)/count;
   if(!shift||p.edgeRibs&&(i===0||i===count-1))return center;
   if(p.edgeRibs){
@@ -25,6 +33,6 @@ export function supportRibPlacement(low,high,p){
   }
  }
  centers.sort((a,b)=>a-b);
- const cells=centers.map((center,i)=>p.edgeRibs||shift?[i?(centers[i-1]+center)/2:low,i+1<centers.length?(center+centers[i+1])/2:high]:[center-span/count/2,center+span/count/2]);
+ const cells=centers.map((center,i)=>p.edgeRibs||shift||align?[i?(centers[i-1]+center)/2:low,i+1<centers.length?(center+centers[i+1])/2:high]:[center-span/count/2,center+span/count/2]);
  return {count:centers.length,centers,cells};
 }
