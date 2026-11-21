@@ -585,6 +585,81 @@ try{
  assert.equal(await field('default-line-color').inputValue(),'#24455b');
  assert.equal(await field('default-text-color').inputValue(),'#24455b');
  assert.equal(await field('comment-color').inputValue(),colorChoices['comment-color']);
+ const link=field('link-projections');
+ const viewRect=name=>editor.locator('[data-view="'+name+'"] > rect[fill=transparent]');
+ const viewBox=name=>viewRect(name).evaluate(rect=>['x','y','width','height'].map(key=>Number(rect.getAttribute(key))));
+ const viewAt=async(host,name)=>(await geometry(host,name)).match(/^translate\(([^)]+)\)/)[1].split(' ').map(Number);
+ const closeTo=(a,b)=>assert.ok(Math.abs(a-b)<.05,`${a} versus ${b}`);
+ const aligned=async()=>{
+  const [top,front,right]=await Promise.all(['top','front','right'].map(viewBox));
+  closeTo(top[0]+top[2]/2,front[0]+front[2]/2);
+  closeTo(right[1]+right[3]/2,front[1]+front[3]/2);
+  assert(top[1]+top[3]<front[1]+7&&right[0]>front[0]+front[2]);
+ };
+ const dragView=(id,dx,dy)=>drag(editor.locator('[data-view="'+id+'"] > text').first(),dx,dy);
+ assert.equal(await link.isChecked(),false);
+ const [isoX]=await viewBox('iso');
+ for(const view of ['top','front','right']){
+  const [x,,width]=await viewBox(view);
+  assert(isoX>x+width);
+ }
+ const [manualColor,automaticColor]=await Promise.all(['dimension-add','dimension-auto'].map(id=>
+  field(id).evaluate(button=>getComputedStyle(button).backgroundColor)));
+ assert.equal(manualColor,'rgb(239, 195, 106)');
+ assert.notEqual(manualColor,automaticColor);
+ await link.check();
+ await aligned();
+ assert.equal(await editor.locator('[data-overflow-outline]').count(),0);
+ const isoPosition=await geometry(editor,'iso');
+ const firstFront=await viewAt(editor,'front');
+ await field('snap').uncheck();
+ await dragView('top',-16,0);
+ const secondFront=await viewAt(editor,'front');
+ assert(secondFront[0]<firstFront[0]);
+ closeTo(secondFront[1],firstFront[1]);
+ await aligned();
+ await dragView('right',0,15);
+ const thirdFront=await viewAt(editor,'front');
+ closeTo(thirdFront[0],secondFront[0]);
+ assert(thirdFront[1]>secondFront[1]);
+ await aligned();
+ await dragView('front',-10,10);
+ const movedFront=await viewAt(editor,'front');
+ assert(movedFront[0]<thirdFront[0]&&movedFront[1]>thirdFront[1]);
+ await aligned();
+ assert.equal(await geometry(editor,'iso'),isoPosition);
+ await field('undo').click();
+ assert.deepEqual(await viewAt(editor,'front'),thirdFront);
+ await field('redo').click();
+ assert.deepEqual(await viewAt(editor,'front'),movedFront);
+ await field('close').click();
+ const [linkSave]=await Promise.all([page.waitForEvent('download'),page.locator('#save').click()]);
+ const linkDrawing=(await decodeProjectDocument(await fs.readFile(await linkSave.path(),'utf8'))).document.drawing;
+ assert.equal(linkDrawing.options.linkedProjections,true);
+ await open(linkDrawing);
+ assert(await link.isChecked());
+ await aligned();
+ await link.uncheck();
+ await dragView('top',16,0);
+ assert.deepEqual(await viewAt(editor,'front'),movedFront);
+ assert.notEqual((await viewAt(editor,'top'))[0],movedFront[0]);
+ await field('close').click();
+
+ await open({...linkDrawing,options:{...linkDrawing.options,pdfLayout:'manual',pdfPlacement:'keep',
+  pageAssignments:{pageCount:2,views:{right:2,iso:2},comments:{}}}});
+ await field('page-edit').selectOption('1');
+ const otherPageRight=await geometry(editor,'right');
+ await field('page-edit').selectOption('0');
+ assert(!(await editor.locator('[data-view=right]').count()));
+ const pageFront=await viewAt(editor,'front');
+ await dragView('top',-14,0);
+ const adjustedFront=await viewAt(editor,'front');
+ assert(adjustedFront[0]<pageFront[0]);
+ closeTo((await viewAt(editor,'top'))[0],adjustedFront[0]);
+ await field('page-edit').selectOption('1');
+ assert.equal(await geometry(editor,'right'),otherPageRight);
+ await field('page-edit').selectOption('-1');
+ assert.deepEqual(await viewAt(editor,'front'),movedFront);
  assert.deepEqual(errors,[]);
- console.log('PASS PDF editing and export, automatic and manual isometric dimensions, drawing line priority and remembered drawing colors');
+ console.log('PASS PDF editing and export, isometric dimensions, remembered colors, rightmost ISO and linked projection dragging');
 }finally{await browser?.close();server.close();}

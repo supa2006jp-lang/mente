@@ -20,6 +20,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  const o=s.options;if(!o||!['auto','A4','A3'].includes(o.paper)||!['landscape','portrait'].includes(o.orientation)||typeof o.frame!=='boolean')fail();if(o.viewPriority!==undefined&&!['balanced','front'].includes(o.viewPriority)||o.isoMode!==undefined&&!['full','small','hidden'].includes(o.isoMode))fail();if(o.layout!==undefined&&!['projection','compact'].includes(o.layout))fail();for(const key of ['name','material','date'])if(typeof o[key]!=='string'||o[key].length>100)fail();
  if(o.revision!==undefined&&(typeof o.revision!=='string'||o.revision.length>20))fail();
  if(o.projectionLocked!==undefined&&typeof o.projectionLocked!=='boolean')fail();
+ if(o.linkedProjections!==undefined&&typeof o.linkedProjections!=='boolean')fail();
  if(o.autoDimensionTypes!==undefined&&(!Array.isArray(o.autoDimensionTypes)||o.autoDimensionTypes.length>autoDimensionKeys.length||new Set(o.autoDimensionTypes).size!==o.autoDimensionTypes.length||o.autoDimensionTypes.some(key=>!autoDimensionKeys.includes(key))))fail();
  if(o.groupRepeatedDimensions!==undefined&&typeof o.groupRepeatedDimensions!=='boolean')fail();
  if(o.uniqueOverallDimensions!==undefined&&typeof o.uniqueOverallDimensions!=='boolean')fail();

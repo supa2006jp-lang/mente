@@ -19,6 +19,17 @@ export function drawingIsometricOutline([min,max]){
  return points;
 }
 export const projectionDragAxis=name=>['top','bottom'].includes(name)?1:['left','right','back'].includes(name)?0:null;
+export const linkedDrawingViews=['top','front','right'];
+const projectionFollowers={front:{top:0,right:1},top:{front:0},right:{front:1}};
+
+export function linkedDrawingFollowers(name,layout){
+ return Object.entries(projectionFollowers[name]??{}).filter(([view])=>layout[view]);
+}
+
+export function alignLinkedDrawingViews(layout){
+ const {front,top,right}=layout;
+ if(front)alignThirdAngleViews({front,top,right},[front.x,front.y]);
+}
 
 export function alignThirdAngleViews(layout,frontPosition){
  const front=layout.front??{x:frontPosition[0],y:frontPosition[1],

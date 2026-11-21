@@ -211,6 +211,31 @@ test('automatic drawing and PDF layouts choose the largest fitting tenth or smal
  assert.match(drawingScaleLabel(small.scale),/^1:\d+(?:\.\d)?$/);
 });
 
+test('initial layout reserves the right side for ISO and can pack linked projections',()=>{
+ const iso={...rect(70,57),viewBox:[0,-57,70,57]};
+ const data={...part,views:{...part.views,iso}};
+ for(const orientation of ['portrait','landscape'])for(const linkedProjections of [false,true]){
+  const settings={...options,orientation,isoMode:'full',linkedProjections,viewPriority:'front'};
+  const result=optimizeDrawingLayout(data,{options:settings,isoOnRight:true,dimensions:[frontDimension]});
+  const {boxes,area,positions,scale}=result;
+  const rightmost=boxes.find(box=>box.key==='iso');
+  assert(boxes.every(box=>box===rightmost||box.x+box.width<=rightmost.x-2.99));
+  for(const a of boxes){
+   assert(a.x>=area.x-1e-8&&a.y>=area.y-1e-8&&a.x+a.width<=area.x+area.width+1e-8&&a.y+a.height<=area.y+area.height+1e-8);
+   assert(!boxes.some(b=>a!==b&&a.x<b.x+b.width-1e-8&&b.x<a.x+a.width-1e-8&&a.y<b.y+b.height-1e-8&&b.y<a.y+a.height-1e-8));
+  }
+  if(linkedProjections){
+   const {front,top,right}=drawingSheet(data,scale,true,result.dimensions,'',{...settings,layout:'compact',positions}).layout;
+   assert(Math.abs(top.x+top.width/2-front.x-front.width/2)<1e-8);
+   assert(Math.abs(right.y+right.height/2-front.y-front.height/2)<1e-8);
+   assert(top.y+top.height<front.y&&right.x>front.x+front.width);
+   const saved={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale,hidden:true,comment:'',dimensions:result.dimensions,options:{...settings,positions}};
+   assert.equal(readDrawingState(saved).options.linkedProjections,true);
+   assert.throws(()=>readDrawingState({...saved,options:{...saved.options,linkedProjections:'on'}}));
+  }
+ }
+});
+
 test('page scales and resized PDF views are independent of the editor scale',()=>{
  const assigned={pageCount:2,views:{front:2,'section-a':2},comments:{}};
  const config={...options,pdfLayout:'manual',pageAssignments:assigned,pdfPageScales:{1:.5,2:.375},pdfViewScales:{'section-a':.6}};

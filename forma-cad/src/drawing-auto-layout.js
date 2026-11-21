@@ -1,4 +1,4 @@
-import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,drawingScaleStep,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
+import {alignLinkedDrawingViews,linkedDrawingViews,drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,drawingScaleStep,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {drawingCommentEntries,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
@@ -60,6 +60,45 @@ function slicingPack(items,width,height){const limitW=width+GAP,limitH=height+GA
  result.sort((a,b)=>a.w*a.h-b.w*b.h);if(result.length>96)result.length=96;memo.set(mask,result);return result;}
  const result=variants((1<<n)-1);return result.sort((a,b)=>a.w*a.h-b.w*b.h)[0]||null;}
 function freeRectPack(items,width,height){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+GAP,height:height+GAP}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+GAP,ih=item.height+GAP,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
+function groupLinkedProjections(views,frames,scale){
+ const members=views.filter(({key})=>linkedDrawingViews.includes(key));
+ if(members.length<2||!frames.front)return views;
+ const layout=Object.fromEntries(members.map(({key})=>{
+  const frame=frames[key],s=scale*frame.factor;
+  return [key,{x:0,y:0,width:displayedDrawingSpan(frame,0)*s,height:displayedDrawingSpan(frame,1)*s}];
+ }));
+ alignLinkedDrawingViews(layout);
+ const front=members.find(({key})=>key==='front');
+ const top=members.find(({key})=>key==='top');
+ const right=members.find(({key})=>key==='right');
+ if(top)layout.top.y=Math.min(layout.top.y,front.box.y-top.box.y-top.height-GAP);
+ if(right){
+  const edge=Math.max(front.box.x+front.width,top?layout.top.x+top.box.x+top.width:-Infinity);
+  layout.right.x=Math.max(layout.right.x,edge-right.box.x+GAP);
+ }
+ const children=members.map(member=>({...member,offset:[
+  layout[member.key].x+member.box.x,layout[member.key].y+member.box.y,
+ ]}));
+ const left=Math.min(...children.map(({offset})=>offset[0]));
+ const upper=Math.min(...children.map(({offset})=>offset[1]));
+ const width=Math.max(...children.map(child=>child.offset[0]+child.width))-left;
+ const height=Math.max(...children.map(child=>child.offset[1]+child.height))-upper;
+ for(const child of children)child.offset=[child.offset[0]-left,child.offset[1]-upper];
+ return [{key:'front',width,height,children},...views.filter(({key})=>!linkedDrawingViews.includes(key))];
+}
+
+function packDrawingItems(items,width,height,isoOnRight){
+ const pack=(blocks,w,h)=>blocks.length<=6?slicingPack(blocks,w,h):freeRectPack(blocks,w,h);
+ const iso=isoOnRight&&items.find(item=>item.key==='iso');
+ if(!iso||items.length===1)return pack(items,width,height);
+ if(iso.width+GAP>=width||iso.height>height)return null;
+ const others=pack(items.filter(item=>item!==iso),width-iso.width-GAP,height);
+ if(!others)return null;
+ const h=iso.height+GAP;
+ return {w:others.w+iso.width+GAP,h:Math.max(others.h,h),
+  at:{...others.at,iso:[others.w,Math.max(0,(others.h-h)/2)]}};
+}
+
 function largestFittingScale(attempt){
  const ticks=1/drawingScaleStep;
  const firstTenth=attempt(drawingScaleStep),useSmallRatios=!firstTenth;
@@ -77,7 +116,7 @@ function largestFittingScale(attempt){
  return {scale:scaleAt(low),result};
 }
 
-export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false}={}){
+export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false,isoOnRight=false}={}){
  if(options.holeTable)options={...options,holeTable:resolveDrawingHoleTable(options.holeTable,data.views)};
  if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.pageSize??(options.orientation==='portrait'?[size[1],size[0]]:size),area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
  const maxNoteWidth=width-2*drawingCommentMargin;
@@ -89,28 +128,40 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  const table=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:frames);
  if(!Object.keys(frames).length&&!table&&!notes.length)throw Error('図面に載せるビューを1つ以上選択してください');
  const previousFrames=drawingViewFrames(data,options,scale);
- const attempt=s=>{
+ const attempt=(s,right)=>{
   const nextFrames=drawingViewFrames(data,options,s);
   const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,options);
   for(const column of noteColumns){
-   const items=[...views];
+   const items=[...(options.linkedProjections?groupLinkedProjections(views,nextFrames,s):views)];
    for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){
     const width=Math.max(block.width,Math.min(block.wrapWidth??0,maxNoteWidth))+2,height=block.height+2;
     items.push({key,box:{x:-1,y:-1,width,height},width,height});
    }
    if(items.length>24)throw Error('自動配置する図が多すぎます');
-   const packed=items.length<=6?slicingPack(items,area.width,area.height):freeRectPack(items,area.width,area.height);
+   const packed=packDrawingItems(items,area.width,area.height,right);
    if(packed)return {items,packed,dimensions:resized};
   }
   return null;
  };
  const variable=Object.keys(frames).some(name=>options.viewScales?.[name]===undefined);
- const choice=!fixedScale&&variable?largestFittingScale(attempt):{scale,result:attempt(scale)};
+ const preferRight=isoOnRight&&!!frames.iso;
+ const solve=right=>!fixedScale&&variable?largestFittingScale(s=>attempt(s,right)):{scale,result:attempt(scale,right)};
+ let choice=solve(preferRight);
+ // A full-width comment or hole table can leave no room for an isolated column.
+ if(!choice?.result&&preferRight&&(notes.length||table))choice=solve(false);
  if(!choice?.result){
   if(fixedScale)return null;
   throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');
  }
  const {scale:nextScale,result}=choice;
- const positions={},offset=[area.x+(area.width-(result.packed.w-GAP))/2,area.y+(area.height-(result.packed.h-GAP))/2];for(const item of result.items){const p=result.packed.at[item.key];positions[item.key]=[offset[0]+p[0]-item.box.x,offset[1]+p[1]-item.box.y];}
- return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes:result.items.map(item=>({key:item.key,x:positions[item.key][0]+item.box.x,y:positions[item.key][1]+item.box.y,width:item.width,height:item.height}))};
+ const positions={},boxes=[],offset=[area.x+(area.width-(result.packed.w-GAP))/2,area.y+(area.height-(result.packed.h-GAP))/2];
+ for(const block of result.items){
+  const [px,py]=result.packed.at[block.key];
+  for(const item of block.children??[block]){
+   const [dx,dy]=item.offset??[0,0],x=offset[0]+px+dx,y=offset[1]+py+dy;
+   positions[item.key]=[x-item.box.x,y-item.box.y];
+   boxes.push({key:item.key,x,y,width:item.width,height:item.height});
+  }
+ }
+ return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes};
 }

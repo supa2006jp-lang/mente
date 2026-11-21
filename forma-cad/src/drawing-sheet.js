@@ -1,4 +1,4 @@
-import {alignThirdAngleViews,isThirdAngleLayout,drawingIsometricOutline,drawingProjectionNames,drawingViewFactor,drawingViewVisible,drawingScaleSummary} from './drawing-view-preferences.js';
+import {alignLinkedDrawingViews,alignThirdAngleViews,isThirdAngleLayout,drawingIsometricOutline,drawingProjectionNames,drawingViewFactor,drawingViewVisible,drawingScaleSummary} from './drawing-view-preferences.js';
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
 import {decoratedDrawingViews,drawingViewFrames} from './drawing-auto-layout.js';
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries,drawingCommentLayout,drawingCommentMargin} from './drawing-comments.js';
@@ -146,7 +146,8 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  for(const key of extraNames){const view=data.views[key],b=view.viewBox,s=scale*frames[key].factor,vw=b[2]*s,vh=b[3]*s;if(extraX>20&&extraX+vw>width-15){extraX=20;extraY+=rowHeight+25;rowHeight=0;}layout[key]={x:extraX,y:extraY,bx:b[0],by:b[1],width:vw,height:vh,scale:s};extraX+=vw+25;rowHeight=Math.max(rowHeight,vh);}
  if(!fixedPaper){height=Math.max(height,extraNames.length?extraY+rowHeight+(options.frame?42:20):0);width=Math.max(width,...extraNames.map(k=>layout[k].x+layout[k].width+20));}
  for(const [key,p] of Object.entries(positions))if(layout[key]){layout[key].x=p[0];layout[key].y=p[1];}
- if(!options.pageSize&&options.projectionLocked&&options.layout!=='compact')alignThirdAngleViews(layout,positions.front??projectionPositions.front);
+ if(options.linkedProjections)alignLinkedDrawingViews(layout);
+ else if(!options.pageSize&&options.projectionLocked&&options.layout!=='compact')alignThirdAngleViews(layout,positions.front??projectionPositions.front);
  const inheritedDimensions=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions,!!options.pageViews);
  const tableSize=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:layout);
  const holeBox=tableSize?{...tableSize,x:positions.holeTable?.[0]??Math.max(rightEdge+12,width-tableSize.width-12),y:positions.holeTable?.[1]??24}:null;

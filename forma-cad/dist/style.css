@@ -768,6 +768,8 @@ button.form-control-point.invalid { background:#bc2634; }
 #opening-sketch-edit .editor-actions { position:static; background:transparent; }
 #drawing-dialog .drawing-view-options { gap:4px 8px; margin-block:8px; }
 .drawing-view-options strong { font-size:12px; }
+#drawing-dimension-add { background:#efc36a; color:#2e2005; border-color:#efc36a; font-weight:700; }
+#drawing-dimension-add:not(:disabled):hover { background:#ffda8c; border-color:#ffda8c; }
 #drawing-dialog .drawing-view-options label { display:inline-flex; align-items:center; gap:4px; border:1px solid #496278; border-radius:5px; padding:3px 6px; white-space:nowrap; cursor:pointer; }
 .drawing-view-options label:has(input:checked) { background:#233f52; color:#dcf2ff; }
 .drawing-view-options label:has(input:disabled) { cursor:default; }
