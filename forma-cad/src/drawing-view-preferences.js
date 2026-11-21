@@ -19,7 +19,7 @@ export function drawingIsometricOutline([min,max]){
  return points;
 }
 export const projectionDragAxis=name=>['top','bottom'].includes(name)?1:['left','right','back'].includes(name)?0:null;
-export const linkedDrawingViews=['top','front','right'];
+export const linkedDrawingViews=['front','top','right'];
 const projectionFollowers={front:{top:0,right:1},top:{front:0},right:{front:1}};
 
 export function linkedDrawingFollowers(name,layout){
@@ -82,7 +82,21 @@ export function drawingProjectedFrame(name,bounds){
  return {bx,by,width:x1-bx,height:y1-by,label,factor:1};
 }
 export const drawingViewFactor=(name,options={})=>name==='front'&&options.viewPriority==='front'?1.4:name==='iso'&&options.isoMode==='small'?.5:1;
-export const drawingViewScale=(name,scale,options={},factor=1)=>options.viewScales?.[name]??scale*drawingViewFactor(name,options)*factor;
+export function drawingViewScaleOverride(name,options={}){
+ const scales=options.viewScales;
+ if(options.linkedProjectionScales&&linkedDrawingViews.includes(name)){
+  for(const view of linkedDrawingViews)if(scales?.[view]!==undefined)return scales[view];
+  return undefined;
+ }
+ return scales?.[name];
+}
+export function drawingViewScale(name,scale,options={},factor=1){
+ const specified=drawingViewScaleOverride(name,options);
+ if(specified!==undefined)return specified;
+ const shared=options.linkedProjectionScales&&linkedDrawingViews.includes(name);
+ const nominal=scale*drawingViewFactor(shared?'front':name,options)*factor;
+ return name==='iso'&&options.autoIsoScale!==undefined?Math.min(nominal,options.autoIsoScale):nominal;
+}
 export const minDrawingScale=.0001,maxDrawingScale=1000;
 export const drawingScaleStep=.1;
 const scaleTicks=1/drawingScaleStep,scaleTickTolerance=1e-9;

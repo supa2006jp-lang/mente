@@ -1,4 +1,4 @@
-import {drawingViewVisible} from './drawing-view-preferences.js';
+import {drawingViewScaleOverride,drawingViewVisible,linkedDrawingViews} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {drawingViewFrames,optimizeDrawingLayout,rescaleDrawingAnnotations} from './drawing-auto-layout.js';
 import {drawingSheet} from './drawing-sheet.js';
@@ -83,11 +83,20 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
    return true;
   });
   const pageOptions={...options,pageViews:views,pageHoleTable:table,comments:notes,detailDimensionSources:dimensions};
+  const refitIso=!keep&&selected.has('iso')&&options.autoIsoScale!==undefined;
+  if(refitIso)delete pageOptions.autoIsoScale;
   const specified=options.pdfPageScales?.[pages.length+1];
   const pageScale=specified??scale;
   const resized=views.filter(id=>options.pdfViewScales?.[id]!==undefined);
-  if(resized.length)pageOptions.viewScales={...options.viewScales,...Object.fromEntries(resized.map(id=>[id,options.pdfViewScales[id]]))};
-  if(pageScale!==scale||resized.length){
+  if(resized.length){
+   const pageOverrides=Object.fromEntries(resized.map(id=>[id,options.pdfViewScales[id]]));
+   pageOptions.viewScales={...options.viewScales,...pageOverrides};
+   if(options.linkedProjectionScales){
+    const linked=drawingViewScaleOverride('front',{linkedProjectionScales:true,viewScales:pageOverrides});
+    if(linked!==undefined)for(const id of linkedDrawingViews)pageOptions.viewScales[id]=linked;
+   }
+  }
+  if(pageScale!==scale||resized.length||refitIso){
    originalFrames??=drawingViewFrames(data,options,scale);
    pageDimensions=rescaleDrawingAnnotations(pageDimensions,drawingViewFrames(data,pageOptions,pageScale),scale,pageScale,originalFrames);
   }

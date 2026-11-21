@@ -21,6 +21,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.revision!==undefined&&(typeof o.revision!=='string'||o.revision.length>20))fail();
  if(o.projectionLocked!==undefined&&typeof o.projectionLocked!=='boolean')fail();
  if(o.linkedProjections!==undefined&&typeof o.linkedProjections!=='boolean')fail();
+ if(o.linkedProjectionScales!==undefined&&typeof o.linkedProjectionScales!=='boolean')fail();
+ if(o.autoIsoScale!==undefined&&!validDrawingScale(o.autoIsoScale))fail();
  if(o.autoDimensionTypes!==undefined&&(!Array.isArray(o.autoDimensionTypes)||o.autoDimensionTypes.length>autoDimensionKeys.length||new Set(o.autoDimensionTypes).size!==o.autoDimensionTypes.length||o.autoDimensionTypes.some(key=>!autoDimensionKeys.includes(key))))fail();
  if(o.groupRepeatedDimensions!==undefined&&typeof o.groupRepeatedDimensions!=='boolean')fail();
  if(o.uniqueOverallDimensions!==undefined&&typeof o.uniqueOverallDimensions!=='boolean')fail();

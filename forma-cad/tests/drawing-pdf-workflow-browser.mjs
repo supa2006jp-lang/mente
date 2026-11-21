@@ -597,12 +597,21 @@ try{
   assert(top[1]+top[3]<front[1]+7&&right[0]>front[0]+front[2]);
  };
  const dragView=(id,dx,dy)=>drag(editor.locator('[data-view="'+id+'"] > text').first(),dx,dy);
+ const projectionNames=['front','top','right'];
+ const drawingViews=[...projectionNames,'iso'];
+ const transforms=(names=drawingViews)=>Promise.all(names.map(name=>geometry(editor,name)));
  assert.equal(await link.isChecked(),false);
  const [isoX]=await viewBox('iso');
  for(const view of ['top','front','right']){
   const [x,,width]=await viewBox(view);
   assert(isoX>x+width);
  }
+ const initialViews=await transforms();
+ assert((await scaleOn(editor,'iso'))<(await scaleOn(editor,'front')));
+ await field('dimension-auto').click();
+ assert.equal(await editor.locator('[data-dimension]').count(),9);
+ assert.deepEqual(await transforms(),initialViews);
+ await field('dimension-clear').click();
  const [manualColor,automaticColor]=await Promise.all(['dimension-add','dimension-auto'].map(id=>
   field(id).evaluate(button=>getComputedStyle(button).backgroundColor)));
  assert.equal(manualColor,'rgb(239, 195, 106)');
@@ -613,7 +622,16 @@ try{
  const isoPosition=await geometry(editor,'iso');
  const firstFront=await viewAt(editor,'front');
  await field('snap').uncheck();
- await dragView('top',-16,0);
+ const grip=await editor.locator('[data-view=top] > text').first().boundingBox();
+ const [grabX,grabY]=[grip.x+grip.width/2,grip.y+grip.height/2];
+ await page.mouse.move(grabX,grabY);await page.mouse.down();
+ await page.mouse.move(grabX-16,grabY,{steps:4});
+ const verticalGuide=editor.locator('[data-projection-guide="0"]'),horizontalGuide=editor.locator('[data-projection-guide="1"]');
+ const [guideX,guideY]=await viewAt(editor,'front'),guideScale=await scaleOn(editor,'front');
+ closeTo(Number(await verticalGuide.getAttribute('x1')),guideX+60*guideScale/2);
+ closeTo(Number(await horizontalGuide.getAttribute('y1')),guideY+20*guideScale/2);
+ await page.mouse.up();
+ assert.equal(await editor.locator('[data-projection-guide]').count(),0);
  const secondFront=await viewAt(editor,'front');
  assert(secondFront[0]<firstFront[0]);
  closeTo(secondFront[1],firstFront[1]);
@@ -660,6 +678,69 @@ try{
  assert.equal(await geometry(editor,'right'),otherPageRight);
  await field('page-edit').selectOption('-1');
  assert.deepEqual(await viewAt(editor,'front'),movedFront);
+ await field('close').click();
+
+ const crowded={...drawing,comment:'',dimensions:[],scale:4.75,options:{...drawing.options,layout:'compact',
+  pdfLayout:undefined,sections:[],viewSelection:['front'],positions:{front:[6,45]}}};
+ await open(crowded);
+ const tightView=await geometry(editor,'front');
+ assert.equal(await editor.locator('[data-overflow-outline]').count(),0);
+ await field('dimension-auto').click();
+ assert.equal(await geometry(editor,'front'),tightView);
+ assert.equal(await editor.locator('[data-view][data-drawing-overflow]').count(),0);
+ assert.ok(await editor.locator('[data-dimension][data-drawing-overflow]').count()>0);
+ assert.match(await field('status').textContent(),/はみ出した寸法.*赤枠/);
+ await field('close').click();
+
+ const scaleCase={...drawing,comment:'',dimensions:[],options:{...drawing.options,layout:'compact',isoMode:'full',
+  pdfLayout:undefined,sections:[],linkedProjections:true,positions:{top:[60,40],front:[60,95],right:[145,95],iso:[207,65]},
+  viewScales:{front:.8,top:.65,right:.5,iso:.55}}};
+ await open(scaleCase);
+ const scaleLink=field('link-scales');
+ const projectionScales=()=>Promise.all(projectionNames.map(name=>scaleOn(editor,name)));
+ assert.deepEqual(await projectionScales(),[.8,.65,.5]);
+ await scaleLink.check();
+ assert.deepEqual(await projectionScales(),[.8,.8,.8]);
+ await field('view-scales').evaluate(details=>details.open=true);
+ const scaleInputFor=name=>field('view-scales').locator('[data-view-scale-input="'+name+'"]');
+ await scaleInputFor('top').fill('0.7');
+ await scaleInputFor('top').press('Enter');
+ assert.deepEqual(await projectionScales(),[.7,.7,.7]);
+ await inlineBadge('right').click();
+ await inlineInput.press('ArrowDown');
+ assert.deepEqual(await projectionScales(),[.6,.6,.6]);
+ await inlineInput.press('Escape');
+ await drag(resize('front'),14,5);
+ const [resizedFront,resizedTop,resizedRight]=await projectionScales();
+ assert(resizedFront>.6&&resizedFront===resizedTop&&resizedFront===resizedRight);
+ assert.equal(await scaleOn(editor,'iso'),.55);
+ await field('undo').click();
+ assert.deepEqual(await projectionScales(),[.6,.6,.6]);
+ await field('redo').click();
+ assert.deepEqual(await projectionScales(),[resizedFront,resizedFront,resizedFront]);
+ await field('close').click();
+ const [scaleSave]=await Promise.all([page.waitForEvent('download'),page.locator('#save').click()]);
+ const savedScales=(await decodeProjectDocument(await fs.readFile(await scaleSave.path(),'utf8'))).document.drawing;
+ assert.equal(savedScales.options.linkedProjectionScales,true);
+ await open({...savedScales,options:{...savedScales.options,pdfLayout:'manual',pdfPlacement:'auto',
+  pageAssignments:{pageCount:2,views:{right:2,iso:2},comments:{}}}});
+ assert(await scaleLink.isChecked());
+ await field('page-edit').selectOption('1');
+ const pageTwo=await transforms(['right','iso']);
+ await field('page-edit').selectOption('0');
+ const beforeAutoOnPage=await transforms(['front','top']);
+ await field('dimension-auto').click();
+ assert.equal(await editor.locator('[data-dimension]').count(),4);
+ assert.deepEqual(await transforms(['front','top']),beforeAutoOnPage);
+ await field('view-scales').evaluate(details=>details.open=true);
+ await scaleInputFor('top').fill('0.4');
+ await scaleInputFor('top').press('Enter');
+ assert.equal(await scaleOn(editor,'front'),.4);
+ assert.equal(await scaleOn(editor,'top'),.4);
+ await field('page-edit').selectOption('1');
+ assert.deepEqual(await transforms(['right','iso']),pageTwo);
+ await field('page-edit').selectOption('-1');
+ assert.deepEqual(await projectionScales(),[resizedFront,resizedFront,resizedFront]);
  assert.deepEqual(errors,[]);
- console.log('PASS PDF editing and export, isometric dimensions, remembered colors, rightmost ISO and linked projection dragging');
+ console.log('PASS fixed view positions on auto-dimension, linked scales, right-column ISO and projection drag guides');
 }finally{await browser?.close();server.close();}

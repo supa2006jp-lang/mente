@@ -225,7 +225,7 @@ test('initial layout reserves the right side for ISO and can pack linked project
    assert(!boxes.some(b=>a!==b&&a.x<b.x+b.width-1e-8&&b.x<a.x+a.width-1e-8&&a.y<b.y+b.height-1e-8&&b.y<a.y+a.height-1e-8));
   }
   if(linkedProjections){
-   const {front,top,right}=drawingSheet(data,scale,true,result.dimensions,'',{...settings,layout:'compact',positions}).layout;
+   const {front,top,right}=drawingSheet(data,scale,true,result.dimensions,'',{...settings,layout:'compact',positions,autoIsoScale:result.autoIsoScale}).layout;
    assert(Math.abs(top.x+top.width/2-front.x-front.width/2)<1e-8);
    assert(Math.abs(right.y+right.height/2-front.y-front.height/2)<1e-8);
    assert(top.y+top.height<front.y&&right.x>front.x+front.width);
@@ -234,6 +234,48 @@ test('initial layout reserves the right side for ISO and can pack linked project
    assert.throws(()=>readDrawingState({...saved,options:{...saved.options,linkedProjections:'on'}}));
   }
  }
+});
+
+test('right-column sizing reduces only ISO and respects a manually specified scale',()=>{
+ const {front,top,right}=part.views;
+ const data={...part,views:{front,top,right,iso:{...rect(70.71,57.2),viewBox:[0,-57.2,70.71,57.2]}}};
+ const settings={...options,sections:[],isoMode:'full',linkedProjections:true,viewSelection:['front','top','right']};
+ const fitted=optimizeDrawingLayout(data,{options:settings,isoOnRight:true});
+ assert(fitted.autoIsoScale<fitted.scale);
+ const {positions,autoIsoScale,scale}=fitted;
+ const placed=drawingSheet(data,scale,true,[],'',{...settings,positions,autoIsoScale,layout:'compact'});
+ assert.equal(placed.layout.iso.scale,autoIsoScale);
+ assert(['front','top','right'].every(name=>placed.layout[name].scale===scale));
+ assert(placed.layout.iso.x>placed.layout.right.x+placed.layout.right.width);
+ const sameSize={...settings,viewScales:{iso:scale}};
+ assert.equal(optimizeDrawingLayout(data,{options:sameSize,isoOnRight:true,scale,fixedScale:true}),null);
+ const narrow=optimizeDrawingLayout(data,{options:{...settings,pageSize:[227,210]},isoOnRight:true,scale:1.5,fixedScale:true});
+ assert.equal(narrow?.autoIsoScale,.7);
+ const pdf={...settings,positions,autoIsoScale,pdfLayout:'manual',pageAssignments:{pageCount:2,views:{iso:2},comments:{}}};
+ assert.equal(drawingPDFPages(data,scale,true,[],'',pdf,placed)[1].layout.iso.scale,autoIsoScale);
+ assert(drawingPDFPages(data,scale,true,[],'',{...pdf,pdfPlacement:'auto'})[1].layout.iso.scale>autoIsoScale);
+ const manual={...settings,viewScales:{iso:.6}};
+ const explicit=optimizeDrawingLayout(data,{options:manual,isoOnRight:true});
+ assert.equal(explicit.autoIsoScale,undefined);
+ assert.equal(drawingSheet(data,explicit.scale,true,[],'',{...manual,positions:explicit.positions,layout:'compact'}).layout.iso.scale,.6);
+ const saved={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale,hidden:true,comment:'',dimensions:[],
+  options:{...settings,positions,autoIsoScale}};
+ assert.equal(readDrawingState(saved).options.autoIsoScale,autoIsoScale);
+ assert.throws(()=>readDrawingState({...saved,options:{...saved.options,autoIsoScale:0}}));
+});
+
+test('linked scales share the overview override and only the PDF overrides for the current page',()=>{
+ const settings={...options,linkedProjectionScales:true,viewScales:{front:.8,top:.6,right:.5},
+  pdfLayout:'manual',pdfViewScales:{top:.7},pageAssignments:{pageCount:2,views:{right:2},comments:{}}};
+ const editor=drawingSheet(part,1,true,[],'',settings);
+ assert(['front','top','right'].every(name=>editor.layout[name].scale===.8));
+ const [first,second]=drawingPDFPages(part,1,true,[],'',settings,editor);
+ assert.equal(first.layout.front.scale,.7);
+ assert.equal(first.layout.top.scale,.7);
+ assert.equal(second.layout.right.scale,.8);
+ const saved={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],options:settings};
+ assert.equal(readDrawingState(saved).options.linkedProjectionScales,true);
+ assert.throws(()=>readDrawingState({...saved,options:{...settings,linkedProjectionScales:'true'}}));
 });
 
 test('page scales and resized PDF views are independent of the editor scale',()=>{

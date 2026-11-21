@@ -1,4 +1,4 @@
-import {alignLinkedDrawingViews,linkedDrawingViews,drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,drawingScaleStep,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
+import {alignLinkedDrawingViews,linkedDrawingViews,drawingViewVisible,drawingViewScale,drawingViewScaleOverride,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,drawingScaleStep,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {drawingCommentEntries,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
@@ -128,9 +128,20 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  const table=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:frames);
  if(!Object.keys(frames).length&&!table&&!notes.length)throw Error('図面に載せるビューを1つ以上選択してください');
  const previousFrames=drawingViewFrames(data,options,scale);
- const attempt=(s,right)=>{
-  const nextFrames=drawingViewFrames(data,options,s);
-  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,options);
+ const preferRight=isoOnRight&&!!frames.iso;
+ const placementOptions=isoOnRight?{...options,autoIsoScale:undefined}:options;
+ const adaptiveIso=preferRight&&Object.keys(frames).length>1&&drawingViewScaleOverride('iso',options)===undefined;
+ const nominalIso=s=>drawingViewScale('iso',s,placementOptions);
+ const minimumIso=s=>{
+  const nominal=nominalIso(s);
+  if(nominal<=minDrawingScale)return undefined;
+  const limit=nominal/2;
+  return largestFittingScale(value=>value<=limit+1e-12?true:null)?.scale??minDrawingScale;
+ };
+ const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale)=>{
+  const nextOptions={...placementOptions,autoIsoScale};
+  const nextFrames=drawingViewFrames(data,nextOptions,s);
+  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,nextOptions);
   for(const column of noteColumns){
    const items=[...(options.linkedProjections?groupLinkedProjections(views,nextFrames,s):views)];
    for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){
@@ -139,13 +150,16 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    }
    if(items.length>24)throw Error('自動配置する図が多すぎます');
    const packed=packDrawingItems(items,area.width,area.height,right);
-   if(packed)return {items,packed,dimensions:resized};
+   if(packed)return {items,packed,dimensions:resized,autoIsoScale};
   }
   return null;
  };
- const variable=Object.keys(frames).some(name=>options.viewScales?.[name]===undefined);
- const preferRight=isoOnRight&&!!frames.iso;
- const solve=right=>!fixedScale&&variable?largestFittingScale(s=>attempt(s,right)):{scale,result:attempt(scale,right)};
+ const variable=Object.keys(frames).some(name=>drawingViewScaleOverride(name,placementOptions)===undefined&&
+  (name!=='iso'||placementOptions.autoIsoScale===undefined));
+ const solve=right=>{
+  const fit=s=>attempt(s,right,right&&adaptiveIso?minimumIso(s):placementOptions.autoIsoScale);
+  return !fixedScale&&variable?largestFittingScale(fit):{scale,result:fit(scale)};
+ };
  let choice=solve(preferRight);
  // A full-width comment or hole table can leave no room for an isolated column.
  if(!choice?.result&&preferRight&&(notes.length||table))choice=solve(false);
@@ -153,7 +167,18 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   if(fixedScale)return null;
   throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');
  }
- const {scale:nextScale,result}=choice;
+ const {scale:nextScale}=choice;
+ let {result}=choice;
+ if(adaptiveIso&&result.autoIsoScale!==undefined){
+  // Size the main views first, then use the rest of the right column for ISO.
+  const nominal=nominalIso(nextScale);
+  const full=attempt(nextScale,true);
+  if(full)result=full;
+  else{
+   const larger=largestFittingScale(s=>s<nominal?attempt(nextScale,true,s):null);
+   if(larger?.scale>result.autoIsoScale)result=larger.result;
+  }
+ }
  const positions={},boxes=[],offset=[area.x+(area.width-(result.packed.w-GAP))/2,area.y+(area.height-(result.packed.h-GAP))/2];
  for(const block of result.items){
   const [px,py]=result.packed.at[block.key];
@@ -163,5 +188,5 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    boxes.push({key:item.key,x,y,width:item.width,height:item.height});
   }
  }
- return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes};
+ return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes,autoIsoScale:result.autoIsoScale};
 }

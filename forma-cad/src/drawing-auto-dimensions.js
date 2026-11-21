@@ -155,7 +155,7 @@ function isoOverallDimension(vertices,bounds,axis,scale,outline){
 // hidden arcs are deliberately excluded; they cannot identify a complete hole.
 export function completeDrawingCircles(view,arcs=drawingCurves(view.visible).arcs){const groups=new Map();for(const a of arcs){const id=circleKey(a);if(!groups.has(id))groups.set(id,{center:a.center,radius:a.radius,intervals:[]});let start=Math.atan2(a.a[1]-a.center[1],a.a[0]-a.center[0]),end=Math.atan2(a.b[1]-a.center[1],a.b[0]-a.center[0]);if(!a.sweep)[start,end]=[end,start];while(start<0)start+=Math.PI*2;while(start>=Math.PI*2)start-=Math.PI*2;while(end<=start)end+=Math.PI*2;const list=groups.get(id).intervals;list.push([start,Math.min(end,Math.PI*2)]);if(end>Math.PI*2)list.push([0,end-Math.PI*2]);}return [...groups.values()].filter(c=>{let covered=0,end=0;for(const [a,b]of c.intervals.sort((a,b)=>a[0]-b[0])){if(b>end){covered+=b-Math.max(a,end);end=b;}}return covered>=Math.PI*2-1e-4;}).map(({center,radius})=>({center,radius}));}
 
-export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},types=autoDimensionKeys,groupRepeated=true,uniqueAxes=false,fontSize,details=[]}={}){
+export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},types=autoDimensionKeys,groupRepeated=true,uniqueAxes=false,fontSize,details=[],placed=existing}={}){
  const enabled=(view,type)=>types.includes(type)&&(views[view]?.includes(type)??true);
  const keys=new Set(),added=[],s=scale,limit=500-existing.length,covered=d=>['diameter','radius'].includes(d.kind)&&d.centers?d.centers.map(center=>key({...d,center})):[key(d)];for(const d of existing)if(!d.review)for(const k of covered(d))keys.add(k);
  const push=d=>{const ids=covered(d);if(added.length>=limit||ids.every(id=>keys.has(id))||dimensionValue(d)<1e-6)return false;ids.forEach(id=>keys.add(id));added.push({...d,automatic:true,...(fontSize===undefined?{}:{fontSize})});return true;};
@@ -203,5 +203,5 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
    const d={view,kind:'diameter',center,radius,at:[center[0]+radius+7/v.scale,center[1]]};if(!keys.has(key(d)))round.push(d);
   }for(const d of groupRepeated?groupDrawingDimensions(round):round)push(d);}
  }
- const layout=arrangeDrawingDimensions(added,sheet,existing);return {dimensions:layout.dimensions,skipped,layoutWarnings:layout.unresolved.length};
+ const layout=arrangeDrawingDimensions(added,sheet,placed,{keepOnPaper:true});return {dimensions:layout.dimensions,skipped,layoutWarnings:layout.unresolved.length};
 }
