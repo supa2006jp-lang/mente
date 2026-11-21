@@ -44,8 +44,10 @@ try{
  const preview=field('pdf-preview'),print=field('pdf-preview-host'),editor=field('preview');
  const geometry=(host,view)=>host.locator(`[data-view="${view}"]>g[transform]`).getAttribute('transform');
  const commentX=host=>host.locator('[data-comment=true] text').first().getAttribute('x');
+ const pdfPage=number=>preview.locator('[data-pdf-page="'+number+'"]');
+ const selectPage=number=>pdfPage(number).locator('.drawing-pdf-page-thumb').click();
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
- await page.locator('#canvas-host canvas').waitFor();
+ await page.waitForFunction(()=>typeof document.getElementById('file')?.onchange==='function');
 
  async function open(state){
   const project={format:'forma-cad',version:1,features,drawing:state};
@@ -96,11 +98,31 @@ try{
  assert.equal(await editor.locator('[data-focused-conflict]').count(),1);
 
  await field('close').click();
- const overflow={...drawing,dimensions:[],options:{...drawing.options,positions:{...drawing.options.positions,top:[45,12]}}};
+ const overflow={...drawing,dimensions:[width],options:{...drawing.options,positions:{...drawing.options.positions,'section-a':[279,48]},
+  pdfPageScales:{2:.9}}};
  await open(overflow);
+ const overviewSection=await geometry(editor,'section-a');
  await field('pdf-preview-open').click();
- assert(await preview.locator('[data-pdf-issue=layout]').count());
+ const firstPageBefore=await geometry(print,'front');
+ const secondPageIssue=preview.locator('[data-pdf-issue=layout]').filter({hasText:/2 ページ.*断面図/});
+ await secondPageIssue.click();
+ assert.equal(await field('pdf-preview-page').inputValue(),'1');
+ assert.equal(await print.locator('[data-overflow-outline]').count(),1);
  assert(await field('pdf-preview-save').isDisabled());
+ const sectionBefore=await geometry(print,'section-a');
+ await field('pdf-preview-fit-page').click();
+ assert.equal(await preview.locator('[data-pdf-issue=layout]').count(),0);
+ assert.match(await geometry(print,'section-a'),/scale\(0\.9\)/);
+ assert.notEqual(await geometry(print,'section-a'),sectionBefore);
+ assert(await field('pdf-preview-save').isEnabled());
+ await selectPage(1);
+ assert.equal(await geometry(print,'front'),firstPageBefore);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'60');
+ await field('pdf-preview-close').click();
+ assert.equal(await geometry(editor,'section-a'),overviewSection);
+ await field('undo').click();
+ await field('pdf-preview-open').click();
+ assert.equal(await secondPageIssue.count(),1);
  await field('pdf-preview-close').click();
  await field('pdf-placement').selectOption('auto');
  await field('pdf-preview-open').click();
@@ -237,6 +259,11 @@ try{
  await field('pdf-preview-open').click();
  assert.ok(await preview.locator('[data-pdf-issue=layout]').count());
  assert.ok(await field('pdf-preview-save').isDisabled());
+ const oversized=await geometry(print,'front');
+ await field('pdf-preview-fit-page').click();
+ assert.match(await field('pdf-preview-status').textContent(),/縮尺を保ったまま収まりません/);
+ assert.equal(await geometry(print,'front'),oversized);
+ assert.ok(await field('pdf-preview-save').isDisabled());
  await field('pdf-preview-close').click();
  for(const [number,value,view,scale] of [[1,'1:2','front',.5],[2,'0.375','section-a',.375]]){
   await pageScale(number).fill(value);await pageScale(number).press('Enter');
@@ -283,6 +310,68 @@ try{
  assert.equal(await scaleOn(editor,'section-a'),sectionScale);
  await field('page-edit').selectOption('-1');
  assert.equal(await scaleOn(editor,'section-a'),.4);
+ await field('close').click();
+
+ await open({...drawing,dimensions:[width],comment:'加工面を確認',options:{...drawing.options,pdfLayout:'multi',
+  positions:{...drawing.options.positions,comment:[192,181]},leaders:[
+    {id:'leader-finish',view:'front',anchor:[15,-10],at:[18,17],text:'バリ取り'},
+  ]}});
+ await field('pdf-preview-open').click();
+ await page.waitForFunction(()=>[...document.querySelectorAll('.drawing-pdf-page-thumb img')].every(image=>image.naturalWidth>0));
+ assert.equal(await pdfPage(1).locator('[data-page-item=front]').count(),1);
+ assert.equal(await pdfPage(2).locator('[data-page-item=section-a]').count(),1);
+ await pdfPage(1).locator('[data-page-item=front]').dragTo(pdfPage(2).locator('.drawing-pdf-page-thumb'));
+ assert.equal(await field('pdf-preview-page').inputValue(),'1');
+ assert.equal(await pdfPage(1).locator('[data-page-item=front]').count(),0);
+ assert.equal(await pdfPage(2).locator('[data-page-item=front]').count(),1);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'60');
+ assert.equal(await print.locator('[data-leader] text').textContent(),'バリ取り');
+ await pdfPage(1).locator('[data-page-item=comment]').click();
+ const move=preview.locator('.drawing-pdf-page-move');
+ await move.locator('select').selectOption('1');
+ await move.getByRole('button',{name:'移動',exact:true}).click();
+ assert.equal(await pdfPage(2).locator('[data-page-item=comment]').count(),1);
+ assert.equal(await print.locator('[data-comment=true]').textContent(),'加工面を確認');
+ await preview.locator('[data-pdf-issue=layout]').filter({hasText:/2 ページ.*表題欄と重なり/}).click();
+ assert.equal(await print.locator('[data-overflow-outline]').count(),1);
+ assert(await print.locator('[data-comment=true]').evaluate(item=>item===item.parentElement.lastElementChild));
+ if(process.env.FORMA_TEST_PDF_DIR){
+  await page.screenshot({path:path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-page-issue.png')});
+ }
+ await field('pdf-preview-fit-page').click();
+ assert.equal(await preview.locator('[data-pdf-issue=layout]').count(),0);
+ assert.equal(await print.locator('[data-overflow-outline]').count(),0);
+ assert.equal(await scaleOn(print,'front'),1);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'60');
+ await selectPage(1);
+ assert.equal(await print.locator('[data-view=front],[data-dimension],[data-leader],[data-comment]').count(),0);
+ const [assignedPDF]=await Promise.all([page.waitForEvent('download'),field('pdf-preview-save').click()]);
+ const assignedBytes=await fs.readFile(await assignedPDF.path());
+ assert.match(assignedBytes.toString('latin1'),/\/Count 2/);
+ if(process.env.FORMA_TEST_PDF_DIR){
+  await fs.writeFile(path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-page-assignment.pdf'),assignedBytes);
+ }
+ await field('pdf-preview-close').click();
+ assert.equal(await field('pdf-layout').inputValue(),'manual');
+ await field('close').click();
+ const [assignedProject]=await Promise.all([page.waitForEvent('download'),page.locator('#save').click()]);
+ const assigned=(await decodeProjectDocument(await fs.readFile(await assignedProject.path(),'utf8'))).document.drawing;
+ assert.deepEqual(assigned.options.pageAssignments,{pageCount:2,views:{top:1,front:2,right:1,'section-a':2},comments:{comment:2}});
+ await open(assigned);
+ await field('pdf-preview-open').click();
+ await selectPage(2);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'60');
+ assert.equal(await print.locator('[data-comment=true]').textContent(),'加工面を確認');
+ assert.equal(await preview.locator('[data-pdf-issue=layout]').count(),0);
+ await field('pdf-preview-close').click();
+ await field('pdf-layout').selectOption('');
+ await field('pdf-preview-open').click();
+ assert(await field('pdf-preview-pages').isHidden());
+ assert(await field('pdf-preview-save').isDisabled());
+ await field('pdf-preview-fit-page').click();
+ assert.equal(await preview.locator('[data-pdf-issue=layout]').count(),0);
+ assert.equal(await scaleOn(print,'front'),1);
+ assert(await field('pdf-preview-save').isEnabled());
  assert.deepEqual(errors,[]);
- console.log('PASS tenths in automatic layouts and scale captions, matching PDF scales, manual ratios, resize, export and project reload');
+ console.log('PASS page thumbnails, reassignment with dimensions and leaders, isolated fixed-scale fit, PDF export and project reload');
 }finally{await browser?.close();server.close();}

@@ -16,6 +16,36 @@ export function drawingPDFHasMultiplePages(views,{pdfLayout,pageAssignments,hole
  return pdfLayout==='multi'&&auxiliaryPDFItems(views,holeTable).length>0;
 }
 
+export function drawingPDFPageItems(page){
+ return [
+  ...Object.keys(page.layout).map(id=>({kind:'views',id})),
+  ...page.notes.map(({id,text})=>({kind:'comments',id,text})),
+  ...(page.holeBox?[{kind:'table',id:'holeTable'}]:[]),
+ ];
+}
+
+export function assignDrawingPDFPageItem(assignment,{kind,id},page){
+ if(kind==='table')assignment.holeTable=page;
+ else assignment[kind][id]=page;
+}
+
+export function drawingPDFPageAssignments(pages){
+ const assignment={pageCount:pages.length,views:{},comments:{}};
+ for(const [index,page] of pages.entries()){
+  for(const item of drawingPDFPageItems(page))assignDrawingPDFPageItem(assignment,item,index+1);
+ }
+ return assignment;
+}
+
+export function fitDrawingPDFPage(data,page,{scale,dimensions,options}){
+ return optimizeDrawingLayout(data,{
+  scale:page.pageScale??scale,dimensions:page.dimensions,fixedScale:true,
+  options:{...options,pageSize:[page.width,page.height],pageViews:Object.keys(page.layout),
+   pageNotes:page.notes,pageHoleTable:!!page.holeBox,detailDimensionSources:dimensions,
+   viewScales:Object.fromEntries(Object.entries(page.layout).map(([id,view])=>[id,view.scale]))},
+ });
+}
+
 function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
  const keep=options.pdfPlacement!=='auto';
  const overrides=options.pdfPositions??{};

@@ -1,7 +1,7 @@
 import {circles,viewPoints,insideView,withDetails,snapDimension} from './drawing-annotations.js';
-import {drawingPDFHasMultiplePages,drawingPDFPages} from './drawing-pdf-pages.js';
+import {assignDrawingPDFPageItem,drawingPDFHasMultiplePages,drawingPDFPageAssignments,drawingPDFPages,fitDrawingPDFPage} from './drawing-pdf-pages.js';
 import {installDrawingPDFPreview} from './drawing-pdf-preview.js';
-import {drawingPDFIssues,drawingSheetOverflow} from './drawing-sheet-check.js';
+import {drawingOverflowOutline,drawingPDFIssues,drawingSheetOverflow} from './drawing-sheet-check.js';
 import {pruneDetailDimensionPlacements} from './drawing-detail-dimensions.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
@@ -49,7 +49,8 @@ const colorFields=[['lineColor','line','寸法線の色'],['textColor','text','�
 const colorInputs=(scope)=>colorFields.map(([,id,label])=>'<label>'+label+
  '<input type="color" id="drawing-'+scope+'-'+id+'-color"></label>').join('');
 export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=()=>null,download,exportPDF,onChange=()=>{}}){
- const pdfPreview=installDrawingPDFPreview({download:exportDrawingPDF,onIssue:focusPDFIssue,onEdit:editPDFPage});
+ const pdfPreview=installDrawingPDFPreview({download:exportDrawingPDF,onIssue:focusPDFIssue,onEdit:editPDFPage,
+  onMove:movePDFPageItem,onFit:fitPDFPreviewPage,viewLabel:pdfViewLabel});
  const worker=new KernelClient(),dialog=document.createElement('dialog');dialog.id='drawing-dialog';dialog.innerHTML=`<div class="drawing-heading"><h2>三面図</h2><button type="button" id="drawing-close" aria-label="閉じる">×</button></div>
  <div class="drawing-controls"><label>対象<select id="drawing-target"><option value="visible">表示中の全ボディ</option><option value="selected">選択したボディ</option></select></label><label>縮尺<select id="drawing-scale">${scales.map(s=>'<option value="'+s+'"'+(s===1?' selected':'')+'>'+(s>=1?s+':1':'1:'+1/s)+'</option>').join('')}</select></label><label><input type="checkbox" id="drawing-hidden" checked>隠れ線（共通）</label><button id="drawing-generate">三面図を再計算</button></div>
  <div class="drawing-controls drawing-paper-controls"><label>用紙<select id="drawing-paper-size"><option value="auto">自動サイズ</option><option value="A4" selected>A4</option><option value="A3">A3</option></select></label><label>向き<select id="drawing-orientation"><option value="landscape">横</option><option value="portrait">縦</option></select></label><label><input id="drawing-frame" type="checkbox" checked>図枠</label><button id="drawing-fit">用紙に収める</button><button id="drawing-auto-layout" title="各図の上下・左右の位置関係を自由に組み替え、寸法や図枠を含めて大きく配置します">大きく自動配置</button><button id="drawing-arrange">配置をリセット</button><label><input id="drawing-projection-lock" type="checkbox">第三角法の配置をロック</label><label><input id="drawing-layout-mode" type="checkbox" checked title="寸法は斜めにもドラッグできます。Shiftを押すと寸法線に沿ったずれを抑えます。">配置をドラッグ</label></div>
@@ -367,8 +368,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const ids=new Set([...drawingProjectionNames,'iso',...sections.map(item=>item.id),...details.map(item=>item.id)]);
   return Object.fromEntries(Object.entries(pdfViewScales).filter(([id])=>ids.has(id)));
  }
- function makePDFPages(){
-  return pdfLayout?drawingPDFPages(data,Number($('drawing-scale').value),$('drawing-hidden').checked,dimensions,mainComment,options(),overviewSheet,drag?.pdfLayouts):[overviewSheet];
+ function makePDFPages(settings=options(),sourceSheet=overviewSheet){
+  return settings.pdfLayout?drawingPDFPages(data,Number($('drawing-scale').value),$('drawing-hidden').checked,dimensions,mainComment,settings,sourceSheet,drag?.pdfLayouts):[sourceSheet];
  }
  function syncPageEditor(){
   const select=$('drawing-page-edit'),count=sheet?editPageCount:0;
@@ -447,8 +448,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     for(let number=1;number<=pageAssignments.pageCount;number++)select.add(new Option(number+' ページ',String(number)));
     select.onchange=()=>{
      if(busy)return;
-     if(row.kind==='table')pageAssignments.holeTable=Number(select.value);
-     else pageAssignments[row.kind][row.id]=Number(select.value);
+     assignDrawingPDFPageItem(pageAssignments,row,Number(select.value));
      render();
     };
     host.append(label);
@@ -946,7 +946,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(pdfPagesNote.textContent!==pdfNote)pdfPagesNote.textContent=pdfNote;
   $('drawing-print-palette').value=printPalette;$('drawing-print-palette').disabled=!ready;
   $('drawing-pdf').disabled=blockPDFExport();
-  $('drawing-pdf-preview-open').disabled=blockPDFExport();
+  $('drawing-pdf-preview-open').disabled=blockPDFPreview();
   $('drawing-break-axis').value=breakAxis;
   $('drawing-break-axis').disabled=!ready;
   $('drawing-break-percent').value=breakPercent;
@@ -1164,6 +1164,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const node=viewportHost.querySelector('[data-view="'+name+'"] > text');
   return drawingProjections[name]?.label||(name==='iso'?'ISO':node?.textContent??(name.startsWith('section-')?'断面図':'詳細図'));
  }
+ function pdfViewLabel(name){
+  const section=sections.findIndex(item=>item.id===name),detail=details.findIndex(item=>item.id===name);
+  if(section>=0){const letter=String.fromCharCode(65+section);return '断面 '+letter+'–'+letter;}
+  if(detail>=0)return '詳細 D'+(detail+1);
+  return viewLabel(name);
+ }
  function syncHiddenViews(){
   const names=Object.keys(sheet?.layout||{});
   if(JSON.stringify(names)!==JSON.stringify([...hiddenRows.querySelectorAll('select')].map(s=>s.dataset.view))){
@@ -1288,12 +1294,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     list.append(button);
    }
    el.setAttribute('data-drawing-overflow','true');
-   const outline=document.createElementNS('http://www.w3.org/2000/svg','rect');
-   const attrs={x:box.x-.65,y:box.y-.65,width:box.width+1.3,height:box.height+1.3,
-    'data-overflow-outline':'true',fill:'none','pointer-events':adjusting||picking||action?'none':'stroke'};
-   for(const [key,value] of Object.entries(attrs))outline.setAttribute(key,value);
+   const outline=drawingOverflowOutline(svg,box);
+   outline.setAttribute('pointer-events',adjusting||picking||action?'none':'stroke');
    outline.onclick=e=>{e.stopPropagation();adjust();};
-   svg.append(outline);
   }
   overflow=issues.length>0;
   if(list&&overflow){
@@ -1615,12 +1618,46 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }catch(error){status('SVG保存に失敗しました：'+error.message);}
   finally{$('drawing-svg').disabled=busy||!sheet||overflow||Object.keys(data?.sectionErrors||{}).length>0;}
  };
- function blockPDFExport(){
-  return !sheet||busy||pdfExporting||(!['multi','manual'].includes(pdfLayout)&&overflow)||Object.keys(data?.sectionErrors||{}).length>0;
+ function blockPDFPreview(){
+  return !sheet||busy||pdfExporting||Object.keys(data?.sectionErrors||{}).length>0;
  }
- function preparePDF(){
-  const pages=makePDFPages();
-  return {pages,issues:drawingPDFIssues(pages,{checkBounds:!!pdfLayout})};
+ function blockPDFExport(){
+  return blockPDFPreview()||(!pdfLayout&&overflow);
+ }
+ function preparePDF(pages=makePDFPages()){
+  return {pages,issues:drawingPDFIssues(pages,{checkBounds:true})};
+ }
+ function movePDFPageItem(item,index,pages){
+  const assignment=pdfLayout==='manual'?currentPageAssignments():drawingPDFPageAssignments(pages);
+  assignDrawingPDFPageItem(assignment,item,index+1);
+  const next=preparePDF(makePDFPages({...options(),pdfLayout:'manual',pageAssignments:assignment}));
+  pdfLayout='manual';pageAssignments=assignment;
+  render(false);persist();
+  return {...next,notice:(index+1)+' ページへ移動しました'};
+ }
+ function fitPDFPreviewPage(index,pages){
+  const scale=Number($('drawing-scale').value),settings=options(),page=pages[index];
+  const fit=fitDrawingPDFPage(data,page,{scale,dimensions,options:settings});
+  const failure='縮尺を保ったまま収まりません。縮尺を小さくするか用紙を大きくしてください。';
+  if(!fit)throw Error(failure);
+
+  const nextPositions={...(pdfLayout?pdfPositions:positions),...fit.positions};
+  const nextScales=pdfPlacement==='auto'?{...pdfPageScales,[index+1]:page.pageScale}:pdfPageScales;
+  let next;
+  if(pdfLayout){
+   next=preparePDF(makePDFPages({...settings,pdfPositions:nextPositions,pdfPageScales:nextScales}));
+   if(next.pages.length!==pages.length||next.pages.some((p,i)=>i!==index&&p.svg!==pages[i].svg)){
+    throw Error('ほかのページの配置に影響します。このページを開いて位置を調整してください。');
+   }
+  }else{
+   next=preparePDF([drawingSheet(data,scale,$('drawing-hidden').checked,dimensions,mainComment,
+    {...settings,layout:'compact',positions:nextPositions})]);
+  }
+  if(next.issues.some(issue=>issue.pageIndex===index&&issue.kind==='layout'))throw Error(failure);
+  if(pdfLayout){pdfPositions=nextPositions;pdfPageScales=nextScales;}
+  else {positions=nextPositions;layoutKind='compact';}
+  render(false);persist();
+  return {...next,notice:(index+1)+' ページを同じ縮尺で配置し直しました'};
  }
  function focusPDFIssue(issue){
   if(!sheet||busy)return;
@@ -1652,7 +1689,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   download(pdf.output('arraybuffer'),first.fileStem+'.pdf','application/pdf');
  }
  $('drawing-pdf-preview-open').onclick=async()=>{
-  if(blockPDFExport())return;
+  if(blockPDFPreview())return;
   try{
    const {pages,issues}=preparePDF();
    await pdfPreview.open(pages,printPalette,issues);

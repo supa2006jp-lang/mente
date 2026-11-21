@@ -3,11 +3,11 @@ import {dimensionPlacement,drawingDimensionConflicts} from './drawing-dimension-
 import {dimensionLabel} from './drawing-dimensions.js';
 import {drawingProjections} from './drawing-view-preferences.js';
 
-const sheetItems='[data-view],[data-dimension],[data-detail-dimension],[data-comment],[data-marker],[data-section],[data-detail],[data-hole-table],[data-hole-labels],[data-leader]';
+export const drawingSheetItems='[data-view],[data-dimension],[data-detail-dimension],[data-comment],[data-marker],[data-section],[data-detail],[data-hole-table],[data-hole-labels],[data-leader]';
 
 export function drawingSheetOverflow(svg,sheet){
  const issues=[];
- for(const element of svg.querySelectorAll(sheetItems)){
+ for(const [itemIndex,element] of svg.querySelectorAll(drawingSheetItems).entries()){
   const view=sheet.layout[element.dataset.view];
   let box;
   if(view){
@@ -18,9 +18,18 @@ export function drawingSheetOverflow(svg,sheet){
   }else box=element.getBBox();
   const reason=element.dataset.comment?drawingCommentPlacementIssue(box,sheet):
    box.x<4.99||box.y<16.99||box.x+box.width>sheet.width-4.99||box.y+box.height>sheet.contentBottom+.01?'paper':null;
-  if(reason)issues.push({element,box,reason});
+  if(reason)issues.push({element,itemIndex,box,reason});
  }
  return issues;
+}
+
+export function drawingOverflowOutline(svg,box){
+ const outline=document.createElementNS(svg.namespaceURI,'rect');
+ const attributes={x:box.x-.65,y:box.y-.65,width:box.width+1.3,height:box.height+1.3,
+  'data-overflow-outline':'true',fill:'none','aria-hidden':'true'};
+ for(const [key,value] of Object.entries(attributes))outline.setAttribute(key,value);
+ svg.append(outline);
+ return outline;
 }
 
 function viewName(view){
@@ -70,9 +79,9 @@ export function drawingPDFIssues(pages,{checkBounds=false}={}){
    }
    if(measurement){
     measurement.innerHTML=page.svg;
-    for(const {element,reason} of drawingSheetOverflow(measurement.firstElementChild,page)){
+    for(const {element,itemIndex,box,reason} of drawingSheetOverflow(measurement.firstElementChild,page)){
      const label=pageItemName(element,indices)+(reason==='titleBlock'?'（表題欄と重なり）':'（用紙からはみ出し）');
-     issues.push({kind:'layout',pageIndex,label});
+     issues.push({kind:'layout',pageIndex,label,itemIndex,box});
     }
    }
   }

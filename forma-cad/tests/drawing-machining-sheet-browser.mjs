@@ -31,7 +31,7 @@ try{
  }
  const cells=()=>drawing('preview').locator('[data-hole-table] text').allTextContents();
  await page.goto(url);
- await page.locator('#canvas-host canvas').waitFor();
+ await page.waitForFunction(()=>typeof document.getElementById('file')?.onchange==='function');
  await openProject(doc,'plate.forma.json');
  await drawing('hole-start').click();
  await drawing('expand').click();
@@ -76,13 +76,22 @@ try{
  const stem='ロッカー連結プレート_Rev02';
  const svg=await download(drawing('svg'));
  assert.equal(svg.name,stem+'.svg');assert.match(svg.bytes.toString(),/改訂番号/);assert.match(svg.bytes.toString(),/座ぐり深さ/);
- const pdf=await download(drawing('pdf'));
+ await drawing('pdf').click();
+ const pdf=await download(page.locator('#export-confirm'));
  assert.equal(pdf.name,stem+'.pdf');assert.equal(pdf.bytes.subarray(0,5).toString(),'%PDF-');
  await drawing('pdf-layout').selectOption('multi');
  await drawing('pdf-preview-open').click();await drawing('pdf-preview-next').click();
  assert.ok(await drawing('pdf-preview-host').locator('[data-hole-table]').isVisible());
  const preview=await download(drawing('pdf-preview-save'));
  assert.equal(preview.name,stem+'.pdf');assert.equal(preview.bytes.toString('latin1').match(/\/Type \/Page\b/g)?.length,2);
+ const pages=drawing('pdf-preview-pages'),tableItem=pages.locator('[data-pdf-page="2"] [data-page-item=holeTable]');
+ await tableItem.click();
+ const move=pages.locator('.drawing-pdf-page-move');
+ await move.locator('select').selectOption('0');
+ await move.getByRole('button',{name:'移動',exact:true}).click();
+ assert.equal(await pages.locator('[data-pdf-page="1"] [data-page-item=holeTable]').count(),1);
+ assert.match(await pages.locator('[data-pdf-page="2"]').textContent(),/空白ページ/);
+ assert.deepEqual((await drawing('pdf-preview-host').locator('[data-hole-table] text').allTextContents()).slice(8),expected);
  await drawing('pdf-preview-close').click();await drawing('close').click();
  const saved=JSON.parse((await download(page.locator('#save'))).bytes);
  const {options}=readDrawingState(saved.drawing);

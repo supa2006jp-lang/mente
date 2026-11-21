@@ -40,7 +40,7 @@ export function decoratedDrawingViews(frames,scale,dimensions,options){const box
   boxes[key]={x:-.5,y:title.y,width:Math.max(width+1,title.x+title.width+1),height:height-title.y+.5};
  }
  const include=(key,b,pad=1)=>{const a=boxes[key];if(!a)return;const x=Math.min(a.x,b.x-pad),y=Math.min(a.y,b.y-pad);a.width=Math.max(a.x+a.width,b.x+b.width+pad)-x;a.height=Math.max(a.y+a.height,b.y+b.height+pad)-y;a.x=x;a.y=y;},point=drawingPaperPoint,points=(key,ps,pad=1)=>{include(key,{x:Math.min(...ps.map(p=>p[0])),y:Math.min(...ps.map(p=>p[1])),width:Math.max(...ps.map(p=>p[0]))-Math.min(...ps.map(p=>p[0])),height:Math.max(...ps.map(p=>p[1]))-Math.min(...ps.map(p=>p[1]))},pad);};
- const inherited=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions);
+ const inherited=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions,!!options.pageViews);
  for(const d of [...dimensions,...inherited]){const v=layout[d.view],p=dimensionPlacement(d,{layout});if(!v||!p)continue;include(d.view,p.box,.7);for(const b of [...p.main,...p.extensions])include(d.view,b,2);if(d.kind==='angle'){const c=point(v,d.vertex),at=point(v,d.at),r=Math.max(4,Math.hypot(at[0]-c[0],at[1]-c[1]));include(d.view,{x:c[0]-r,y:c[1]-r,width:r*2,height:r*2},1);}else if(['radius','diameter'].includes(d.kind)){const c=point(v,d.center),at=point(v,d.at),length=Math.hypot(at[0]-c[0],at[1]-c[1])||1,r=d.radius*v.scale,u=[(at[0]-c[0])/length,(at[1]-c[1])/length];points(d.view,[c,at,[c[0]+u[0]*r,c[1]+u[1]*r],[c[0]-u[0]*r,c[1]-u[1]*r]],2);}}
  for(const m of options.markers||[]){const v=layout[m.view];if(!v||[m.center??m.a,m.b].filter(Boolean).some(p=>drawingPointOmitted(v,p)))continue;if(m.kind==='center'){const c=point(v,m.center),r=m.radius*v.scale+3;include(m.view,{x:c[0]-r,y:c[1]-r,width:r*2,height:r*2});}else points(m.view,[point(v,m.a),point(v,m.b)],4);}
  for(const s of options.sections||[]){const v=layout[s.view];if(!v)continue;include(s.view,{x:-3,y:-8,width:v.width+14,height:v.height+17});}
@@ -79,11 +79,11 @@ function largestFittingScale(attempt){
 
 export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false}={}){
  if(options.holeTable)options={...options,holeTable:resolveDrawingHoleTable(options.holeTable,data.views)};
- if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size,area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
+ if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.pageSize??(options.orientation==='portrait'?[size[1],size[0]]:size),area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
  const maxNoteWidth=width-2*drawingCommentMargin;
- const notes=drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
+ const notes=options.pageNotes??drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
  // Keep longer lines when they fit. Fixed-scale views may leave only a narrow column.
- for(const limit of [maxNoteWidth/2,60]){
+ if(!options.pageNotes)for(const limit of [maxNoteWidth/2,60]){
   if(noteColumns.at(-1).some(note=>note.wrapWidth===undefined&&note.width>limit))noteColumns.push(drawingCommentEntries(comment,options,limit));
  }
  const table=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:frames);

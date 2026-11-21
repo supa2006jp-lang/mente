@@ -176,11 +176,27 @@
 #drawing-pdf-preview[open] { display:flex; flex-direction:column; gap:10px; }
 #drawing-pdf-preview-host { flex:1; min-height:160px; overflow:hidden; background:#d8e0e5; touch-action:none; }
 #drawing-pdf-preview-host svg { width:100%; height:100%; display:block; }
+#drawing-pdf-preview-host [data-overflow-outline] { stroke:#bc2822; stroke-width:2px; stroke-dasharray:6 3; vector-effect:non-scaling-stroke; fill:#e13c2612; }
+#drawing-pdf-preview [hidden] { display:none; }
+#drawing-pdf-preview-pages { min-width:0; }
+.drawing-pdf-thumbnails { display:flex; gap:8px; overflow-x:auto; padding:3px 3px 6px; }
+.drawing-pdf-page-card { flex:0 0 clamp(112px,17vw,162px); min-width:0; padding:5px; border:1px solid #486071; border-radius:7px; background:#172635; }
+.drawing-pdf-page-card[data-page-drop] { border-color:#68dcec; background:#21495a; }
+.drawing-pdf-page-thumb { display:block; width:100%; padding:4px; border:1px solid #526d80; border-radius:4px; }
+.drawing-pdf-page-thumb[aria-current=page] { border-color:#68dcec; background:#214c60; }
+.drawing-pdf-page-thumb img { display:block; width:100%; height:clamp(44px,9vh,86px); margin-bottom:3px; object-fit:contain; background:#c4d3dd; border-radius:2px; }
+.drawing-pdf-page-contents { display:grid; align-content:start; gap:3px; max-height:72px; overflow:auto; padding:4px 1px 1px; color:#c7d9e5; font-size:12px; }
+.drawing-pdf-page-contents button { min-width:0; padding:2px 5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:12px; cursor:grab; }
+.drawing-pdf-page-contents button[aria-pressed=true] { border-color:#68dcec; }
+#drawing-pdf-preview-pages small { color:#c7d9e5; }
+.drawing-pdf-page-move { gap:8px; margin-top:5px; }
+.drawing-pdf-page-move span { max-width:min(46vw,360px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #drawing-pdf-preview .drawing-actions { margin-top:0; }
 #drawing-pdf-preview-check { padding:7px 10px; border:1px solid #8a6740; border-radius:6px; }
 #drawing-pdf-preview-check summary { cursor:pointer; color:#ffca87; }
 #drawing-pdf-preview-issues { display:grid; gap:4px; margin-top:6px; max-height:min(20vh,160px); overflow:auto; }
 #drawing-pdf-preview-issues button { text-align:left; white-space:normal; }
+#drawing-pdf-preview-issues button[aria-current=true] { border-color:#ffca87; background:#5a3e2d; }
 #drawing-pdf-preview.drawing-expanded { width:98vw; max-width:98vw; height:96vh; max-height:96vh; }
 #drawing-pdf-preview-host.drawing-panning { cursor:grabbing; }
 #drawing-view-scales .drawing-controls { gap:6px 14px; margin:8px 0; }
