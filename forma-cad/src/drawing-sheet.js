@@ -1,4 +1,4 @@
-import {alignThirdAngleViews,isThirdAngleLayout,drawingProjectionNames,drawingViewFactor,drawingViewVisible,drawingScaleSummary} from './drawing-view-preferences.js';
+import {alignThirdAngleViews,isThirdAngleLayout,drawingIsometricOutline,drawingProjectionNames,drawingViewFactor,drawingViewVisible,drawingScaleSummary} from './drawing-view-preferences.js';
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
 import {decoratedDrawingViews,drawingViewFrames} from './drawing-auto-layout.js';
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries,drawingCommentLayout,drawingCommentMargin} from './drawing-comments.js';
@@ -223,5 +223,6 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  };
  const dimensionGraphics=inheritedDimensions.map((d,i)=>renderDimension(d,i,true)).join('')+dimensions.map((d,i)=>renderDimension(d,i)).join('');
  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+silhouettes+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,sheetTitle,4.5)+text(width-15,12,scaleSummary.header,3.5,'text-anchor="end" data-sheet-scale="true"')+dimensionGraphics+viewsSVG+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12),
+  isometricOutline:layout.iso?drawingIsometricOutline(data.bounds):undefined};
 }

@@ -506,6 +506,23 @@ try{
  assert.deepEqual(isoReloaded.dimensions[0].modelB,[0,0,0]);
  await open(isoReloaded,'iso');
  assert.equal(await editor.locator('[data-dimension] text').textContent(),'20');
+ const isoOptions=field('auto-dimension-views');
+ await isoOptions.locator('summary').click();
+ const isoOutline=isoOptions.locator('[data-auto-dimension-view=iso] input');
+ assert(await isoOutline.isChecked());
+ await isoOutline.uncheck();
+ await field('dimension-auto').click();
+ assert.deepEqual(await editor.locator('[data-dimension] text').allTextContents(),['20']);
+ await isoOutline.check();
+ await field('dimension-auto').click();
+ assert.deepEqual(await editor.locator('[data-dimension] text').allTextContents(),['20','60','40']);
+ await field('dimension-auto').click();
+ assert.equal(await editor.locator('[data-dimension]').count(),3);
+ await field('pdf-preview-open').click();
+ assert.equal(await print.locator('[data-dimension]').count(),0);
+ await selectPage(2);
+ assert.deepEqual(await print.locator('[data-dimension] text').allTextContents(),['20','60','40']);
+ await field('pdf-preview-close').click();
  await field('close').click();
 
  const coincident={view:'front',kind:'horizontal',a:[0,-20],b:[60,-20],at:[30,-20],lineColor:'#df2562'};
@@ -535,6 +552,39 @@ try{
  const layeredBytes=await fs.readFile(await layeredFile.path());
  assert.match(layeredBytes.toString('latin1'),/\/Count 1/);
  if(process.env.FORMA_TEST_PDF_DIR)await fs.writeFile(path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-outline-over-dimension.pdf'),layeredBytes);
+ await field('pdf-preview-close').click();
+ await field('close').click();
+
+ await open(isoDrawing,'iso');
+ const colorChoices={'default-line-color':'#287e56','default-text-color':'#8f2048','comment-color':'#454c9c',
+  'preview-background':'#fcf1cd','view-background':'#c8e9e9'};
+ for(const [id,color] of Object.entries(colorChoices))await field(id).fill(color);
+ await field('print-palette').selectOption('light');
+ await field('dimension-auto').click();
+ assert.deepEqual(await editor.locator('[data-dimension] text').allTextContents(),['60','40','20']);
+ assert.equal(await editor.locator('[data-dimension]').first().getAttribute('stroke'),colorChoices['default-line-color']);
+ assert.equal(await editor.locator('[data-dimension] text').first().getAttribute('fill'),colorChoices['default-text-color']);
+ await field('close').click();
+
+ await page.reload();
+ await page.waitForFunction(()=>typeof document.getElementById('file')?.onchange==='function');
+ await open(drawing);
+ assert.equal(await field('default-line-color').inputValue(),'#24455b');
+ assert.equal(await field('view-background').inputValue(),'#ffffff');
+ await field('close').click();
+ await open(null);
+ for(const [id,color] of Object.entries(colorChoices))assert.equal(await field(id).inputValue(),color,id);
+ assert.equal(await field('print-palette').inputValue(),'light');
+ assert(await editor.locator('[data-view=iso]').isVisible());
+ await field('dimension-auto').click();
+ assert.deepEqual((await editor.locator('[data-dimension] text').allTextContents()).sort(),
+  ['20','20','20','40','40','40','60','60','60']);
+ await field('default-colors-reset').click();
+ await field('close').click();
+ await open(null);
+ assert.equal(await field('default-line-color').inputValue(),'#24455b');
+ assert.equal(await field('default-text-color').inputValue(),'#24455b');
+ assert.equal(await field('comment-color').inputValue(),colorChoices['comment-color']);
  assert.deepEqual(errors,[]);
- console.log('PASS PDF page editing, 3D isometric dimensions, drawing line priority, editing, export and project reload');
+ console.log('PASS PDF editing and export, automatic and manual isometric dimensions, drawing line priority and remembered drawing colors');
 }finally{await browser?.close();server.close();}

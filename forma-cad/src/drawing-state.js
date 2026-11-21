@@ -1,6 +1,6 @@
 import {canOverrideDrawingDimensionValue,dimensionValue,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
 import {drawingProjectionNames,validDrawingDetailFactor,validDrawingScale} from './drawing-view-preferences.js';
-import {autoDimensionKeys} from './drawing-auto-dimensions.js';
+import {autoDimensionKeys,autoDimensionViewTypes} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
 import {hasDrawingCommentFont,validCommentWidth} from './drawing-comments.js';
@@ -74,8 +74,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(o.autoDimensionViews!==undefined){
   if(!o.autoDimensionViews||typeof o.autoDimensionViews!=='object'||Array.isArray(o.autoDimensionViews))fail();
   for(const [view,types] of Object.entries(o.autoDimensionViews)){
-   if(!drawingProjectionNames.includes(view)||!Array.isArray(types)||new Set(types).size!==types.length||
-    types.some(type=>!autoDimensionKeys.includes(type)))fail();
+   if(view!=='iso'&&!drawingProjectionNames.includes(view)||!Array.isArray(types)||new Set(types).size!==types.length||
+    types.some(type=>!Object.hasOwn(autoDimensionViewTypes(view),type)))fail();
   }
  }
  const sections=o.sections||[],details=o.details||[],markers=o.markers||[];if(!Array.isArray(sections)||sections.length>8||!Array.isArray(details)||details.length>8||!Array.isArray(markers)||markers.length>200)fail();

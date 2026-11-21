@@ -21,14 +21,14 @@ import {optimizeDrawingLayout,drawingViewFrames,rescaleDrawingAnnotations} from 
 import {drawingViewport} from './drawing-viewport.js';
 import {installDrawingWorkspace} from './drawing-workspace.js';
 import {installDrawingInlineScales} from './drawing-inline-scales.js';
-import {drawingPrintPalettes,drawingPrintSVG} from './drawing-print-palette.js';
+import {drawingPrintPalettes,drawingPrintSVG,validDrawingPrintPalette} from './drawing-print-palette.js';
 import {snapDrawingDragAxis,snapDrawingPlacement} from './drawing-placement-guides.js';
 import {alignDrawingItems,drawingAlignmentActions} from './drawing-alignment.js';
 import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPointOmitted,moveDrawingBreakEdge} from './drawing-break.js';
 import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {drawingHoleCandidates,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {followSectionEdit} from './drawing-section-references.js';
-import {autoDimensionKeys,autoDimensionTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
+import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
@@ -48,6 +48,21 @@ const dimensionPickTargets={
  angle:'同じ図で角度をつくる２本の直線をクリックします。',
 };
 const colorFields=[['lineColor','line','寸法線の色'],['textColor','text','数字・注記の色']];
+const drawingColorPreferenceKey='forma-cad-drawing-colors-v1';
+const drawingColorPreferenceChecks={
+ lineColor:validDimensionColor,textColor:validDimensionColor,commentColor:validDimensionColor,
+ paperBackground:validDimensionColor,viewBackground:validDimensionColor,printPalette:validDrawingPrintPalette,
+};
+function readDrawingColorPreferences(){
+ try{
+  const colors=JSON.parse(localStorage.getItem(drawingColorPreferenceKey));
+  return Object.fromEntries(Object.entries(drawingColorPreferenceChecks)
+   .filter(([key,valid])=>valid(colors?.[key])).map(([key])=>[key,colors[key].toLowerCase()]));
+ }catch{return {};}
+}
+function rememberDrawingColors(changes){
+ try{localStorage.setItem(drawingColorPreferenceKey,JSON.stringify({...readDrawingColorPreferences(),...changes}));}catch{}
+}
 const colorInputs=(scope)=>colorFields.map(([,id,label])=>'<label>'+label+
  '<input type="color" id="drawing-'+scope+'-'+id+'-color"></label>').join('');
 export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=()=>null,download,exportPDF,onChange=()=>{}}){
@@ -150,7 +165,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  conflictList.innerHTML='<summary></summary><div id="drawing-conflict-rows"></div>';
  viewportBar.append(conflictList);
  $('drawing-undo').closest('.drawing-controls').classList.add('drawing-history-controls');
- $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" class="accent" type="button" title="外形・円形部の直径・中心位置をまとめて追加します">寸法を自動入力</button>');
+ $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" class="accent" type="button" title="外形・円形部の直径・中心位置を追加します。俯瞰図にも測れる外形寸法を追加します">寸法を自動入力</button>');
  $('drawing-dimension-auto').insertAdjacentHTML('afterend','<button id="drawing-dimension-arrange" title="既存の寸法を重なりにくい位置へ移動します">寸法を自動配置</button>');
  $('drawing-dimension-arrange').insertAdjacentHTML('afterend','<button type="button" id="drawing-dimension-group" title="同じ図・実寸法・書式のRや穴径を数量付きの表記にまとめます">同じR・穴径をまとめる</button>');
  $('drawing-dimension-arrange').insertAdjacentHTML('afterend',
@@ -166,8 +181,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<div class="drawing-color-controls" role="group" aria-label="図面全体の寸法色"><span>図面の標準色</span>'+colorInputs('default')+
    '<button id="drawing-default-colors-reset" type="button">既定色に戻す</button></div>'+
   '<details id="drawing-auto-dimension-views"><summary>ビュー別の自動寸法</summary>'+
-  drawingProjectionNames.map(view=>'<fieldset data-auto-dimension-view="'+view+'"><legend>'+drawingProjections[view].label+'</legend>'+
-   autoDimensionKeys.map(key=>'<label><input type="checkbox" value="'+key+'">'+autoDimensionTypes[key]+'</label>').join('')+
+  [...drawingProjectionNames,'iso'].map(view=>'<fieldset data-auto-dimension-view="'+view+'"><legend>'+(drawingProjections[view]?.label??'俯瞰図 (ISO)')+'</legend>'+
+   Object.entries(autoDimensionViewTypes(view)).map(([key,label])=>'<label><input type="checkbox" value="'+key+'">'+label+'</label>').join('')+
   '</fieldset>').join('')+'</details></div>');
  $('drawing-auto-dimension-views').before(Object.assign(document.createElement('div'),{id:'drawing-auto-dimension-types',className:'drawing-controls',innerHTML:'<strong>自動入力する種類</strong>'+[['outline','外形寸法'],['diameter','円・穴径'],['radius','R寸法'],['spacing','中心位置・間隔']].map(([key,label])=>'<label><input type="checkbox" data-auto-type="'+key+'" checked>'+label+'</label>').join('')+'<label><input type="checkbox" id="drawing-auto-group" checked>同じR・穴径をまとめる</label><small>これから自動追加する寸法に適用します。図ごとの設定は「ビュー別の自動寸法」から変更できます。</small>'}));
  $('drawing-auto-group').closest('label').insertAdjacentHTML('afterend','<label><input type="checkbox" id="drawing-auto-unique-overall">外形寸法を幅・奥行き・高さに各1つ</label>');
@@ -212,7 +227,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  for(const row of dimensionViewRows)row.onchange=()=>{
   const view=row.dataset.autoDimensionView;
   const enabled=[...row.querySelectorAll('input:checked')].map(input=>input.value);
-  if(enabled.length===autoDimensionKeys.length)delete autoDimensionViews[view];
+  if(enabled.length===row.querySelectorAll('input').length)delete autoDimensionViews[view];
   else autoDimensionViews[view]=enabled;
   persist();
  };
@@ -309,6 +324,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    printPalette=values.printPalette??printPalette;
    $('drawing-frame').checked=values.frame;$('drawing-hidden').checked=values.hidden;
    positions=result.positions;dimensions=result.dimensions;layoutKind='compact';setScale(result.scale);picking=null;action=null;selection=null;render();
+   const colors=Object.fromEntries(['commentColor','paperBackground','viewBackground','printPalette']
+    .filter(key=>values[key]!==undefined).map(key=>[key,values[key]]));
+   if(values.dimensionColors!==undefined)for(const [key] of colorFields)colors[key]=drawingDimensionColor(key,null,dimensionColors);
+   if(Object.keys(colors).length)rememberDrawingColors(colors);
   }catch(error){if(dialog.open)render(false);throw error;}
  }
  function setScale(value){
@@ -790,7 +809,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  };
  $('drawing-print-palette').onchange=()=>{
   if(!sheet||busy)return;
-  printPalette=$('drawing-print-palette').value;render();
+  printPalette=$('drawing-print-palette').value;
+  rememberDrawingColors({printPalette});render();
  };
  $('drawing-pdf-layout').onchange=()=>{
   if(!sheet||busy)return;
@@ -812,6 +832,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   try{
    if(drawingBackgroundColor(next)&&!await loadMissingViews({...options(),...next}))return;
    backgrounds=next;
+   rememberDrawingColors({[key]:color});
    render();
   }catch(e){if(dialog.open){render(false);status(e.message);}}
  }
@@ -830,7 +851,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-comment-color').onchange=()=>{
   const color=$('drawing-comment-color').value;
   if(!data||busy||!validDimensionColor(color))return;
-  setCurrentCommentStyle('color',color);render();
+  setCurrentCommentStyle('color',color);
+  if(activeComment==='comment')rememberDrawingColors({commentColor:color});
+  render();
  };
  $('drawing-comment-font').onchange=()=>{
   const font=$('drawing-comment-font').value;
@@ -901,6 +924,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(!sheet||busy||!validDimensionColor(whole.value))return;
    if(whole.value===defaultDrawingDimensionColor)delete dimensionColors[key];
    else dimensionColors[key]=whole.value;
+   rememberDrawingColors({[key]:whole.value});
    render();
   };
   item.onchange=()=>{
@@ -911,7 +935,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    render();
   };
  }
- $('drawing-default-colors-reset').onclick=()=>{if(sheet&&!busy){dimensionColors={};render();}};
+ $('drawing-default-colors-reset').onclick=()=>{
+  if(!sheet||busy)return;
+  dimensionColors={};
+  rememberDrawingColors(Object.fromEntries(colorFields.map(([key])=>[key,defaultDrawingDimensionColor])));
+  render();
+ };
  $('drawing-item-colors-reset').onclick=()=>{
   const d=selection?.type==='dimension'&&dimensions[selection.index];
   if(!d||busy)return;
@@ -1010,14 +1039,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   for(const row of dimensionViewRows){
    const view=row.dataset.autoDimensionView;
-   row.hidden=!viewSelection.includes(view);
+   row.hidden=view==='iso'?!isoCheck.checked:!viewSelection.includes(view);
    row.disabled=!ready;
    for(const input of row.querySelectorAll('input'))input.checked=autoDimensionViews[view]?.includes(input.value)??true;
   }
   for(const input of [...viewChecks,isoCheck])input.disabled=!ready;
   for(const id of ['drawing-view-priority','drawing-iso-mode','drawing-fit','drawing-arrange','drawing-auto-layout'])$(id).disabled=!ready;
   for(const id of ['drawing-dimension-overall','drawing-section-add'])$(id).disabled=!ready||!viewSelection.length;
-  $('drawing-dimension-auto').disabled=!editable;
+  $('drawing-dimension-auto').disabled=!ready||!dimensionViews('aligned').length;
   for(const input of typeInputs){input.checked=typeKeys(input.dataset.autoType).every(key=>autoDimensionTypesEnabled.includes(key));input.disabled=!ready;}
   $('drawing-auto-group').checked=groupRepeatedDimensions;$('drawing-auto-group').disabled=!ready;
   $('drawing-auto-unique-overall').checked=uniqueOverallDimensions;$('drawing-auto-unique-overall').disabled=!ready;
@@ -2610,7 +2639,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   autoDimensionTypesEnabled=[...(s?.options.autoDimensionTypes??autoDimensionKeys)];groupRepeatedDimensions=s?.options.groupRepeatedDimensions??true;dimensionList?.clear();
   uniqueOverallDimensions=s?.options.uniqueOverallDimensions??false;pdfPlacement=s?.options.pdfPlacement??'keep';
   commentWidths=structuredClone(s?.options.commentWidths??{});inspectedHole=null;
-  backgrounds=Object.fromEntries(Object.keys(backgroundControls).map(key=>[key,s?.options[key]?.toLowerCase()??'#ffffff']));leaders=structuredClone(s?.options.leaders||[]);pdfLayout=s?.options.pdfLayout??'';printPalette=s?.options.printPalette??'screen';pageAssignments=structuredClone(s?.options.pageAssignments??{pageCount:2,views:{},comments:{}});selectedPlacements.clear();holeTable=s?.options.holeTable?structuredClone(s.options.holeTable):undefined;breakRange=s?.options.breakRange?.slice();breakAxis=s?.options.breakAxis??'';breakPercent=s?.options.breakPercent??defaultBreakPercent;commentColor=s?.options.commentColor??defaultDrawingCommentColor;commentFont=s?.options.commentFont??'';dimensionColors=structuredClone(s?.options.dimensionColors||{});hiddenViews=structuredClone(s?.options.hiddenViews||{});dimensionReferences=structuredClone(s?.options.dimensionReferences||{});frontFrame=s?.options.frontFrame;autoDimensionViews=structuredClone(s?.options.autoDimensionViews||{});dimensionFontSize=s?.options.dimensionFontSize??standardDimensionFont;setViewSelection(s?.options.viewSelection??defaultDrawingViews);$('drawing-view-priority').value=s?.options.viewPriority??'balanced';setIsoMode(s?.options.isoMode??'full');sections=structuredClone(s?.options.sections||[]);details=structuredClone(s?.options.details||[]);markers=structuredClone(s?.options.markers||[]);action=null;comments=structuredClone(s?.options.comments||[]);activeComment='comment';mainComment=s?.comment||'';viewScales=structuredClone(s?.options.viewScales||{});commentSize=s?.options.commentSize??3.5;dimensions=structuredClone(s?.dimensions||[]);positions=structuredClone(s?.options.positions||{});layoutKind=s?.options.layout??'projection';projectionLocked=s?.options.projectionLocked??!drawingProjectionNames.some(name=>positions[name]);setScale(s?.scale||1);$('drawing-hidden').checked=s?.hidden??true;$('drawing-comment').value=s?.comment||'';for(const key of ['paper','orientation','name','revision','material','date']){const id={paper:'paper-size'}[key]||key;$('drawing-'+id).value=s?.options[key]??({paper:'A4',orientation:'landscape',date:new Date().toLocaleDateString('sv-SE')}[key]||'');}$('drawing-frame').checked=s?.options.frame??true;}
+  const lastColors=s?{}:readDrawingColorPreferences();
+  backgrounds=Object.fromEntries(Object.keys(backgroundControls).map(key=>[key,s?.options[key]?.toLowerCase()??lastColors[key]??'#ffffff']));
+  printPalette=s?.options.printPalette??lastColors.printPalette??'screen';
+  commentColor=s?.options.commentColor??lastColors.commentColor??defaultDrawingCommentColor;
+  const lastDimensions=Object.fromEntries(colorFields.map(([key])=>[key,lastColors[key]])
+   .filter(([,color])=>color&&color!==defaultDrawingDimensionColor));
+  dimensionColors=structuredClone(s?.options.dimensionColors??lastDimensions);
+  leaders=structuredClone(s?.options.leaders||[]);pdfLayout=s?.options.pdfLayout??'';pageAssignments=structuredClone(s?.options.pageAssignments??{pageCount:2,views:{},comments:{}});selectedPlacements.clear();holeTable=s?.options.holeTable?structuredClone(s.options.holeTable):undefined;breakRange=s?.options.breakRange?.slice();breakAxis=s?.options.breakAxis??'';breakPercent=s?.options.breakPercent??defaultBreakPercent;commentFont=s?.options.commentFont??'';hiddenViews=structuredClone(s?.options.hiddenViews||{});dimensionReferences=structuredClone(s?.options.dimensionReferences||{});frontFrame=s?.options.frontFrame;autoDimensionViews=structuredClone(s?.options.autoDimensionViews||{});dimensionFontSize=s?.options.dimensionFontSize??standardDimensionFont;setViewSelection(s?.options.viewSelection??defaultDrawingViews);$('drawing-view-priority').value=s?.options.viewPriority??'balanced';setIsoMode(s?.options.isoMode??'full');sections=structuredClone(s?.options.sections||[]);details=structuredClone(s?.options.details||[]);markers=structuredClone(s?.options.markers||[]);action=null;comments=structuredClone(s?.options.comments||[]);activeComment='comment';mainComment=s?.comment||'';viewScales=structuredClone(s?.options.viewScales||{});commentSize=s?.options.commentSize??3.5;dimensions=structuredClone(s?.dimensions||[]);positions=structuredClone(s?.options.positions||{});layoutKind=s?.options.layout??'projection';projectionLocked=s?.options.projectionLocked??!drawingProjectionNames.some(name=>positions[name]);setScale(s?.scale||1);$('drawing-hidden').checked=s?.hidden??true;$('drawing-comment').value=s?.comment||'';for(const key of ['paper','orientation','name','revision','material','date']){const id={paper:'paper-size'}[key]||key;$('drawing-'+id).value=s?.options[key]??({paper:'A4',orientation:'landscape',date:new Date().toLocaleDateString('sv-SE')}[key]||'');}$('drawing-frame').checked=s?.options.frame??true;}
  dimensionList=installDrawingDimensionList(viewportBar,{
   read:()=>({dimensions,colors:dimensionColors,ready:!!data&&!!sheet&&!busy}),notify:status,
   onChange(next,{reflow=false}={}){if(!sheet||busy)return;dimensions=next;selection=null;picking=null;action=null;render(true,{reflowDimensions:reflow});},

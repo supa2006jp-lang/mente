@@ -188,10 +188,24 @@ export function keepDrawingDimensionClear(d,sheet,hitsLinework,snappedAt=d.at){
  return null;
 }
 
+function isometricClearance(d,view,outline){
+ const a=map(view,d.a),b=map(view,d.b),dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
+ if(length<1e-6)return;
+ const nx=-dy/length,ny=dx/length;
+ const cross=([x,y])=>nx*x+ny*y;
+ const offsets=outline.map(cross),lower=Math.min(...offsets)-1,upper=Math.max(...offsets)+1;
+ return ({box,primary})=>{
+  const line=cross(primary[0][0]),center=cross([box.x+box.width/2,box.y+box.height/2]);
+  const half=(Math.abs(nx)*box.width+Math.abs(ny)*box.height)/2;
+  return Math.min(line,center-half)>upper||Math.max(line,center+half)<lower;
+ };
+}
+
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
 export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false}={}){
- const bodies=Object.values(sheet.layout).map(v=>({x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
+ const bodies=Object.entries(sheet.layout).map(([name,v])=>({name,x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
+ const isoOutline=sheet.layout.iso&&sheet.isometricOutline?.map(point=>map(sheet.layout.iso,point));
  const labels=[...(sheet.notes??[sheet.note]),sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
  const obstacles=requireClear?dimensionObstacles(sheet):[];
  const placedGeometry=[...locked,...dimensions.filter(d=>d.pinned)].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
@@ -202,7 +216,9 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
   const d=placed[i],v=sheet.layout[d.view];
   if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;
   const radius=d.kind==='radius',choices=radius?radiusCandidates(d,v):d.kind==='angle'?[d]:candidates(d,v);
-  if(preferNearby&&!radius)choices.unshift(...nearbyCandidates(d,v));
+  const nearby=preferNearby||d.view==='iso';
+  if(nearby&&!radius)choices.unshift(...nearbyCandidates(d,v));
+  const outsideIso=d.view==='iso'&&d.kind==='aligned'&&isoOutline?.length?isometricClearance(d,v,isoOutline):null;
   let best=radius?choices[0]:d,bestGeometry=dimensionPlacement(best,sheet),bestConflicts=Infinity,bestScore=Infinity;
   if(!bestGeometry)continue;
   for(const candidate of choices){
@@ -213,10 +229,12 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
    const conflicts=labels.filter(label=>overlaps(box,label,1)||labelHitsInk(label,p)).length+
     placedGeometry.filter(other=>labelConflict(p,other)).length;
    if(conflicts>bestConflicts)continue;
-   const bodyConflicts=bodies.filter(body=>overlaps(box,body,1)||p.main.some(line=>overlaps(line,body,.5))).length;
+   const clearOfIso=outsideIso?.(p);
+   const bodyConflicts=bodies.filter(body=>!(clearOfIso&&body.name==='iso')&&
+    (overlaps(box,body,1)||p.main.some(line=>overlaps(line,body,.5)))).length;
    const lineConflicts=placedGeometry.filter(other=>arrowConflict(p,other)||
     p.main.some(line=>other.main.some(otherLine=>overlaps(line,otherLine,.5)))).length;
-   const distance=preferNearby&&!radius?Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100):0;
+   const distance=nearby&&!radius?Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100):0;
    const score=100*bodyConflicts+10*lineConflicts+distance;
    if(conflicts<bestConflicts||score<bestScore){bestConflicts=conflicts;bestScore=score;best=candidate;bestGeometry=p;}
    if(!conflicts&&!score)break;

@@ -9,6 +9,15 @@ export const drawingProjections={
  bottom:{label:'BOTTOM',title:'底面',normal:[0,0,-1],horizontal:[1,0,0],vertical:[0,1,0]},
 };
 export const drawingProjectionNames=Object.keys(drawingProjections);
+export const drawingIsometricProjection={normal:[1,-1,1],horizontal:[1,1,0]};
+export const projectDrawingIsometric=([x,y,z])=>[(x+y)/Math.SQRT2,(x-y-2*z)/Math.sqrt(6)];
+export function drawingIsometricOutline([min,max]){
+ const points=[];
+ for(const x of [min[0],max[0]])for(const y of [min[1],max[1]])for(const z of [min[2],max[2]]){
+  points.push(projectDrawingIsometric([x,y,z]));
+ }
+ return points;
+}
 export const projectionDragAxis=name=>['top','bottom'].includes(name)?1:['left','right','back'].includes(name)?0:null;
 
 export function alignThirdAngleViews(layout,frontPosition){

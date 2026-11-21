@@ -9,8 +9,12 @@ import {groupDrawingDimensions} from './drawing-dimension-groups.js';
 
 export const autoDimensionTypes={horizontal:'横寸法',vertical:'縦寸法',diameter:'円・穴径',spacing:'中心位置・間隔',radius:'角の半径 R'};
 export const autoDimensionKeys=Object.keys(autoDimensionTypes);
+export const autoDimensionViewTypes=view=>view==='iso'?{outline:'外形寸法'}:autoDimensionTypes;
 
 const round=n=>Number(n.toFixed(5)),close=(a,b)=>Math.abs(a-b)<1e-5;
+const isoOverallKeys=['iso-x','iso-y','iso-z'];
+const isoVertexTolerance=1e-4;
+const isoNear=(a,b)=>Math.abs(a-b)<isoVertexTolerance;
 const circleKey=c=>[...c.center,c.radius].map(round).join(',');
 function filletDimensions(view,curves,circles,placement,shape){
  const full=new Set(circles.map(circleKey)),seen=new Set(),s=placement.scale,result=[];
@@ -56,10 +60,11 @@ function extraLinearDimensions(view,shape,lines,placement){
  return dimensions;
 }
 function key(d){const values=['diameter','radius'].includes(d.kind)?[...d.center,d.radius]:d.kind==='horizontal'?[d.a[0],d.b[0]].sort((a,b)=>a-b):d.kind==='vertical'?[d.a[1],d.b[1]].sort((a,b)=>a-b):[...d.a,...d.b];return [d.view,d.kind,...values.map(round)].join(',');}
-const overallAxis=d=>drawingProjections[d.view]?.[d.kind]?.findIndex(n=>n!==0);
+const overallAxis=d=>d.view==='iso'?isoOverallKeys.indexOf(d.overall):drawingProjections[d.view]?.[d.kind]?.findIndex(n=>n!==0);
 function visibleOverallAxis(d,sheet){
- const view=sheet.layout[d.view];
- return d.overall===d.view+d.kind&&!d.review&&view&&drawingDimensionVisible(d,view)?overallAxis(d):undefined;
+ const view=sheet.layout[d.view],axis=overallAxis(d);
+ const overall=d.view==='iso'?axis>=0:d.overall===d.view+d.kind;
+ return overall&&!d.review&&view&&drawingDimensionVisible(d,view)?axis:undefined;
 }
 
 export function hideDuplicateOverallDimensions(dimensions,sheet){
@@ -101,6 +106,51 @@ export function overallDrawingDimensions(data,scale=1,sheet,{uniqueAxes=false}={
   return true;
  }).map(d=>({...d,overall:d.view+d.kind}));
 }
+
+function spansIsoAxis(a,b,axis,[min,max]){
+ return max[axis]-min[axis]>2*isoVertexTolerance&&
+  isoNear(Math.min(a[axis],b[axis]),min[axis])&&isoNear(Math.max(a[axis],b[axis]),max[axis])&&
+  a.every((coordinate,i)=>i===axis||isoNear(coordinate,b[i]));
+}
+
+function isoOverallDimension(vertices,bounds,axis,scale,outline){
+ const [min,max]=bounds,[u,v]=[0,1,2].filter(i=>i!==axis);
+ if(max[axis]-min[axis]<=2*isoVertexTolerance)return null;
+ const cell=n=>Math.floor(n/isoVertexTolerance),far=new Map();
+ for(const vertex of vertices){
+  if(!isoNear(vertex.model[axis],max[axis]))continue;
+  const id=cell(vertex.model[u])+','+cell(vertex.model[v]);
+  if(!far.has(id))far.set(id,[]);
+  far.get(id).push(vertex);
+ }
+ let best=null,distance=Infinity,normal,lower=Infinity,upper=-Infinity;
+ const cross=p=>normal[0]*p[0]+normal[1]*p[1];
+ for(const {point:a,model:modelA} of vertices){
+  if(!isoNear(modelA[axis],min[axis]))continue;
+  const x=cell(modelA[u]),y=cell(modelA[v]);
+  for(let i=x-1;i<=x+1;i++)for(let j=y-1;j<=y+1;j++)for(const {point:b,model:modelB} of far.get(i+','+j)??[]){
+   if(!spansIsoAxis(modelA,modelB,axis,bounds))continue;
+   const dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
+   if(length<1e-6)continue;
+   if(!normal){
+    normal=[-dy/length,dx/length];
+    for(const point of outline){
+     const coordinate=cross(point);
+     lower=Math.min(lower,coordinate);upper=Math.max(upper,coordinate);
+    }
+   }
+   const edge=cross(a);
+   const side=edge-lower<upper-edge?-1:1;
+   const gap=(side<0?edge-lower:upper-edge)+8/scale;
+   if(gap>=distance)continue;
+   distance=gap;
+   const at=a.map((value,k)=>(value+b[k])/2+side*normal[k]*gap);
+   best={view:'iso',kind:'aligned',a,b,modelA,modelB,at,overall:isoOverallKeys[axis]};
+  }
+ }
+ return best;
+}
+
 // Only complete visible circles get diameter dimensions. Partial fillets and
 // hidden arcs are deliberately excluded; they cannot identify a complete hole.
 export function completeDrawingCircles(view,arcs=drawingCurves(view.visible).arcs){const groups=new Map();for(const a of arcs){const id=circleKey(a);if(!groups.has(id))groups.set(id,{center:a.center,radius:a.radius,intervals:[]});let start=Math.atan2(a.a[1]-a.center[1],a.a[0]-a.center[0]),end=Math.atan2(a.b[1]-a.center[1],a.b[0]-a.center[0]);if(!a.sweep)[start,end]=[end,start];while(start<0)start+=Math.PI*2;while(start>=Math.PI*2)start-=Math.PI*2;while(end<=start)end+=Math.PI*2;const list=groups.get(id).intervals;list.push([start,Math.min(end,Math.PI*2)]);if(end>Math.PI*2)list.push([0,end-Math.PI*2]);}return [...groups.values()].filter(c=>{let covered=0,end=0;for(const [a,b]of c.intervals.sort((a,b)=>a[0]-b[0])){if(b>end){covered+=b-Math.max(a,end);end=b;}}return covered>=Math.PI*2-1e-4;}).map(({center,radius})=>({center,radius}));}
@@ -115,6 +165,17 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
   const axis=overallAxis(d);
   if(axes?.has(axis))continue;
   if(push(d))axes?.add(axis);
+ }
+ const iso=sheet.layout.iso,vertices=data.views.iso?.dimensionVertices;
+ if(iso&&vertices?.length>1&&(views.iso?.includes('outline')??true)){
+  const existingIso=existing.filter(d=>d.view==='iso'&&!d.review);
+  const outline=sheet.isometricOutline??vertices.map(vertex=>vertex.point);
+  for(const axis of [0,1,2]){
+   if(axes?.has(axis)||!types.includes(axis===2?'vertical':'horizontal')||
+    existingIso.some(d=>spansIsoAxis(d.modelA,d.modelB,axis,data.bounds)))continue;
+   const dimension=isoOverallDimension(vertices,data.bounds,axis,iso.scale,outline);
+   if(dimension)push(dimension);
+  }
  }
  let remaining=8,skipped=0;
  for(const view of drawingProjectionNames){const v=sheet.layout[view],s=v?.scale??scale,diameter=enabled(view,'diameter'),spacing=enabled(view,'spacing'),radius=enabled(view,'radius');if(!v||!data.views[view]||!diameter&&!spacing&&!radius)continue;

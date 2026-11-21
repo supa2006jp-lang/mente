@@ -3,10 +3,11 @@ import {test} from 'node:test';
 import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
 import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
+import {dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
 import {readDrawingState} from '../src/drawing-state.js';
-import {drawingScaleLabel,minDrawingScale,maxDrawingScale,parseDrawingScale,snapDrawingResizeScale,stepDrawingScale} from '../src/drawing-view-preferences.js';
+import {drawingScaleLabel,minDrawingScale,maxDrawingScale,parseDrawingScale,projectDrawingIsometric,snapDrawingResizeScale,stepDrawingScale} from '../src/drawing-view-preferences.js';
 
 const rect=(w,h)=>({visible:[`M 0 0 L ${w} 0 L ${w} ${-h} L 0 ${-h} Z`],hidden:[]});
 const part={bounds:[[0,0,0],[60,40,20]],bodyCount:1,views:{
@@ -103,6 +104,39 @@ test('manufacturing dimensions choose a visible enabled view for each axis',()=>
  assert.strictEqual(compact.dimensions.find(d=>d.overall===pinned.overall),pinned);
  assert.equal(autoDrawingDimensions(part,1,compact.dimensions,sheet,{uniqueAxes:true}).dimensions.length,0);
  assert.equal(current.some(d=>d.hidden),false);
+});
+
+test('automatic isometric dimensions use full spans between visible model vertices',()=>{
+ const vertices=[[0,0,0],[60,0,0],[60,40,0],[60,40,20],[0,40,20],[0,0,20],[60,0,20]]
+  .map(model=>({model,point:projectDrawingIsometric(model)}));
+ const visible=['M '+vertices.slice(0,6).map(({point})=>point.join(' ')).join(' L ')+' Z'];
+ const iso={visible,hidden:[],viewBox:[0,-80/Math.sqrt(6),100/Math.SQRT2,140/Math.sqrt(6)],dimensionVertices:vertices};
+ const data={...part,views:{iso}};
+ const isoSheet=drawingSheet(data,.5,true,[],'',{...options,viewSelection:[],isoMode:'full',positions:{iso:[85,75]},sections:[]});
+ const dims=autoDrawingDimensions(data,.5,[],isoSheet).dimensions;
+ assert.deepEqual(dims.map(dimensionValue),[60,40,20]);
+ assert.ok(dims.every(d=>d.view==='iso'&&d.kind==='aligned'&&d.automatic));
+ for(const d of dims){
+  const [[a,b]]=drawingDimensionGeometry(d,isoSheet.layout.iso).extensions;
+  assert.ok(Math.hypot(b[0]-a[0],b[1]-a[1])<12,'extension line stays close to the projected outline');
+ }
+ const [first]=dims;
+ const manual={view:'iso',kind:'aligned',a:first.b,b:first.a,modelA:first.modelB,modelB:first.modelA,at:first.at};
+ assert.deepEqual(autoDrawingDimensions(data,.5,[manual],isoSheet).dimensions.map(dimensionValue),[40,20]);
+ assert.equal(autoDrawingDimensions(data,.5,dims,isoSheet).dimensions.length,0);
+ assert.equal(autoDrawingDimensions(data,.5,[],isoSheet,{views:{iso:[]}}).dimensions.length,0);
+ assert.equal(autoDrawingDimensions(data,.5,[],isoSheet,{types:['diameter']}).dimensions.length,0);
+ const incomplete={...data,views:{iso:{...iso,dimensionVertices:[vertices[0],vertices[3]]}}};
+ assert.equal(autoDrawingDimensions(incomplete,.5,[],isoSheet).dimensions.length,0,'no full span uses unrelated diagonal vertices');
+ const combined={...data,views:{...part.views,iso}};
+ const multi=drawingSheet(combined,.5,true,[],'',{...options,isoMode:'full'});
+ const all=autoDrawingDimensions(combined,.5,[],multi).dimensions;
+ assert.equal(all.filter(d=>d.view==='iso').length,3);
+ assert.equal(autoDrawingDimensions(combined,.5,[],multi,{uniqueAxes:true}).dimensions.filter(d=>d.view==='iso').length,0);
+ assert.ok(hideDuplicateOverallDimensions(all,multi).dimensions.filter(d=>d.view==='iso').every(d=>d.hidden));
+ const saved={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale:.5,hidden:true,comment:'',dimensions:dims,
+  options:{...options,isoMode:'full',autoDimensionViews:{iso:[]}}};
+ assert.deepEqual(readDrawingState(saved),saved);
 });
 
 test('PDF placement and compact exterior dimensions round-trip in drawing state',()=>{
