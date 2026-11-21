@@ -2,7 +2,7 @@ import {ShapeUtils,Vector2} from 'three';
 import {strFromU8,unzipSync,zipSync} from 'three/addons/libs/fflate.module.js';
 import {PRINT_PLATE_SIZE,subtractFree} from './print-layout.js';
 import {pack3mf,xmlAttribute} from './pack-3mf.js';
-import {framePartBounds,framePartName,strapDimensions,strapKey,strapOutline} from './t-slot-frame.js';
+import {framePartBounds,framePartKey,framePartName,plateDimensions,plateKey,plateOutline} from './t-slot-frame.js';
 import dimensions from './t-slot-dimensions.json' with {type:'json'};
 
 // Allow both the 5 mm rail brims and a gap between neighbouring brims.
@@ -110,15 +110,17 @@ export function readFrameStock(bytes) {
   return {
     mesh(part){
       if(part.kind==='rail')return prismMesh([dimensions.profile],part.length);
-      if(part.kind==='strap'){
-        const {holes,height}=strapDimensions(part);
+      const plate=plateDimensions(part);
+      if(plate){
+        const {holes,height}=plate;
         const rings=holes.map(x=>Array.from({length:64},(_,i)=>{
           const a=-2*Math.PI*i/64;return [x+4.5*Math.cos(a),4.5*Math.sin(a)];
         }));
-        return prismMesh([strapOutline(part),...rings],height,strapKey(part));
+        return prismMesh([plateOutline(part),...rings],height,plateKey(part));
       }
-      if(!stock.has(part.kind))stock.set(part.kind,stlMesh(archive[part.kind+'.stl']));
-      return stock.get(part.kind);
+      const key=framePartKey(part);
+      if(!stock.has(key))stock.set(key,stlMesh(archive[key+'.stl']));
+      return stock.get(key);
     },
     settings(rails,fasteners){
       const preset=JSON.parse(strFromU8(archive[!rails||fasteners?'small-settings.json':'rail-settings.json']));
@@ -129,7 +131,7 @@ export function readFrameStock(bytes) {
 }
 let stockPromise;
 export function loadFrameStock() {
-  if(!stockPromise)stockPromise=fetch(new URL('t-slot-m8.dat',import.meta.url)).then(async response=>{
+  if(!stockPromise)stockPromise=fetch(new URL('t-slot-m8.dat?v=3',import.meta.url)).then(async response=>{
     if(!response.ok)throw Error('M8フレーム部品を読み込めませんでした。');
     return readFrameStock(new Uint8Array(await response.arrayBuffer()));
   }).catch(error=>{stockPromise=undefined;throw error;});

@@ -5,9 +5,9 @@ import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {strFromU8,unzipSync} from 'three/addons/libs/fflate.module.js';
 import {cadMesh} from '../src/cad-mesh.js';
-import {makeTSlotFrame} from '../src/t-slot-frame-cad.js';
-import {frameAssembly,frameBill,framePartBounds,measureFrameBox,savedFrameAssembly} from '../src/t-slot-frame.js';
-import {Vector3} from 'three';
+import {makeFramePart,makeTSlotFrame} from '../src/t-slot-frame-cad.js';
+import {frameAssembly,frameBill,framePartBounds,measureFrameBox,plateDimensions,plateKey,savedFrameAssembly} from '../src/t-slot-frame.js';
+import {Ray,Vector3} from 'three';
 import {framePlate3mf,framePrintPlates,readFrameStock} from '../src/t-slot-frame-print.js';
 import {inspectStlMesh} from '../src/stl-mesh-health.js';
 import {defaults,validateProject} from '../src/geometry.js';
@@ -34,7 +34,7 @@ test('rotated solid follows its own twelve edges; curved and cut solids are reje
 test('long members are split, each joint is clamped, and short sides use exterior straps',()=>{
   const assembly=frameAssembly(guide([160,160,160]));
   assert.deepEqual(Object.fromEntries(frameBill(assembly).map(p=>[p.key,p.count])),
-    {'rail-108':8,splice:4,'rail-160':8,corner:16,bolt:48,nut:48});
+    {'rail-108':8,'splice-2':4,'rail-160':8,'corner-panel':16,bolt:40,nut:40});
   const short=frameAssembly(guide([20,55,16]));
   assert.equal(short.parts.filter(p=>p.shared).length,4);
   assert.equal(short.parts.filter(p=>p.kind==='strap'&&!p.shared).length,8);
@@ -119,6 +119,102 @@ test('native assembly contains separate rail and fixture solids, leaving the ref
     }finally{source.delete();}
   }
 });
+test('45 mm splices use two M8 fasteners, and old saved kits retain their four-hole stock',()=>{
+  const box=guide([160,160,160]),now=frameAssembly(box),part=now.parts.find(p=>p.kind==='splice');
+  assert.deepEqual(plateDimensions(part),{length:45,width:22,height:8,holes:[-13.5,13.5]});
+  assert.deepEqual(framePartBounds(part),[[-22.5,-11,0],[22.5,11,9.5]]);
+  assert.ok(13.5-framePartBounds({kind:'nut'})[1][1]-plateKey(part).halfLength>=.59);
+  const shape=makeFramePart(part),printed=inspectStlMesh(stock.mesh(part),{includeComponents:true});
+  try{
+    assert.ok(printed.ok&&printed.components.length===1&&Math.abs(printed.volume-R.measureVolume(shape))<2);
+    for(const x of [-13.5,13.5]){
+      const shank=R.makeCylinder(4.49,11,[x,0,-1]),hit=shape.intersect(shank);
+      try{assert.ok(Math.abs(R.measureVolume(hit))<1e-6);}finally{hit.delete();shank.delete();}
+    }
+  }finally{shape.delete();}
+  for(const version of [1,2]){
+    const old=savedFrameAssembly({tSlotBox:box,tSlotSizingVersion:version}),p=old.parts.find(p=>p.kind==='splice');
+    assert.equal(old.fixings,48);assert.equal(now.fixings,40);
+    assert.deepEqual(framePartBounds(p),[[-45,-11,0],[45,11,8]]);
+    assert.ok(!old.parts.some(p=>p.panelHole));
+    const both=frameBill({parts:[...now.parts,...old.parts],fixings:now.fixings+old.fixings});
+    for(const [key,n] of [['splice-2',4],['splice',4],['corner-panel',16],['corner',16]])assert.equal(both.find(p=>p.key===key).count,n);
+  }
+});
+
+function radialSampler(mesh,cx,cy){
+  const v=[];for(let i=0;i<mesh.vertices.length;i+=3)v.push(new Vector3().fromArray(mesh.vertices,i));
+  const faces=[];
+  for(let i=0;i<mesh.triangles.length;i+=3){
+    const [a,b,c]=mesh.triangles.slice(i,i+3).map(j=>v[j]);
+    faces.push({a,b,c,lo:Math.min(a.z,b.z,c.z),hi:Math.max(a.z,b.z,c.z)});
+  }
+  return (z,angle=0)=>{
+    const ray=new Ray(new Vector3(cx,cy,z),new Vector3(Math.cos(angle),Math.sin(angle),0)),hit=new Vector3();
+    let radius=Infinity;
+    for(const {a,b,c,lo,hi} of faces)if(z>=lo&&z<=hi&&ray.intersectTriangle(a,b,c,false,hit))radius=Math.min(radius,hit.distanceTo(ray.origin));
+    return radius;
+  };
+}
+test('inside mounting respects rail ends, panel seats, other fixtures and insertion space',()=>{
+  const sample=guide([160,160,160]),assembly=frameAssembly(sample),fixtures=assembly.parts.filter(p=>p.mount);
+  assert.equal(fixtures.length,20);assert.ok(fixtures.every(p=>p.mount==='inside'));
+  const old=frameAssembly(sample,3),before=old.parts.filter(p=>p.kind==='splice'),after=fixtures.filter(p=>p.kind==='splice');
+  assert.equal(before.length,after.length);assert.ok(before.every(p=>!after.some(q=>p.matrix.equals(q.matrix))));
+  for(const [size,kind,inside,outside] of [
+    [[60,60,60],'corner',8,0],[[60,60,60],'strap',0,8],
+    [[110,115,106],'splice',0,4],[[28,28,115],'splice',4,0],[[12,15,200],'splice',0,4]
+  ]){
+    const parts=frameAssembly(guide(size)).parts.filter(p=>p.kind===kind);
+    assert.equal(parts.filter(p=>p.mount==='inside').length,inside);
+    assert.equal(parts.filter(p=>p.mount==='outside').length,outside);
+  }
+  // Check actual solids at normal and tight limits, including a 3 mm front panel.
+  for(const size of [[160,160,160],[40,40,40],[110,115,106]]){
+    const made=makeTSlotFrame(guide(size),{id:'inside'}),[rails,fittings]=made.outputs.map(o=>R.deserializeShape(o.brep).asShape3D());
+    const panel=R.makeBox([0,-29,0],[size[0],-26,size[2]]),members=fittings.solids;
+    try{
+      for(const body of [rails,panel]){const hit=fittings.intersect(body);try{assert.ok(Math.abs(R.measureVolume(hit))<1e-5);}finally{hit.delete();}}
+      const bounds=members.map(m=>m.boundingBox.bounds);
+      for(let i=0;i<members.length;i++)for(let j=0;j<i;j++){
+        if(!bounds[i][0].every((v,k)=>Math.min(bounds[i][1][k],bounds[j][1][k])-Math.max(v,bounds[j][0][k])>.002))continue;
+        const hit=members[i].intersect(members[j]);try{assert.ok(Math.abs(R.measureVolume(hit))<1e-5);}finally{hit.delete();}
+      }
+    }finally{members.forEach(m=>m.delete());panel.delete();rails.delete();fittings.delete();}
+  }
+});
+test('panel seats face out, share a plane and carry a right-hand M8×1.25 thread with −0.20 mm pull',()=>{
+  const size=[117.25,245,87.625],parts=frameAssembly(guide(size)).parts.filter(p=>p.panelHole),faces=new Map();
+  for(const p of parts){
+    const out=new Vector3(0,0,-1).transformDirection(p.matrix),seat=new Vector3(14,14,0).applyMatrix4(p.matrix);
+    const axis=Math.abs(out.x)>.5?0:1,other=1-axis,sign=out.getComponent(axis),label=axis+','+sign;
+    assert.equal(Math.abs(sign),1);assert.ok(Math.abs(p.matrix.determinant()-1)<1e-9);
+    assert.equal(seat.getComponent(axis),sign>0?size[axis]+26:-26);
+    const pair=[seat.getComponent(other),seat.z];
+    assert.ok([14,size[other]-14].includes(pair[0])&&[14,size[2]-14].includes(pair[1]));
+    if(!faces.has(label))faces.set(label,new Set());faces.get(label).add(pair.join(','));
+  }
+  assert.equal(faces.size,4);for(const seats of faces.values())assert.equal(seats.size,4);
+  const cad=makeFramePart(parts[0]),mesh=stock.mesh(parts[0]),health=inspectStlMesh(mesh,{includeComponents:true});
+  try{
+    assert.ok(health.ok&&health.components.length===1);
+    assert.ok(Math.abs(health.volume-R.measureVolume(cad))<8);
+    // Both original bolt heads and their insertion paths clear the reinforced web.
+    for(const [p,axis] of [[[8.001,27,12],[1,0,0]],[[27,8.001,12],[0,1,0]]]){
+      const head=R.makeCylinder(7.3,35,p,axis),hit=cad.intersect(head);
+      try{assert.ok(Math.abs(R.measureVolume(hit))<1e-6);}finally{hit.delete();head.delete();}
+    }
+    const bore=radialSampler(mesh,14,14),bolt=radialSampler(stock.mesh({kind:'bolt'}),0,0);
+    const levels=Array.from({length:24},(_,i)=>2.11+i*1.25/24),radii=levels.map(z=>bore(z));
+    assert.ok(Math.abs(Math.max(...radii)-4.2)<.01&&Math.abs(Math.min(...radii)-3.5234)<.015);
+    for(const z of levels){
+      assert.ok(Math.abs(bore(z+1.25)-bore(z))<.01);
+      assert.ok(Math.abs(bore(z+1.25/4,Math.PI/2)-bore(z))<.015);
+    }
+    const gaps=levels.map((_,i)=>Math.min(...levels.map(z=>bore(z)-bolt(z+6+1.25*i/levels.length))));
+    assert.ok(Math.max(...gaps)>.1,'the supplied M8 bolt must have a fitting helical phase');
+  }finally{cad.delete();}
+});
 test('a closed mesh-only guide works alongside older mesh bodies and an open box is rejected',()=>{
   const solid=R.makeBox([0,0,0],[22,44,88]);
   try{
@@ -149,7 +245,7 @@ test('all hardware and independent extras are counted once on disjoint 180 mm pl
     }
   }
   assert.deepEqual(Object.fromEntries(totals),Object.fromEntries(bill.map(p=>[p.key,p.count])));
-  assert.equal(totals.get('bolt'),51);assert.equal(totals.get('nut'),53);
+  assert.equal(totals.get('bolt'),43);assert.equal(totals.get('nut'),45);
   assert.equal(framePrintPlates([{kind:'nut',key:'nut',count:1}]).length,1);
   const variants=[...bill,...frameBill(frameAssembly(guide([20,50,40])))];
   for(const part of new Map(variants.map(p=>[p.key,p])).values()){

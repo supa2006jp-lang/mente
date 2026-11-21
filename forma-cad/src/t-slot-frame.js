@@ -1,9 +1,10 @@
 import {Matrix4, Vector3} from 'three';
 import {cadPosition} from './cad-coordinates.js';
+import {innerCornerPositions,placementBox,planInteriorSplices} from './t-slot-inside.js';
 import dimensions from './t-slot-dimensions.json' with {type:'json'};
 
 export const FRAME_LIMIT = 160;
-export const FRAME_SIZING_VERSION = 2;
+export const FRAME_SIZING_VERSION = 4;
 const unit = i => new Vector3().setComponent(i, 1);
 const round = n => Math.round(n * 1e6) / 1e6;
 const boxError = () => Error('6面が直交する立方体または直方体を選んでください。');
@@ -66,44 +67,53 @@ export function measureFrameGeometry(geometry) {
   return measureFrameBox(position.array,index?.array??Array.from({length:position.count},(_,i)=>i));
 }
 
-export function strapDimensions(part) {
+// A span describes a drilled plate. The original four-hole splice is a stock solid.
+export function plateDimensions(part) {
+  if(part.span===undefined)return null;
   const half=part.span/2;
-  return {length:part.span+18, width:18, height:8, holes:part.shared?[-half,0,half]:[-half,half]};
+  return {length:part.span+18,width:part.kind==='splice'?22:18,height:8,holes:part.shared?[-half,0,half]:[-half,half]};
 }
-// The wide head slides in from the end of the rail. Its sloped shoulders
-// print upwards on the back of the plate, with 0.5 mm clearance at the slot mouth.
-export function strapKey(part) {
+export function plateKey(part) {
+  // A shallow tongue registers both sides of a butt joint, between the two nuts.
+  if(part.kind==='splice'&&part.span!==undefined)
+    return {halfLength:3,levels:[[8,4.8],[9.1,4.8],[9.5,4.4]]};
+  // The wider key for a short horizontal member slides into its T-slot from the end.
   if (!part.keyed) return null;
   const railLength=round(part.span-28);
   return {halfLength:railLength/2-Math.min(.25,railLength/10),
     levels:[[8,4.8],[10.85,4.8],[12.6,6.55],[13.15,6.55],[13.65,6.05]]};
 }
-export function strapOutline(part) {
-  const {length,width}=strapDimensions(part), x=length/2, y=width/2, r=1.5;
+export function plateOutline(part) {
+  const {length,width}=plateDimensions(part), x=length/2, y=width/2, r=1.5;
   return [[-x+r,-y],[x-r,-y],[x,-y+r],[x,y-r],[x-r,y],[-x+r,y],[-x,y-r],[-x,-y+r]];
 }
 export function framePartKey(part) {
   if (part.kind==='rail') return 'rail-'+part.length;
+  if (part.kind==='splice'&&part.span!==undefined) return 'splice-2';
+  if (part.kind==='corner'&&part.panelHole) return 'corner-panel';
   if (part.kind==='strap') return 'strap-'+part.span+(part.keyed?'-keyed':part.shared?'-shared':'');
   return part.kind;
 }
 export function framePartName(part) {
   if (part.kind==='rail') return 'T溝フレーム '+round(part.length)+' mm';
+  if (part.kind==='splice') return part.span===undefined?'4穴直線連結プレート 90 mm':'2穴直線連結プレート '+plateDimensions(part).length+' mm';
+  if (part.kind==='corner'&&part.panelHole) return '直角連結ブラケット（透明板用M8めねじ）';
   if (part.keyed) return '短尺材用キー付きプレート '+round(part.span+18)+' mm';
   if (part.kind==='strap') return part.shared?'3穴外付けプレート '+Number((part.span+18).toFixed(3))+' mm':'2穴外付けプレート';
-  return {corner:'直角連結ブラケット',splice:'直線連結プレート',bolt:'M8×16 ボルト',nut:'M8 T溝ナット（−0.10 mm調整版）'}[part.kind];
+  return {corner:'直角連結ブラケット',bolt:'M8×16 ボルト',nut:'M8 T溝ナット（−0.10 mm調整版）'}[part.kind];
 }
 export function framePartBounds(part) {
   if (part.kind==='rail') return [[-14,-14,0],[14,14,part.length]];
-  if (part.kind==='strap') {
-    const x=strapDimensions(part).length/2,key=strapKey(part);
-    return [[-x,-9,0],[x,9,key?key.levels.at(-1)[0]:8]];
+  const plate=plateDimensions(part);
+  if (plate) {
+    const x=plate.length/2,y=plate.width/2,key=plateKey(part);
+    return [[-x,-y,0],[x,y,key?key.levels.at(-1)[0]:plate.height]];
   }
   return dimensions.bounds[part.kind];
 }
 
 export function validateFrameBox(box,sizingVersion=FRAME_SIZING_VERSION) {
-  if(sizingVersion!==1&&sizingVersion!==FRAME_SIZING_VERSION)throw Error('このフレームの寸法形式を読み込めません。');
+  if(!Number.isInteger(sizingVersion)||sizingVersion<1||sizingVersion>FRAME_SIZING_VERSION)throw Error('このフレームの寸法形式を読み込めません。');
   const triple=a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite);
   if(!triple(box?.origin)||!triple(box.size)||box.size.some(v=>v<=0||v>200000)||
       !Array.isArray(box.axes)||box.axes.length!==3||!box.axes.every(triple))throw boxError();
@@ -116,6 +126,9 @@ export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION) {
   const {size}=box;
   // Old saved bodies used a 20 mm minimum opening and micron-rounded seam positions.
   const legacy=sizingVersion===1;
+  const newFittings=sizingVersion>=3;
+  const preferInside=sizingVersion>=4;
+  const splice=newFittings?{kind:'splice',span:27}:{kind:'splice'};
   const clear=legacy?size.map((v,i)=>i<2?Math.max(20,v):v):size;
   const runs=[clear[0],clear[1],round(clear[2]+56)].map(span=>{
     const count=Math.ceil(span/FRAME_LIMIT);
@@ -124,62 +137,96 @@ export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION) {
   const origin=new Vector3(...box.origin), axes=box.axes.map(a=>new Vector3(...a));
   axes.forEach((a,i)=>origin.addScaledVector(a,(size[i]-clear[i])/2));
   const world=new Matrix4().makeBasis(...axes).setPosition(origin);
-  const parts=[];
+  const parts=[],railBoxes=[],fixtureBoxes=[],fixedNuts=[],jointGroups=new Map();
   let fixings=0;
-  function add(part,position,x,y,z,holes=0) {
+  function add(part,position,x,y,z,holes=0,mount) {
     const matrix=world.clone().multiply(new Matrix4().makeBasis(x,y,z).setPosition(position));
-    parts.push({...part,matrix}); fixings+=holes;
+    parts.push({...part,matrix,...(preferInside&&mount?{mount}:{})}); fixings+=holes;
+    if(preferInside&&part.kind==='corner'){
+      // Installed bracket and bolt heads. Register the two nuts at their slot mouths.
+      for(const [lo,hi] of [
+        [[0,0,0],[38,8,24]],[[0,0,0],[8,38,24]],[[8,8,0],[34.5,34.5,3.6]],
+        [[7.5,7.5,3.6],[20.5,20.5,8]],[[8,19.6,4.6],[13.8,34.4,19.4]],[[19.6,8,4.6],[34.4,13.8,19.4]]
+      ])fixtureBoxes.push(placementBox(position,x,y,z,lo,hi));
+      fixedNuts.push({normal:x,point:position.clone().addScaledVector(y,27).addScaledVector(z,12)},
+        {normal:y,point:position.clone().addScaledVector(x,27).addScaledVector(z,12)});
+    }
   }
-  function plate(part,at,along,out,holes) {
-    if(part.keyed){
+  function plate(part,at,along,out,mount='outside') {
+    if(preferInside&&part.kind==='strap'){
+      const dim=plateDimensions(part),half=dim.length/2;
+      fixtureBoxes.push(placementBox(at,along,out.clone().cross(along),out,[-half,-9,0],[half,9,13.8]));
+      for(const offset of dim.holes)fixedNuts.push({normal:out,point:at.clone().addScaledVector(along,offset)});
+    }
+    if(plateKey(part)){
       // The printed flat face is outside; the key on the opposite face enters the slot.
       at=at.clone().addScaledVector(out,8);
       out=out.clone().negate();
     }
-    add(part,at,along,out.clone().cross(along),out,holes);
+    add(part,at,along,out.clone().cross(along),out,plateDimensions(part)?.holes.length??4,mount);
   }
-  function beam(at,along,run,spliceNormal) {
+  function beam(at,along,run,spliceNormal,insideNormals,axis) {
     const x=unit(along.z?0:2), y=along.clone().cross(x);
+    if(preferInside)railBoxes.push(placementBox(at,x,y,along,[-14,-14,0],[14,14,run.span]));
     for(let i=0;i<run.count;i++){
       const start=legacy?round(run.span*i/run.count):i*run.length;
       const length=legacy?round(round(run.span*(i+1)/run.count)-start):run.length;
       add({kind:'rail',length},at.clone().addScaledVector(along,start),x,y,along);
-      if(i) plate({kind:'splice'},at.clone().addScaledVector(along,start).addScaledVector(spliceNormal,14),along,spliceNormal,4);
+      if(!i)continue;
+      const center=at.clone().addScaledVector(along,start);
+      if(preferInside){
+        const key=axis+'-'+i;
+        if(!jointGroups.has(key))jointGroups.set(key,[]);
+        jointGroups.get(key).push({center,along,normals:[...insideNormals,...insideNormals.map(n=>n.clone().negate())]});
+      }else plate(splice,center.addScaledVector(spliceNormal,14),along,spliceNormal);
     }
   }
   const face=(i,high)=>high?clear[i]:0;
   const outside=(i,high)=>face(i,high)+(high?14:-14);
   for(const highX of [false,true]) for(const highY of [false,true]) {
-    beam(new Vector3(outside(0,highX),outside(1,highY),-28),unit(2),runs[2],unit(0).multiplyScalar(highX?1:-1));
+    const outX=unit(0).multiplyScalar(highX?1:-1),inX=outX.clone().negate(),inY=unit(1).multiplyScalar(highY?-1:1);
+    beam(new Vector3(outside(0,highX),outside(1,highY),-28),unit(2),runs[2],outX,clear[0]>=clear[1]?[inX,inY]:[inY,inX],2);
   }
   for(const axis of [0,1]) {
     const side=1-axis, along=unit(axis);
+    const insideEnds=preferInside?innerCornerPositions(clear[axis],clear[2]):null;
     for(const highSide of [false,true]) for(const highZ of [false,true]) {
       const at=new Vector3().setComponent(side,outside(side,highSide)).setZ(outside(2,highZ));
       const outZ=unit(2).multiplyScalar(highZ?1:-1);
-      beam(at,along,runs[axis],outZ);
       const outSide=unit(side).multiplyScalar(highSide?1:-1);
+      beam(at,along,runs[axis],outZ,[outSide.clone().negate(),outZ.clone().negate()],axis);
       const mountingFace=at.clone().addScaledVector(outSide,14);
       // Two 38 mm inside brackets would overlap on short spans. Fasten the
       // coplanar outside faces instead. A shared strap can use one central nut.
-      if(clear[axis]<40) {
+      if(clear[axis]<40&&!insideEnds?.size) {
         const part={kind:'strap',span:round(clear[axis]+28)};
         if(clear[axis]<20)part.keyed=true;else part.shared=true;
-        plate(part,mountingFace.addScaledVector(along,clear[axis]/2),along,outSide,part.keyed?2:3);
+        plate(part,mountingFace.addScaledVector(along,clear[axis]/2),along,outSide);
         continue;
       }
       for(const highEnd of [false,true]) {
         const inward=along.clone().multiplyScalar(highEnd?-1:1), end=face(axis,highEnd);
-        if(clear[axis]<76 || clear[2]<76) {
+        const inner=insideEnds?insideEnds.has(Number(highEnd)+2*Number(highZ)):clear[axis]>=76&&clear[2]>=76;
+        if(!inner) {
+          // A perpendicular beam ends on the inner post face here. The coplanar
+          // outside strap can fasten to both the post and this horizontal beam.
           const center=mountingFace.clone().setComponent(axis,end).addScaledVector(inward,-2);
-          plate({kind:'strap',span:24},center,inward,outSide,2);
+          plate({kind:'strap',span:24},center,inward,outSide);
         } else {
           const up=outZ.clone().negate(), width=inward.clone().cross(up);
+          // The four panel seats on each side share a plane facing out. Swapping
+          // the two symmetric legs preserves the handedness of the M8 thread.
+          const swap=newFittings&&width.dot(outSide)>0;
+          if(swap)width.negate();
           const corner=at.clone().setComponent(axis,end).setZ(face(2,highZ)).addScaledVector(width,-12);
-          add({kind:'corner'},corner,inward,up,width,2);
+          add(newFittings?{kind:'corner',panelHole:true}:{kind:'corner'},corner,swap?up:inward,swap?inward:up,width,2,'inside');
         }
       }
     }
+  }
+  for(const group of jointGroups.values()){
+    const placements=planInteriorSplices(group,railBoxes,fixtureBoxes,fixedNuts);
+    placements.forEach((p,i)=>plate(splice,p.at,group[i].along,p.normal,p.inside?'inside':'outside'));
   }
   return {parts,fixings,runs,clearance:clear.map((v,i)=>(v-size[i])/2)};
 }
@@ -195,7 +242,7 @@ export function frameBill(assembly,extraBolts=0,extraNuts=0) {
   function count(part,n) {
     const key=framePartKey(part),existing=bill.get(key);
     if (existing) existing.count+=n;
-    else {const {matrix,...definition}=part;bill.set(key,{...definition,key,count:n});}
+    else {const {matrix,mount,...definition}=part;bill.set(key,{...definition,key,count:n});}
   }
   for(const part of assembly.parts) count(part,1);
   count({kind:'bolt'},assembly.fixings+extraBolts);

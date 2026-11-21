@@ -6,7 +6,7 @@ export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commi
   const dialog=document.createElement('dialog');
   dialog.id='t-slot-frame-dialog';dialog.setAttribute('aria-labelledby','t-slot-title');
   dialog.innerHTML='<h2 id="t-slot-title">T溝フレームを配置</h2><label>基準の立方体・直方体<select id="t-slot-source"></select></label>'+
-    '<p>28 mm角のフレームを各辺に合わせて作ります。1本の上限は'+FRAME_LIMIT+' mmです。長い辺は等分し、継ぎ目をプレートで固定します。支柱は上下の横材の端まで通るため、基準の高さに56 mmを足した長さです。</p>'+
+    '<p>28 mm角のフレームを各辺に合わせて作ります。1本の上限は'+FRAME_LIMIT+' mmです。長い辺は等分し、継ぎ目を長さ45 mmの2穴プレートで固定します。支柱は上下の横材の端まで通るため、基準の高さに56 mmを足した長さです。</p>'+
     '<table id="t-slot-lengths" hidden><caption>1辺あたりのフレーム寸法</caption><thead><tr><th scope="col">方向</th><th scope="col">必要長</th><th scope="col">1本の長さ × 本数</th></tr></thead><tbody></tbody></table>'+
     '<p id="t-slot-summary" role="status"></p><div class="export-actions"><button type="button" data-close>閉じる</button><button type="button" id="t-slot-apply" class="accent">配置する</button></div>';
   document.body.append(dialog);
@@ -27,8 +27,11 @@ export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commi
         return row;
       }));
       lengths.hidden=false;
-      summary.textContent='基準寸法 '+box.size.map(mm).join(' × ')+' mm ／ フレーム '+rails+'本、固定治具 '+(assembly.parts.length-rails)+'個。'+
-        (assembly.parts.some(p=>p.keyed)?' 20 mm未満の横材はキー付きプレートをT溝に差し込み、両側の柱にM8で固定します。':'');
+      const inside=assembly.parts.filter(p=>p.mount==='inside').length,outside=assembly.parts.filter(p=>p.mount==='outside').length;
+      summary.textContent='基準寸法 '+box.size.map(mm).join(' × ')+' mm ／ フレーム '+rails+'本、固定治具 '+(inside+outside)+'個（内側'+inside+'個・外側'+outside+'個）。'+
+        (outside?' 内側に治具とボルトの取付スペースが足りない箇所は外側に配置します。':'')+
+        (assembly.parts.some(p=>p.keyed)?' 20 mm未満の横材はキー付きプレートをT溝に差し込み、両側の柱にM8で固定します。':'')+
+        (assembly.parts.some(p=>p.panelHole)?' 透明板用のM8ねじ穴は、枠の内角から縦横14 mmです。':'');
       apply.disabled=false;
     }catch(error){summary.textContent=error.message;}
   }
@@ -80,6 +83,7 @@ function drawFootprints(canvas,plate) {
 function frameOutputEntry(frames,label,{download,name,isCurrent,notify}) {
   const assemblies=frames.map(f=>savedFrameAssembly(f.analysis));
   const assembly={parts:assemblies.flatMap(a=>a.parts),fixings:assemblies.reduce((sum,a)=>sum+a.fixings,0)};
+  const panelMounts=assembly.parts.some(p=>p.panelHole);
   let bolts,nuts,select,canvas,layout,plates;
   const redraw=()=>{if(plates?.length)drawFootprints(canvas,plates[Number(select.value)||0]);};
   return {
@@ -87,7 +91,8 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify}) {
     controls(panel,refresh){
       panel.innerHTML='<div class="t-slot-quantities"><label>追加ボルト（個）<input type="number" id="t-slot-extra-bolts" min="0" max="10000" step="1" value="0" required></label>'+
         '<label>追加ナット（個）<input type="number" id="t-slot-extra-nuts" min="0" max="10000" step="1" value="0" required></label></div>'+
-        '<p>取付に使うボルト・ナットは各'+assembly.fixings+'個含まれます。</p>'+
+        '<p>フレームの取付に使うボルト・ナットは各'+assembly.fixings+'個含まれます。'+
+        (panelMounts?'透明板を留める場合は、固定箇所の数を「追加ボルト」に入力してください。':'')+'</p>'+
         '<div class="t-slot-plate"><label>印刷プレート<select id="t-slot-print-plate"></select></label><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>';
       [bolts,nuts]=panel.querySelectorAll('input');select=panel.querySelector('select');canvas=panel.querySelector('canvas');layout=panel.querySelector('.t-slot-plate');
       bolts.oninput=nuts.oninput=refresh;select.onchange=redraw;

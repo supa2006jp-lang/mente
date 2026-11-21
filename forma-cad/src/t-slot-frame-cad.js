@@ -1,7 +1,7 @@
 import * as R from 'replicad';
 import {cadMesh} from './cad-mesh.js';
 import {cadPlanarFaceIds} from './cad-topology.js';
-import {FRAME_SIZING_VERSION, frameAssembly, framePartKey, strapDimensions, strapKey, strapOutline} from './t-slot-frame.js';
+import {FRAME_SIZING_VERSION,frameAssembly,framePartKey,plateDimensions,plateKey,plateOutline} from './t-slot-frame.js';
 import stock from './t-slot-fixtures.json' with {type:'json'};
 import dimensions from './t-slot-dimensions.json' with {type:'json'};
 
@@ -12,16 +12,17 @@ function extrudePolygon(points,delta) {
 function prism(points,height) {
   return extrudePolygon(points.map(([x,y])=>[x,y,0]),[0,0,height]);
 }
-function prototype(part) {
+export function makeFramePart(part) {
   if (part.kind==='rail') return prism(dimensions.profile,part.length);
-  if (part.kind!=='strap') return R.deserializeShape(stock[part.kind]).asShape3D();
-  let shape=prism(strapOutline(part),8);
+  const plate=plateDimensions(part);
+  if (!plate) return R.deserializeShape(stock[framePartKey(part)]).asShape3D();
+  let shape=prism(plateOutline(part),plate.height);
   try {
-    for(const x of strapDimensions(part).holes) {
+    for(const x of plate.holes) {
       const hole=R.makeCylinder(4.5,10,[x,0,-1]);
       try {const cut=shape.cut(hole);shape.delete();shape=cut;} finally {hole.delete();}
     }
-    const key=strapKey(part);
+    const key=plateKey(part);
     if(key) {
       // Start the key inside the plate so its neck and plate form one BREP solid.
       const levels=[[7.75,key.levels[0][1]],...key.levels.slice(1)];
@@ -54,7 +55,7 @@ export function makeTSlotFrame(box,spec,onProgress) {
         try {
           for(const part of members.slice(i,i+24)) {
             const key=framePartKey(part);
-            if(!prototypes.has(key)) prototypes.set(key,prototype(part));
+            if(!prototypes.has(key)) prototypes.set(key,makeFramePart(part));
             instances.push(located(prototypes.get(key),part.matrix));
           }
           const compound=R.makeCompound(instances); // takes ownership of the instances
