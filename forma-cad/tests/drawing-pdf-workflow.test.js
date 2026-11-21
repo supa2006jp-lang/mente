@@ -4,8 +4,9 @@ import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawi
 import {drawingPDFHasMultiplePages,drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
+import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
 import {readDrawingState} from '../src/drawing-state.js';
-import {minDrawingScale,maxDrawingScale,parseDrawingScale,snapDrawingResizeScale,stepDrawingScale} from '../src/drawing-view-preferences.js';
+import {drawingScaleLabel,minDrawingScale,maxDrawingScale,parseDrawingScale,snapDrawingResizeScale,stepDrawingScale} from '../src/drawing-view-preferences.js';
 
 const rect=(w,h)=>({visible:[`M 0 0 L ${w} 0 L ${w} ${-h} L 0 ${-h} Z`],hidden:[]});
 const part={bounds:[[0,0,0],[60,40,20]],bodyCount:1,views:{
@@ -132,8 +133,44 @@ test('the keyboard and resize handle adjust the drawing scale in tenths',()=>{
  assert.equal(resize(.43,.44),.43);
  assert.equal(resize(.43,.46),.5);
  assert.equal(resize(.1,.04),.1);
- assert.equal(resize(.05,.045),.045);
+ assert.equal(drawingScaleLabel(resize(.05,.045)),'1:22.2');
  assert.equal(snapDrawingResizeScale(.4,.67,.1,.65),.6);
+});
+
+test('scale captions retain exact tenths even when the reciprocal has long decimals',()=>{
+ for(const [scale,label] of [[.3,'0.3:1'],[.6,'0.6:1'],[.7,'0.7:1'],[.8,'0.8:1'],[.9,'0.9:1'],[.4,'1:2.5'],[.5,'1:2'],[.05,'1:20'],[1.2,'1.2:1']]){
+  assert.equal(drawingScaleLabel(scale),label);
+  assert.equal(parseDrawingScale(label),scale);
+ }
+ assert.equal(drawingScaleLabel(.899999),'0.9:1');
+ const config={...options,viewScales:{front:.9},pdfLayout:'manual',pageAssignments:{pageCount:2,views:{},comments:{}}};
+ const editor=drawingSheet(part,1,true,[frontDimension],'',config);
+ const [first]=drawingPDFPages(part,1,true,[frontDimension],'',config,editor);
+ for(const sheet of [editor,first]){
+  assert.match(sheet.svg,/FRONT \/ SCALE 0\.9:1/);
+  assert.equal(sheet.layout.front.width,54);
+  assert.doesNotMatch(sheet.svg,/1:1\.1111/);
+ }
+});
+
+test('automatic drawing and PDF layouts choose the largest fitting tenth or small ratio',()=>{
+ const input={dimensions:[frontDimension],options};
+ const layout=optimizeDrawingLayout(part,input);
+ assert(layout.scale>=.1);
+ assert.equal(layout.scale*10,Math.round(layout.scale*10));
+ const next=(Math.round(layout.scale*10)+1)/10;
+ assert.equal(optimizeDrawingLayout(part,{...input,scale:next,fixedScale:true}),null);
+ for(const {x,y,width,height} of layout.boxes){
+  assert(x>=layout.area.x-1e-8&&y>=layout.area.y-1e-8);
+  assert(x+width<=layout.area.x+layout.area.width+1e-8&&y+height<=layout.area.y+layout.area.height+1e-8);
+ }
+ const [first]=drawingPDFPages(part,1,true,[frontDimension],'',{...options,pdfLayout:'multi',pdfPlacement:'auto'});
+ assert.equal(first.pageScale*10,Math.round(first.pageScale*10));
+ const wide={bodyCount:1,bounds:[[0,0,0],[12000,60,30]],views:{front:rect(12000,30)}};
+ const smallOptions={...options,viewSelection:['front'],sections:[]};
+ const small=optimizeDrawingLayout(wide,{options:smallOptions});
+ assert(small.scale<.1);
+ assert.match(drawingScaleLabel(small.scale),/^1:\d+(?:\.\d)?$/);
 });
 
 test('page scales and resized PDF views are independent of the editor scale',()=>{

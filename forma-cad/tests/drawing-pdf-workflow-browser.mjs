@@ -185,6 +185,23 @@ try{
 
  await open({...drawing,dimensions:[width]});
  const scaleOn=async(host,view)=>Number((await geometry(host,view)).match(/scale\(([^)]+)\)/)[1]);
+ await field('auto-layout').click();
+ const automaticScale=Number(await field('scale').inputValue());
+ assert(automaticScale>=.1);
+ assert.equal(automaticScale*10,Math.round(automaticScale*10));
+ await field('undo').click();
+ await field('view-scales').evaluate(details=>details.open=true);
+ const frontInput=field('view-scales').locator('[data-view-scale-input=front]');
+ await frontInput.press('ArrowDown');
+ assert.equal(await scaleOn(editor,'front'),.9);
+ assert.match(await editor.locator('[data-view=front]>text').textContent(),/FRONT \/ SCALE 0\.9:1/);
+ assert.equal(await editor.locator('[data-dimension] text').textContent(),'60');
+ await field('pdf-preview-open').click();
+ assert.equal(await scaleOn(print,'front'),.9);
+ assert.match(await print.locator('[data-view=front]>text').textContent(),/FRONT \/ SCALE 0\.9:1/);
+ await field('pdf-preview-close').click();
+ await field('undo').click();
+ assert.equal(await scaleOn(editor,'front'),1);
  await field('scale-manual').fill('１：２．５');
  await field('scale-manual').press('Enter');
  assert.equal(await scaleOn(editor,'front'),.4);
@@ -195,7 +212,6 @@ try{
  await field('scale-manual').press('ArrowDown');
  assert.equal(await scaleOn(editor,'front'),.4);
  await field('view-scales').evaluate(details=>details.open=true);
- const frontInput=field('view-scales').locator('[data-view-scale-input=front]');
  await frontInput.press('ArrowUp');
  assert.equal(await scaleOn(editor,'front'),.5);
  assert.equal(await scaleOn(editor,'top'),.4);
@@ -268,5 +284,5 @@ try{
  await field('page-edit').selectOption('-1');
  assert.equal(await scaleOn(editor,'section-a'),.4);
  assert.deepEqual(errors,[]);
- console.log('PASS tenths for keyboard and resize controls, custom ratios, on-page PDF editing, undo/redo, export and project reload');
+ console.log('PASS tenths in automatic layouts and scale captions, matching PDF scales, manual ratios, resize, export and project reload');
 }finally{await browser?.close();server.close();}

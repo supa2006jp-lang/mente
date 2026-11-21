@@ -1,4 +1,4 @@
-import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
+import {drawingViewVisible,drawingViewScale,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,drawingScaleStep,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {drawingCommentEntries,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
@@ -60,6 +60,23 @@ function slicingPack(items,width,height){const limitW=width+GAP,limitH=height+GA
  result.sort((a,b)=>a.w*a.h-b.w*b.h);if(result.length>96)result.length=96;memo.set(mask,result);return result;}
  const result=variants((1<<n)-1);return result.sort((a,b)=>a.w*a.h-b.w*b.h)[0]||null;}
 function freeRectPack(items,width,height){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+GAP,height:height+GAP}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+GAP,ih=item.height+GAP,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
+function largestFittingScale(attempt){
+ const ticks=1/drawingScaleStep;
+ const firstTenth=attempt(drawingScaleStep),useSmallRatios=!firstTenth;
+ const largestDenominator=Math.round(ticks/minDrawingScale);
+ const scaleAt=index=>useSmallRatios?ticks/(largestDenominator-index):(index+1)/ticks;
+ let low=0,high=useSmallRatios?largestDenominator-Math.round(ticks/drawingScaleStep):Math.round(maxDrawingScale*ticks)-1;
+ let result=firstTenth??attempt(scaleAt(low));
+ if(!result)return null;
+ // Search the actual scale choices so the next larger step is tested for fit.
+ while(low<high){
+  const middle=Math.ceil((low+high)/2),candidate=attempt(scaleAt(middle));
+  if(candidate){low=middle;result=candidate;}
+  else high=middle-1;
+ }
+ return {scale:scaleAt(low),result};
+}
+
 export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false}={}){
  if(options.holeTable)options={...options,holeTable:resolveDrawingHoleTable(options.holeTable,data.views)};
  if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.orientation==='portrait'?[size[1],size[0]]:size,area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
@@ -88,18 +105,12 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   return null;
  };
  const variable=Object.keys(frames).some(name=>options.viewScales?.[name]===undefined);
- let nextScale=scale;
- if(!fixedScale){
-  let lo=variable?minDrawingScale:scale,hi=maxDrawingScale;
-  if(!attempt(lo))throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');
-  if(variable){
-   if(attempt(hi))lo=hi;
-   else for(let i=0;i<36;i++){const mid=(lo+hi)/2;if(attempt(mid))lo=mid;else hi=mid;}
-   nextScale=Math.max(minDrawingScale,Math.floor(lo*1e6)/1e6);
-  }
+ const choice=!fixedScale&&variable?largestFittingScale(attempt):{scale,result:attempt(scale)};
+ if(!choice?.result){
+  if(fixedScale)return null;
+  throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');
  }
- const result=attempt(nextScale);
- if(!result)return null;
+ const {scale:nextScale,result}=choice;
  const positions={},offset=[area.x+(area.width-(result.packed.w-GAP))/2,area.y+(area.height-(result.packed.h-GAP))/2];for(const item of result.items){const p=result.packed.at[item.key];positions[item.key]=[offset[0]+p[0]-item.box.x,offset[1]+p[1]-item.box.y];}
  return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes:result.items.map(item=>({key:item.key,x:positions[item.key][0]+item.box.x,y:positions[item.key][1]+item.box.y,width:item.width,height:item.height}))};
 }

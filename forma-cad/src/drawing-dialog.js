@@ -620,7 +620,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   selectDrawingComment(id);render();$('drawing-comment').focus();
  };
  $('drawing-comment-remove').onclick=()=>{if(busy)return;removeDrawingComment(activeComment);selection=null;render();};
- function applyAutomaticLayout(){if(!data)return false;try{const result=optimizeDrawingLayout(data,{scale:Number($('drawing-scale').value),dimensions,comment:mainComment,options:options()});positions=result.positions;dimensions=result.dimensions;layoutKind='compact';setScale(result.scale);$('drawing-paper-size').value=result.paper;picking=null;action=null;selection=null;render(true,{reflowDimensions:true});if(!overflow)status('図の位置関係を自由に組み替え、用紙内で大きく自動配置しました。縮尺 '+(result.scale>=1?Number(result.scale.toFixed(4))+':1':'1:'+Number((1/result.scale).toFixed(4)))+'。元に戻すで取消できます');return true;}catch(error){status('自動配置できません：'+error.message);return false;}}
+ function applyAutomaticLayout(){if(!data)return false;try{const result=optimizeDrawingLayout(data,{scale:Number($('drawing-scale').value),dimensions,comment:mainComment,options:options()});positions=result.positions;dimensions=result.dimensions;layoutKind='compact';setScale(result.scale);$('drawing-paper-size').value=result.paper;picking=null;action=null;selection=null;render(true,{reflowDimensions:true});if(!overflow)status('図の位置関係を自由に組み替え、用紙内で大きく自動配置しました。縮尺 '+drawingScaleLabel(result.scale)+'。元に戻すで取消できます');return true;}catch(error){status('自動配置できません：'+error.message);return false;}}
  function persist(){
   if(!data)return;
   details=pruneDetailDimensionPlacements(details,dimensions);

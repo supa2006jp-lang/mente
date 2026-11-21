@@ -76,14 +76,13 @@ export function stepDrawingScale(value,direction){
 export function snapDrawingResizeScale(start,requested,minimum,maximum){
  const target=Math.max(minimum,Math.min(maximum,requested));
  if(Math.abs(target/start-1)<1e-6)return start;
- // Small drawing scales, such as 1:20, still need room for resizing.
- if(start<drawingScaleStep&&target<drawingScaleStep){
-  return Math.max(minimum,Math.min(maximum,Number(target.toPrecision(9))));
- }
- const first=Math.max(1,Math.ceil(minimum*scaleTicks-scaleTickTolerance));
- const last=Math.floor(maximum*scaleTicks+scaleTickTolerance);
+ // Below 0.1×, use tenths in the denominator of the reduction ratio.
+ const small=start<drawingScaleStep&&target<drawingScaleStep;
+ const first=Math.max(1,Math.ceil((small?scaleTicks/maximum:minimum*scaleTicks)-scaleTickTolerance));
+ const last=Math.floor((small?scaleTicks/minimum:maximum*scaleTicks)+scaleTickTolerance);
  if(first>last)return start;
- const snapped=Math.max(first,Math.min(last,Math.round(target*scaleTicks)))/scaleTicks;
+ const tick=Math.max(first,Math.min(last,Math.round(small?scaleTicks/target:target*scaleTicks)));
+ const snapped=small?scaleTicks/tick:tick/scaleTicks;
  // Close to a saved scale between ticks, a drag should never move the other way.
  return target>start?Math.max(start,snapped):Math.min(start,snapped);
 }
@@ -93,7 +92,16 @@ export function parseDrawingScale(text){
  const value=Number(parts[0])/Number(parts[1]??1);
  return validDrawingScale(value)?value:null;
 }
-export function drawingScaleLabel(scale){return scale>=1?Number(scale.toFixed(4))+':1':'1:'+Number((1/scale).toFixed(4));}
+export function drawingScaleLabel(scale){
+ const multiplier=Number(scale.toFixed(4));
+ if(scale>=1)return multiplier+':1';
+ const inverse=Number((1/scale).toFixed(4));
+ const isTenth=value=>Math.abs(value*scaleTicks-Math.round(value*scaleTicks))<=scaleTickTolerance;
+ // Both forms describe the same physical scale. Use the multiplier if the
+ // reciprocal would turn an exact tenth (e.g. 0.9) into a long decimal.
+ if(isTenth(multiplier)&&!isTenth(inverse))return multiplier+':1';
+ return '1:'+inverse;
+}
 export function drawingScaleSummary(scales){
  const scale=scales[0];
  const mixed=scales.some(value=>Math.abs(value-scale)>1e-10*Math.max(value,scale));
