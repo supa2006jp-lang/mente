@@ -190,10 +190,25 @@ try{
  assert.equal(await scaleOn(editor,'front'),.4);
  assert.equal(await field('scale').inputValue(),'0.4');
  assert.equal(await editor.locator('[data-dimension] text').textContent(),'60');
+ await field('scale-manual').press('ArrowUp');
+ assert.equal(await scaleOn(editor,'front'),.5);
+ await field('scale-manual').press('ArrowDown');
+ assert.equal(await scaleOn(editor,'front'),.4);
+ await field('view-scales').evaluate(details=>details.open=true);
+ const frontInput=field('view-scales').locator('[data-view-scale-input=front]');
+ await frontInput.press('ArrowUp');
+ assert.equal(await scaleOn(editor,'front'),.5);
+ assert.equal(await scaleOn(editor,'top'),.4);
+ await field('undo').click();
+ assert.equal(await scaleOn(editor,'front'),.4);
  const resize=name=>editor.locator('[data-view-resize="'+name+'"]');
+ const beforeSmallDrag=await geometry(editor,'front');
+ await drag(resize('front'),-2,-1);
+ assert.equal(await geometry(editor,'front'),beforeSmallDrag);
  await drag(resize('front'),-12,-5);
  const resizedProjection=await scaleOn(editor,'front');
  assert.ok(resizedProjection<.4);
+ assert.equal(resizedProjection*10,Math.round(resizedProjection*10));
  assert.equal(await scaleOn(editor,'top'),resizedProjection);
  await field('undo').click();
  assert.equal(await scaleOn(editor,'front'),.4);
@@ -212,10 +227,15 @@ try{
   assert.equal(await field('page-edit').inputValue(),String(number-1));
   assert.equal(await scaleOn(editor,view),scale);
  }
+ await pageScale(2).press('ArrowUp');
+ assert.equal(await scaleOn(editor,'section-a'),.4);
+ await field('undo').click();
+ assert.equal(await scaleOn(editor,'section-a'),.375);
  const segment=await geometry(editor,'section-a');
  await drag(resize('section-a'),-10,-6);
  const sectionScale=await scaleOn(editor,'section-a');
  assert.ok(sectionScale<.375&&sectionScale>0);
+ assert.equal(sectionScale*10,Math.round(sectionScale*10));
  const place=t=>t.slice(0,t.indexOf('scale('));
  assert.equal(place(await geometry(editor,'section-a')),place(segment));
  await field('undo').click();assert.equal(await scaleOn(editor,'section-a'),.375);
@@ -248,5 +268,5 @@ try{
  await field('page-edit').selectOption('-1');
  assert.equal(await scaleOn(editor,'section-a'),.4);
  assert.deepEqual(errors,[]);
- console.log('PASS on-page PDF editing, custom page scales, corner resizing, undo/redo, overflow, export and project reload');
+ console.log('PASS tenths for keyboard and resize controls, custom ratios, on-page PDF editing, undo/redo, export and project reload');
 }finally{await browser?.close();server.close();}

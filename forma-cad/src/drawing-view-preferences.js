@@ -64,8 +64,29 @@ export function drawingProjectedFrame(name,bounds){
 export const drawingViewFactor=(name,options={})=>name==='front'&&options.viewPriority==='front'?1.4:name==='iso'&&options.isoMode==='small'?.5:1;
 export const drawingViewScale=(name,scale,options={},factor=1)=>options.viewScales?.[name]??scale*drawingViewFactor(name,options)*factor;
 export const minDrawingScale=.0001,maxDrawingScale=1000;
+export const drawingScaleStep=.1;
+const scaleTicks=1/drawingScaleStep,scaleTickTolerance=1e-9;
 export const validDrawingScale=value=>Number.isFinite(value)&&value>=minDrawingScale&&value<=maxDrawingScale;
 export const validDrawingDetailFactor=value=>value>=1&&validDrawingScale(value);
+export function stepDrawingScale(value,direction){
+ const ticks=value*scaleTicks;
+ const next=direction>0?Math.floor(ticks+scaleTickTolerance)+1:Math.ceil(ticks-scaleTickTolerance)-1;
+ return next<1?Math.min(value,drawingScaleStep):Math.min(maxDrawingScale,next/scaleTicks);
+}
+export function snapDrawingResizeScale(start,requested,minimum,maximum){
+ const target=Math.max(minimum,Math.min(maximum,requested));
+ if(Math.abs(target/start-1)<1e-6)return start;
+ // Small drawing scales, such as 1:20, still need room for resizing.
+ if(start<drawingScaleStep&&target<drawingScaleStep){
+  return Math.max(minimum,Math.min(maximum,Number(target.toPrecision(9))));
+ }
+ const first=Math.max(1,Math.ceil(minimum*scaleTicks-scaleTickTolerance));
+ const last=Math.floor(maximum*scaleTicks+scaleTickTolerance);
+ if(first>last)return start;
+ const snapped=Math.max(first,Math.min(last,Math.round(target*scaleTicks)))/scaleTicks;
+ // Close to a saved scale between ticks, a drag should never move the other way.
+ return target>start?Math.max(start,snapped):Math.min(start,snapped);
+}
 export function parseDrawingScale(text){
  const parts=text.normalize('NFKC').trim().split(/\s*[:/]\s*/);
  if(parts.length>2||parts.some(part=>!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(part)))return null;

@@ -385,6 +385,8 @@ try{
   drawing.dimensions[0],
  ],options:{...drawing.options,frame:false,layout:'projection'}};
  await open('enlargement.forma.json',{...project,drawing:enlarged});
+ await field('detail-factor').press('ArrowUp');
+ assert.equal(await field('detail-factor').inputValue(),'2.1');
  await field('detail-factor').fill('2.75');
  await field('detail-add').click();
  const top=preview.locator('[data-view=top] > g[transform]');
@@ -407,6 +409,11 @@ try{
  await field('undo').click();
  assert.equal(await detailScale(),2.75);
  await field('redo').click();
+ assert.equal(await detailScale(),3.125);
+ await field('detail-factor-edit').press('ArrowUp');
+ await field('detail-factor-edit').press('Tab');
+ assert.equal(await detailScale(),3.2);
+ await field('undo').click();
  assert.equal(await detailScale(),3.125);
  const inheritedLabel=preview.locator('[data-detail-dimension] text').filter({hasText:/^8\.25$/});
  const sourcePosition=await textPoint();

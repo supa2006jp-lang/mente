@@ -15,7 +15,7 @@ import {KernelClient} from './kernel-client.js';
 import {installDrawingPresets} from './drawing-presets.js';
 import {drawingBackgroundColor,drawingSheet} from './drawing-sheet.js';
 import {defaultDrawingViews,drawingProjectionNames,drawingProjections,drawingScaleLabel,drawingViewVisible,projectionDragAxis,
- minDrawingScale,maxDrawingScale,parseDrawingScale,validDrawingDetailFactor} from './drawing-view-preferences.js';
+ minDrawingScale,maxDrawingScale,drawingScaleStep,parseDrawingScale,snapDrawingResizeScale,stepDrawingScale,validDrawingDetailFactor} from './drawing-view-preferences.js';
 import {optimizeDrawingLayout,drawingViewFrames,rescaleDrawingAnnotations} from './drawing-auto-layout.js';
 import {drawingViewport} from './drawing-viewport.js';
 import {installDrawingWorkspace} from './drawing-workspace.js';
@@ -62,8 +62,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   <small id="drawing-dimension-hint"></small>
   <button id="drawing-dimension-add">寸法線を追加</button><button id="drawing-dimension-overall">全体寸法を追加</button><button id="drawing-dimension-undo">最後の寸法を削除</button><button id="drawing-dimension-clear">寸法を全削除</button><button id="drawing-dimension-cancel" hidden>寸法追加を中止</button>
  </div>
- <div class="drawing-controls"><button id="drawing-center-add">中心マーク</button><button id="drawing-center-line">中心線（２点）</button><button id="drawing-centers-all">円の中心を一括表示</button><label>切断線<select id="drawing-section-orientation"><option value="vertical">縦</option><option value="horizontal">横</option></select></label><button id="drawing-section-add">断面図を追加</button><label>詳細図の新規倍率 (倍)<input id="drawing-detail-factor" type="number" min="1" max="${maxDrawingScale}" step="any" value="2"></label><button id="drawing-detail-add">拡大詳細図を追加</button><label><input id="drawing-snap" type="checkbox" checked>配置・寸法線の吸着（Altで解除）</label></div>
- <div id="drawing-extra-editor" class="drawing-controls" hidden><label>断面・詳細図<select id="drawing-extra-target"></select></label><button id="drawing-section-reverse">見る方向を反転</button><label id="drawing-section-position-label">切断位置 (mm)<input id="drawing-section-position" type="number" step="0.1"></label><label id="drawing-detail-factor-label" hidden>選択した詳細図の倍率 (倍)<input id="drawing-detail-factor-edit" type="number" min="1" max="${maxDrawingScale}" step="any"></label><button id="drawing-extra-delete">この図を削除</button><span>切断線は直接ドラッグ、図の配置は「配置をドラッグ」で変更できます</span></div>
+ <div class="drawing-controls"><button id="drawing-center-add">中心マーク</button><button id="drawing-center-line">中心線（２点）</button><button id="drawing-centers-all">円の中心を一括表示</button><label>切断線<select id="drawing-section-orientation"><option value="vertical">縦</option><option value="horizontal">横</option></select></label><button id="drawing-section-add">断面図を追加</button><label>詳細図の新規倍率 (倍)<input id="drawing-detail-factor" type="number" min="1" max="${maxDrawingScale}" step="${drawingScaleStep}" value="2"></label><button id="drawing-detail-add">拡大詳細図を追加</button><label><input id="drawing-snap" type="checkbox" checked>配置・寸法線の吸着（Altで解除）</label></div>
+ <div id="drawing-extra-editor" class="drawing-controls" hidden><label>断面・詳細図<select id="drawing-extra-target"></select></label><button id="drawing-section-reverse">見る方向を反転</button><label id="drawing-section-position-label">切断位置 (mm)<input id="drawing-section-position" type="number" step="0.1"></label><label id="drawing-detail-factor-label" hidden>選択した詳細図の倍率 (倍)<input id="drawing-detail-factor-edit" type="number" min="1" max="${maxDrawingScale}" step="${drawingScaleStep}"></label><button id="drawing-extra-delete">この図を削除</button><span>切断線は直接ドラッグ、図の配置は「配置をドラッグ」で変更できます</span></div>
  <div class="drawing-controls"><button id="drawing-undo" disabled>元に戻す</button><button id="drawing-redo" disabled>やり直す</button><span>寸法・コメントをクリックして編集（Ctrl+Z / Ctrl+Y）</span></div><div id="drawing-editor" hidden class="drawing-controls"><strong id="drawing-editor-title"></strong><label id="drawing-precision-label">小数点以下<select id="drawing-precision"><option value="auto">自動（最大３桁）</option>${[0,1,2,3,4,5,6].map(n=>`<option value="${n}">${n}桁</option>`).join('')}</select></label><label id="drawing-font-label">文字サイズ (mm)<input id="drawing-font" type="number" min="1.5" max="10" step="0.1"></label><button id="drawing-edit-comment">本文を編集</button><button id="drawing-delete-selection">選択項目を削除</button><button id="drawing-deselect">編集を終了</button></div><label class="drawing-comment-label">コメント<textarea id="drawing-comment" rows="2" maxlength="2000" placeholder="材質・加工の注意事項など（改行できます）"></textarea></label><p id="drawing-status" role="status"></p><div id="drawing-preview"></div><div class="drawing-actions"><span id="drawing-paper"></span><button id="drawing-svg" disabled>SVG保存</button><button id="drawing-pdf" disabled>PDF保存</button></div>`;
  document.body.append(dialog);const $=id=>dialog.querySelector('#'+id);let saved=null,data=null,sheet=null,revision=0,features=[],visible=[],selected=[],dimensions=[],positions={},picking=null,source='',targets=[],overflow=false,drag=null,selection=null,commentSize=3.5,undo=[],redo=[],replaying=false,suppressClick=false,sections=[],details=[],markers=[],extraTarget='',action=null,busy=false,layoutKind='projection';
  const viewportHost=$('drawing-preview');viewportHost.tabIndex=0;viewportHost.setAttribute('aria-label','図面。ホイールで拡大、ホイール押し込みまたはSpace＋ドラッグで移動');
@@ -122,7 +122,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  pageScalePanel.id='drawing-page-scales';pageScalePanel.hidden=true;
  pageScalePanel.innerHTML='<summary>PDFのページごとの縮尺</summary><div class="drawing-controls"></div><small>1:2.5 や 0.4 のように入力します。空欄のページは共通の設定に従います。</small>';
  pagePanel.after(pageScalePanel);
- const scaleLabel=document.createElement('label'),scaleText=scaleInput(value=>changeCommonScale(value),false);
+ const scaleLabel=document.createElement('label'),scaleText=scaleInput(changeCommonScale,{optional:false});
  scaleText.id='drawing-scale-manual';scaleLabel.append('縮尺を手入力',scaleText);
  $('drawing-scale').closest('label').after(scaleLabel);
  const pdfPagesNote=document.createElement('p');
@@ -308,11 +308,23 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   select.value=text;
  }
- function scaleInput(onChange,optional=true){
+ function scaleInput(onChange,{optional=true,effectiveScale=()=>Number($('drawing-scale').value)}={}){
   const input=document.createElement('input');input.type='text';input.inputMode='decimal';input.maxLength=32;
   input.spellcheck=false;input.placeholder='例 1:2.5';
+  input.title='↑・↓キーで縮尺を'+drawingScaleStep+'刻みで変更';
   input.oninput=()=>input.setCustomValidity('');
-  input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();input.blur();}};
+  input.onkeydown=event=>{
+   if(event.isComposing)return;
+   if(event.key==='Enter'){event.preventDefault();input.blur();return;}
+   if(event.key!=='ArrowUp'&&event.key!=='ArrowDown')return;
+   event.preventDefault();
+   const text=input.value.trim(),scale=text?parseDrawingScale(text):effectiveScale();
+   if(!scale)return;
+   const next=stepDrawingScale(scale,event.key==='ArrowUp'?1:-1);
+   if(next===scale)return;
+   input.value=String(next);input.setCustomValidity('');
+   onChange(next);
+  };
   input.onchange=()=>{
    input.setCustomValidity('');
    const text=input.value.trim(),value=optional&&!text?undefined:parseDrawingScale(text);
@@ -399,7 +411,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
      if(!sheet||busy||drag)return;
      if(value===undefined)delete pdfPageScales[page];else pdfPageScales[page]=value;
      editPDFPage(page-1);persist();
-    });
+    },{effectiveScale:()=>{
+     const common=Number($('drawing-scale').value);
+     if(editingPage===page-1&&sheet?.pageScale)return sheet.pageScale;
+     if(pdfPlacement!=='auto')return common;
+     try{return makePDFPages()[page-1]?.pageScale??common;}catch{return common;}
+    }});
     input.dataset.pdfPageScale=String(page);input.setAttribute('aria-label',page+' ページの縮尺');
     label.append(page+' ページ',input);host.append(label);
    }
@@ -524,7 +541,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     select.dataset.viewScale=name;label.append(viewLabel(name),select);
     for(const [value,text] of [['','共通縮尺'],['0.1','1:10'],['0.2','1:5'],['0.5','1:2'],['1','1:1'],['2','2:1'],['4','4:1']])select.add(new Option(text,value));
     select.onchange=()=>changeViewScale(name,select.value?Number(select.value):undefined);
-    const input=scaleInput(value=>changeViewScale(name,value));
+    const input=scaleInput(value=>changeViewScale(name,value),{effectiveScale:()=>sheet?.layout[name]?.scale});
     input.dataset.viewScaleInput=name;input.setAttribute('aria-label',viewLabel(name)+' の縮尺を手入力');
     row.className='drawing-view-scale-row';row.append(label,input);container.append(row);
    }
@@ -896,7 +913,17 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   startDimension(d.kind,{view:d.view,replace:index});
   viewportHost.scrollIntoView({block:'nearest'});
  };
- dialog.addEventListener('keydown',e=>{e.stopPropagation();if(activateHoleKey(e))return;const input=e.target.matches('input,textarea,select,[contenteditable="true"]');if(input)return;if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){e.preventDefault();e.stopPropagation();(e.key.toLowerCase()==='y'||e.shiftKey?$('drawing-redo'):$('drawing-undo')).click();}else if((e.key==='Delete'||e.key==='Backspace')&&selection){e.preventDefault();e.stopPropagation();$('drawing-delete-selection').click();}},true);
+ dialog.addEventListener('keydown',e=>{
+  e.stopPropagation();
+  if(activateHoleKey(e)||e.target.matches('input,textarea,select,[contenteditable="true"]'))return;
+  const key=e.key.toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&['z','y'].includes(key)){
+   e.preventDefault();
+   $(key==='y'||e.shiftKey?'drawing-redo':'drawing-undo').click();
+  }else if((e.key==='Delete'||e.key==='Backspace')&&selection){
+   e.preventDefault();$('drawing-delete-selection').click();
+  }
+ });
  function controls(){
   const ready=!!sheet&&!busy,editable=ready&&names().length>0;
   syncDimensionHint();
@@ -2173,27 +2200,32 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const {name,view,page,locked,scale}=state;
   const width=view.width,height=view.height;
   const stretch=1+(dx*width+dy*height)/Math.max(1e-8,width*width+height*height);
-  const ratio=Math.min(state.maximum,Math.max(state.minimum,stretch));
+  const initialScale=locked?scale:view.scale;
+  const next=snapDrawingResizeScale(initialScale,initialScale*stretch,initialScale*state.minimum,initialScale*state.maximum);
+  if(next===(state.lastScale??initialScale))return;
+  state.lastScale=next;
+  const ratio=next/initialScale;
   const adjusted=value=>Math.max(minDrawingScale,Math.min(maxDrawingScale,Number((value*ratio).toPrecision(9))));
-  if(Math.abs(ratio-1)<1e-6)restorePaperDrag(state);
+  if(next===initialScale)restorePaperDrag(state);
   else if(page){
-   pdfViewScales={...state.previousPdfViews,[name]:adjusted(view.scale)};
+   pdfViewScales={...state.previousPdfViews,[name]:next};
    if(pdfPlacement==='auto')pdfPageScales={...state.previousPdfScales,[page]:state.pageScale};
    pdfPositions={...state.cancelPositions,...state.pagePositions};
   }else{
-   const nextScale=locked?adjusted(scale):scale;
+   const nextScale=locked?next:scale;
    viewScales={...state.previousViewScales};
    if(locked){
     for(const id of drawingProjectionNames)if(viewScales[id]!==undefined)viewScales[id]=adjusted(viewScales[id]);
     setScale(nextScale);
    }else{
-    viewScales[name]=adjusted(view.scale);
+    viewScales[name]=next;
     positions[name]=[view.x,view.y];
    }
    const nextFrames=drawingViewFrames(data,options(),nextScale);
    dimensions=rescaleDrawingAnnotations(state.previousDimensions,nextFrames,scale,nextScale,state.frames);
   }
   render(false);
+  state.resized=!!sheet&&next!==initialScale;
   if(!sheet){restorePaperDrag(state);render(false);}
  }
  function drawingDragBox(state){
@@ -2402,7 +2434,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const section=sections.find(s=>s.id===finished.id),coordinate=section.coordinate;
    section.coordinate=finished.origin;
    if(coordinate!==finished.origin)editSection(section,{coordinate});else render(false);
-  }else render(true,{reflowDimensions:finished.type==='viewResize'&&!finished.page});
+  }else if(finished.type==='viewResize'&&!finished.resized)render(false);
+  else render(true,{reflowDimensions:finished.type==='viewResize'&&!finished.page});
  }
  for(const type of ['pointerup','pointercancel','lostpointercapture'])host.addEventListener(type,e=>{
   if(e.pointerId!==drag?.pointerId)return;

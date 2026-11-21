@@ -5,7 +5,7 @@ import {drawingPDFHasMultiplePages,drawingPDFPages} from '../src/drawing-pdf-pag
 import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {readDrawingState} from '../src/drawing-state.js';
-import {parseDrawingScale} from '../src/drawing-view-preferences.js';
+import {minDrawingScale,maxDrawingScale,parseDrawingScale,snapDrawingResizeScale,stepDrawingScale} from '../src/drawing-view-preferences.js';
 
 const rect=(w,h)=>({visible:[`M 0 0 L ${w} 0 L ${w} ${-h} L 0 ${-h} Z`],hidden:[]});
 const part={bounds:[[0,0,0],[60,40,20]],bodyCount:1,views:{
@@ -116,6 +116,24 @@ test('custom scale input accepts ratios and decimals within the saved drawing ra
  for(const input of ['1:2.5','１：２．５','0.4','.4','2 / 5'])assert.equal(parseDrawingScale(input),.4);
  assert.equal(parseDrawingScale('3:2'),1.5);
  for(const input of ['0','-5','1:0','1:4:3','1e1','1001','1:11000','NaN',''])assert.equal(parseDrawingScale(input),null);
+});
+
+test('the keyboard and resize handle adjust the drawing scale in tenths',()=>{
+ assert.equal(stepDrawingScale(.3,1),.4);
+ assert.equal(stepDrawingScale(.3,-1),.2);
+ assert.equal(stepDrawingScale(.375,1),.4);
+ assert.equal(stepDrawingScale(.375,-1),.3);
+ assert.equal(stepDrawingScale(maxDrawingScale,1),maxDrawingScale);
+ const resize=(start,target)=>snapDrawingResizeScale(start,target,minDrawingScale,maxDrawingScale);
+ assert.equal(resize(1,1.04),1);
+ assert.equal(resize(1,1.06),1.1);
+ assert.equal(resize(1,.94),.9);
+ assert.equal(resize(.43,.43),.43);
+ assert.equal(resize(.43,.44),.43);
+ assert.equal(resize(.43,.46),.5);
+ assert.equal(resize(.1,.04),.1);
+ assert.equal(resize(.05,.045),.045);
+ assert.equal(snapDrawingResizeScale(.4,.67,.1,.65),.6);
 });
 
 test('page scales and resized PDF views are independent of the editor scale',()=>{
