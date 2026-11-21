@@ -5532,9 +5532,13 @@ function openCylinderHinge(){if(stage!=='model'||document.querySelector('dialog[
 cylinderHingeButton.onclick=openCylinderHinge;
 
 
-function openTSlotParts(){
+const standaloneFrameOpenings=new WeakMap();
+function openTSlotParts(settings={}){
  const before=features,isCurrent=()=>features===before;
- const entry=manualFrameOutputEntry({download,notify,isCurrent,name:'部品単体'});
+ const standalone=!meshes.size;
+ const entry=manualFrameOutputEntry({...settings,download,notify,isCurrent,name:'部品単体',
+  opening:settings.opening??(standalone?standaloneFrameOpenings.get(before):undefined),
+  rememberOpening:standalone?size=>standaloneFrameOpenings.set(before,size):undefined});
  outputDialog.open({title:'T溝フレームの部品と設定',isCurrent,choices:[
   {id:'frame3mf',label:'3MF（T溝フレーム・180 mmプレート）',entries:[entry]}]});
 }

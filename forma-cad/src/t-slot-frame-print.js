@@ -151,7 +151,7 @@ export function readFrameStock(bytes) {
 }
 let stockPromise;
 export function loadFrameStock() {
-  if(!stockPromise)stockPromise=fetch(new URL('t-slot-m8.dat?v=5',import.meta.url)).then(async response=>{
+  if(!stockPromise)stockPromise=fetch(new URL('t-slot-m8.dat?v=6',import.meta.url)).then(async response=>{
     if(!response.ok)throw Error('M8フレーム部品を読み込めませんでした。');
     return readFrameStock(new Uint8Array(await response.arrayBuffer()));
   }).catch(error=>{stockPromise=undefined;throw error;});

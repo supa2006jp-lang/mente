@@ -1,4 +1,4 @@
-import {FRAME_LIMIT,frameAssembly,frameBill,measureFrameGeometry,framePartName,savedFrameAssembly} from './t-slot-frame.js';
+import {FRAME_LIMIT,frameAssembly,frameBill,frameOpeningSize,measureFrameGeometry,framePartName,savedFrameAssembly} from './t-slot-frame.js';
 import {framePrintPlates,saveFramePlates} from './t-slot-frame-print.js';
 import {estimateFrameFilament} from './t-slot-filament.js';
 import {manualFrameBill,mergeFrameBill,preferredRailLimit,rememberRailLimit} from './t-slot-parts.js';
@@ -6,6 +6,11 @@ import {framePanels,PANEL_HOLE_RADIUS} from './t-slot-panels.js';
 import {manualControls,bindManualControls,panelControls,bindPanelControls} from './t-slot-print-options.js';
 
 const mm=n=>Number(n.toFixed(6));
+function savedPartsSettings(frame){
+  if(!frame)return {};
+  const version=frame.analysis.tSlotSizingVersion??1;
+  return {opening:frameOpeningSize(frame.analysis.tSlotBox,version),sizingVersion:version,maxRailLength:frame.spec.maxRailLength??FRAME_LIMIT};
+}
 export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commit,notify,openParts}) {
   const dialog=document.createElement('dialog');
   dialog.id='t-slot-frame-dialog';dialog.setAttribute('aria-labelledby','t-slot-title');
@@ -17,12 +22,15 @@ export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commi
   document.body.append(dialog);
   const target=dialog.querySelector('select'),summary=dialog.querySelector('[role=status]'),apply=dialog.querySelector('#t-slot-apply');
   const lengths=dialog.querySelector('#t-slot-lengths'),limit=dialog.querySelector('#t-slot-rail-limit'),partsOnly=dialog.querySelector('#t-slot-parts-only');
-  let original=null,editing=null,revision=0,busy=false;
+  let original=null,editing=null,measuredBox=null,revision=0,busy=false;
+  const targetFrame=()=>editing?.spec.target===target.value?editing:original?.find(f=>f.spec?.type==='tSlotFrame'&&f.spec.target===target.value);
   function inspect(){
-    apply.disabled=true;lengths.hidden=true;
+    apply.disabled=true;lengths.hidden=true;measuredBox=null;
     if(!meshes.has(target.value)){summary.textContent='基準にする立方体または直方体を作成してください。';return;}
     try{
-      const box=measureFrameGeometry(meshes.get(target.value).geometry),assembly=frameAssembly(box,undefined,limit.valueAsNumber);
+      const box=measureFrameGeometry(meshes.get(target.value).geometry);
+      measuredBox=box;
+      const assembly=frameAssembly(box,undefined,limit.valueAsNumber);
       const rails=assembly.parts.filter(p=>p.kind==='rail').length;
       lengths.tBodies[0].replaceChildren(...assembly.runs.map((run,i)=>{
         const row=document.createElement('tr'),axis=document.createElement('th');
@@ -41,18 +49,23 @@ export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commi
     }catch(error){summary.textContent=error.message;}
   }
   function loadLimit(){
-    const existing=editing??original.find(f=>f.spec?.type==='tSlotFrame'&&f.spec.target===target.value);
+    const existing=targetFrame();
     limit.value=existing?(existing.spec.maxRailLength??FRAME_LIMIT):preferredRailLimit();
   }
   target.onchange=()=>{loadLimit();inspect();};limit.oninput=inspect;
-  partsOnly.onclick=()=>{dialog.close();openParts();};
+  partsOnly.onclick=()=>{
+    const settings=savedPartsSettings(targetFrame());
+    if(measuredBox)settings.opening=frameOpeningSize(measuredBox,settings.sizingVersion);
+    if(Number.isFinite(limit.valueAsNumber))settings.maxRailLength=limit.valueAsNumber;
+    dialog.close();openParts(settings);
+  };
   dialog.querySelector('[data-close]').onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>{if(!dialog.open){revision++;original=null;busy=false;}});
   apply.onclick=async()=>{
     if(busy||!original||apply.disabled)return;
     const before=original,token=++revision,current=()=>dialog.open&&revision===token&&getFeatures()===before;
     if(!current()){summary.textContent='モデルが変更されました。開き直してください。';return;}
-    const existing=editing??before.find(f=>f.spec?.type==='tSlotFrame'&&f.spec.target===target.value);
+    const existing=editing??targetFrame();
     const spec={type:'tSlotFrame',id:existing?.id??crypto.randomUUID(),target:target.value,maxRailLength:limit.valueAsNumber};
     const prefix=existing?before.slice(0,before.indexOf(existing)):before;
     busy=true;limit.disabled=partsOnly.disabled=target.disabled=apply.disabled=true;summary.textContent='フレームと固定治具を配置しています…';
@@ -70,10 +83,14 @@ export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commi
   return {
     open(selected,feature=null){
       original=getFeatures();editing=feature;revision++;busy=false;limit.disabled=partsOnly.disabled=target.disabled=false;
-      const generated=new Set(original.filter(f=>f.spec?.type==='tSlotFrame').flatMap(f=>f.outputs.map(o=>o.id)));
+      const frames=original.filter(f=>f.spec?.type==='tSlotFrame'),owner=feature??frames.find(f=>f.outputs.some(o=>o.id===selected));
+      const generated=new Set(frames.flatMap(f=>f.outputs.map(o=>o.id)));
       target.replaceChildren(...[...meshes.keys()].filter(id=>!generated.has(id)).map(id=>new Option(bodyName(id),id)));
-      if(!target.options.length){original=null;openParts();return;}
-      const id=feature?.spec.target??selected;
+      if(!target.options.length||(owner&&!meshes.has(owner.spec.target))){
+        const source=owner??frames.find(f=>f.outputs.some(o=>meshes.has(o.id)));
+        original=null;openParts(savedPartsSettings(source));return;
+      }
+      const id=owner?.spec.target??selected;
       if([...target.options].some(o=>o.value===id))target.value=id;
       apply.textContent=feature?'配置を更新':'配置する';
       loadLimit();dialog.showModal();inspect();
@@ -102,9 +119,10 @@ function filamentLabel(amount) {
   if(!amount)return '算出不可';
   return '約 '+filamentNumber.format(amount.grams)+' g（'+filamentNumber.format(amount.meters)+' m）';
 }
-function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName},printSettings) {
+function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName,opening,maxRailLength,sizingVersion,rememberOpening},printSettings) {
   const manual=!frames.length;
   const assemblies=frames.map(f=>savedFrameAssembly(f.analysis));
+  const modelOpening=frames.length===1?frameOpeningSize(frames[0].analysis.tSlotBox,frames[0].analysis.tSlotSizingVersion??1):null;
   const assembly={parts:assemblies.flatMap(a=>a.parts),fixings:assemblies.reduce((sum,a)=>sum+a.fixings,0)};
   let bolts,shortBolts,nuts,select,canvas,layout,plates,estimate,totalLabel,totalAmount,plateAmount,clearAmount,thinRailNote,manualOrder,panelSelection;
   function redraw(){
@@ -120,7 +138,7 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName}
         '<label>ボルト（首下16 mm）<input type="number" id="t-slot-extra-bolts" min="0" max="10000" step="1" value="0" required></label>'+
         '<label>ボルト（首下10 mm）<input type="number" id="t-slot-extra-bolts-10" min="0" max="10000" step="1" value="0" required></label>'+
         '<label>T溝ナット<input type="number" id="t-slot-extra-nuts" min="0" max="10000" step="1" value="0" required></label></div></fieldset>'+
-        '<p>フレームの取付用に、首下16 mmのボルト'+assembly.fixings+'本とT溝ナット'+assembly.fixings+'個を含みます。</p>')+panelControls(manual)+
+        '<p>フレームの取付用に、首下16 mmのボルト'+assembly.fixings+'本とT溝ナット'+assembly.fixings+'個を含みます。</p>')+panelControls(manual,modelOpening)+
         '<div class="t-slot-layout" hidden><div class="t-slot-plate"><div class="t-slot-print-fields">'+
         '<label>3MFのノズル径<select id="t-slot-print-nozzle"><option value="0.4">0.4 mm</option><option value="0.6">0.6 mm</option></select></label>'+
         '<label>印刷プレート<select id="t-slot-print-plate"></select></label></div><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>'+
@@ -129,13 +147,13 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName}
         '<dt hidden>うち透明PETG</dt><dd id="t-slot-filament-clear" hidden></dd><dt>表示中のプレート</dt><dd id="t-slot-filament-plate"></dd></dl>'+
         '<p>PETG（径1.75 mm）・積層0.18 mm・壁4周・インフィル30%。フレームのあるプレートは5 mmのブリムを含みます。</p>'+
         '<p id="t-slot-thin-rail" hidden>長さ0.15 mm未満のフレームは、この設定の初層でスライスできません。</p></section></div>';
-      if(manual)manualOrder=bindManualControls(panel,refresh);
+      if(manual)manualOrder=bindManualControls(panel,refresh,maxRailLength);
       else{
         bolts=panel.querySelector('#t-slot-extra-bolts');shortBolts=panel.querySelector('#t-slot-extra-bolts-10');
         nuts=panel.querySelector('#t-slot-extra-nuts');
         bolts.oninput=shortBolts.oninput=nuts.oninput=refresh;
       }
-      panelSelection=bindPanelControls(panel,refresh);
+      panelSelection=bindPanelControls(panel,refresh,{opening,rememberOpening});
       const nozzle=panel.querySelector('#t-slot-print-nozzle');
       nozzle.value=String(printSettings.nozzle);nozzle.onchange=()=>{printSettings.nozzle=Number(nozzle.value);};
       select=panel.querySelector('#t-slot-print-plate');
@@ -148,19 +166,22 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName}
     async load(){
       layout.hidden=true;
       const index=Math.max(0,select.selectedIndex);
-      const base=manual?manualFrameBill(manualOrder.lines(),manualOrder.limit.valueAsNumber):
-        frameBill(assembly,bolts.valueAsNumber,nuts.valueAsNumber,shortBolts.valueAsNumber);
+      const individual=manual?manualFrameBill(manualOrder.lines(),manualOrder.limit.valueAsNumber):[];
+      let base=manual?[]:frameBill(assembly,bolts.valueAsNumber,nuts.valueAsNumber,shortBolts.valueAsNumber);
       const faces=panelSelection.selected(),panelOrders=[];
       if(faces.length){
         if(manual){
           const box=panelSelection.box();
-          panelOrders.push(framePanels(box,frameAssembly(box,undefined,manualOrder.limit.valueAsNumber),faces));
+          const version=opening?.every((n,i)=>n===box.size[i])?sizingVersion:undefined;
+          const frame=frameAssembly(box,version,manualOrder.limit.valueAsNumber);
+          if(panelSelection.includeFrame())base=frameBill(frame);
+          panelOrders.push(framePanels(box,frame,faces));
         }else for(const [i,frame] of frames.entries()){
           const order=framePanels(frame.analysis.tSlotBox,assemblies[i],faces);
           order.plans.forEach(plan=>{plan.source=bodyName(frame.spec.target);});panelOrders.push(order);
         }
       }
-      const bill=mergeFrameBill(base,...panelOrders.map(p=>p.bill)),plans=panelOrders.flatMap(p=>p.plans);
+      const bill=mergeFrameBill(base,individual,...panelOrders.map(p=>p.bill)),plans=panelOrders.flatMap(p=>p.plans);
       if(!bill.length)throw Error('印刷する部品の数量を入力するか、透明板の面を選んでください。');
       plates=framePrintPlates(bill);
       estimate=estimateFrameFilament(plates);
@@ -176,7 +197,8 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName}
       }
       thinRailNote.hidden=estimate.total!==null;
       layout.hidden=false;redraw();
-      return {rows:bill.map(p=>({label:framePartName(p)+' × '+p.count})),data:{plates,plans},
+      const ordered=[...bill.filter(p=>p.kind==='rail'),...bill.filter(p=>p.kind!=='rail')];
+      return {rows:ordered.map(p=>({label:framePartName(p)+' × '+p.count})),data:{plates,plans},
         action:plates.length===1?'3MFを保存':'全'+plates.length+'枚をZIPで保存',
         detail:'180 × 180 mm ／ A1 mini・PETG。'+(plates.length===1?'部品を並べた3MFを保存します。':'プレートごとの3MFを1つのZIPにまとめます。')+
           (plans.length?' 透明板用のプレート名には「-clear」が付きます。取付位置は同梱の panel-assembly.txt に記載します。':'')};

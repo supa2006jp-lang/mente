@@ -7,9 +7,9 @@ export const manualControls='<fieldset class="t-slot-extras"><legend>フレー�
   '<fieldset class="t-slot-extras"><legend>印刷する部品</legend><div id="t-slot-order-lines"></div>'+
   '<button type="button" id="t-slot-add-line">部品の行を追加</button></fieldset>';
 
-export function bindManualControls(panel,refresh){
+export function bindManualControls(panel,refresh,initialLimit=preferredRailLimit()){
   const limit=panel.querySelector('#t-slot-manual-limit'),list=panel.querySelector('#t-slot-order-lines');
-  limit.value=preferredRailLimit();
+  limit.value=initialLimit;
   limit.oninput=refresh;
   limit.onchange=()=>{try{rememberRailLimit(limit.valueAsNumber);}catch{}};
   function addLine(initialCount){
@@ -32,18 +32,23 @@ export function bindManualControls(panel,refresh){
   return {limit,lines:()=>[...list.children].map(row=>({id:row.querySelector('select').value,
     length:row.querySelector('.order-dimension input').valueAsNumber,count:row.querySelector('.order-count').valueAsNumber}))};
 }
-export function panelControls(manual){
+export function panelControls(manual,modelOpening){
   const check=face=>'<label><input type="checkbox" value="'+face.id+'" id="t-slot-panel-'+face.id+'">'+face.label+'</label>';
   return '<fieldset class="t-slot-extras t-slot-panel-options"><legend>透明板（厚さ2 mm・四隅の穴付き）</legend>'+
+    (modelOpening?'<p>枠の内寸（幅 × 奥行き × 高さ） '+modelOpening.join(' × ')+' mm</p>':'')+
     '<div class="t-slot-face-options">'+check(panelFaces[0])+'<label><input type="checkbox" id="t-slot-panel-sides">側面4枚</label>'+check(panelFaces.at(-1))+'</div>'+
     '<div class="t-slot-face-options t-slot-side-options">'+panelFaces.slice(1,-1).map(check).join('')+'</div>'+
-    (manual?'<div class="t-slot-panel-size" hidden><p>取り付ける枠の内寸</p><div class="t-slot-quantities">'+
-      ['幅','奥行き','高さ'].map((s,i)=>'<label>'+s+'（mm）<input type="number" step="any" required value="100" id="t-slot-opening-'+i+'"></label>').join('')+'</div></div>':'')+
+    (manual?'<div class="t-slot-panel-size" hidden><div class="t-slot-face-options"><label><input type="checkbox" id="t-slot-include-frame" checked>フレーム一式を含める</label></div>'+
+      '<p>オンにすると外周12辺と連結治具・取付ボルト・ナットが入ります。個別に指定した部品は追加分です。</p>'+
+      '<p>枠の内寸（フレームの内側から内側まで）</p><div class="t-slot-quantities">'+
+      ['幅','奥行き','高さ'].map((s,i)=>'<label>'+s+'（mm）<input type="number" min="0" step="any" required id="t-slot-opening-'+i+'"></label>').join('')+'</div></div>':'')+
     '<p class="t-slot-panel-note" hidden>板の周囲には片側0.5 mmのすき間を設けます。大きい板は台形の継ぎ手で分割し、裏の継ぎ板とM8ボルトで固定します。透明PETG用のプレートに板を並べ、必要な固定部品も加えます。</p></fieldset>';
 }
-export function bindPanelControls(panel,refresh){
+export function bindPanelControls(panel,refresh,{opening,rememberOpening}={}){
   const checks=panelFaces.map(f=>panel.querySelector('#t-slot-panel-'+f.id)),sides=checks.slice(1,-1);
   const all=panel.querySelector('#t-slot-panel-sides'),dims=panel.querySelector('.t-slot-panel-size');
+  const includeFrame=panel.querySelector('#t-slot-include-frame'),inputs=[...(dims?.querySelectorAll('input[type=number]')??[])];
+  const size=()=>inputs.map(input=>input.valueAsNumber);
   const selected=()=>checks.filter(c=>c.checked).map(c=>c.value);
   function update(){
     all.checked=sides.every(c=>c.checked);all.indeterminate=!all.checked&&sides.some(c=>c.checked);
@@ -53,7 +58,18 @@ export function bindPanelControls(panel,refresh){
   }
   checks.forEach(c=>{c.onchange=update;});
   all.onchange=()=>{sides.forEach(c=>{c.checked=all.checked;});update();};
-  for(const input of dims?.querySelectorAll('input')??[])input.oninput=refresh;
-  return {selected,box:()=>({size:[...dims.querySelectorAll('input')].map(input=>input.valueAsNumber),
-    origin:[0,0,0],axes:[[1,0,0],[0,1,0],[0,0,1]]})};
+  if(includeFrame)includeFrame.onchange=refresh;
+  inputs.forEach((input,i)=>{
+    if(opening)input.value=opening[i];
+    input.oninput=()=>{
+      rememberOpening?.(inputs.map(field=>field.value));
+      refresh();
+    };
+  });
+  return {selected,includeFrame:()=>includeFrame?.checked,box(){
+    const values=size();
+    if(values.some(Number.isNaN))throw Error('枠の内寸（幅・奥行き・高さ）を入力してください。');
+    if(!values.every(v=>Number.isFinite(v)&&v>0&&v<=200000))throw Error('枠の内寸は0 mmより大きく200000 mm以下で入力してください。');
+    return {size:values,origin:[0,0,0],axes:[[1,0,0],[0,1,0],[0,0,1]]};
+  }};
 }

@@ -7,7 +7,7 @@ import {PANEL_HOLE_RADIUS} from './t-slot-panels.js';
 const singlePartMm={
   bolt:[533.59,563.65],
   'bolt-10':[441.10,471.17],
-  nut:[473.43,512.82],
+  nut:[478.06,517.44],
   corner:[4293.88,4371.50],
   'corner-panel':[4426.99,4504.60],
   splice:[4255.20,4378.15],
@@ -16,7 +16,7 @@ const singlePartMm={
   panelFoot:[2781.37,2840.87],
   slotBlock:[718.41,759.88],
   panelWasher:[161.77,199.08],
-  wideNut:[467.04,506.57],
+  wideNut:[474.81,514.34],
   testPad:[1132.07,1183.39],
   'strap-24':[1746.53,1815.55]
 };

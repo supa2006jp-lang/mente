@@ -118,7 +118,7 @@ export function framePartName(part) {
   if (part.kind==='corner'&&part.panelHole) return '直角連結ブラケット（透明板用M8めねじ）';
   if (part.keyed) return '短尺材用キー付きプレート '+round(part.span+18)+' mm';
   if (part.kind==='strap') return part.shared?'3穴外付けプレート '+Number((part.span+18).toFixed(3))+' mm':'2穴外付けプレート';
-  return {corner:'直角連結ブラケット',nut:'M8 T溝ナット（−0.10 mm調整版）',wideNut:'M8 T溝ナット（広め・V印・−0.10 mm）',
+  return {corner:'直角連結ブラケット',nut:'M8 T溝ナット（外形−0.10 mm・ねじ溝0 mm）',wideNut:'M8 T溝ナット（広め・V印・外形−0.10 mm・ねじ溝0 mm）',
     panelFoot:'透明板固定治具（T足一体）',slotBlock:'T足用の溝固定押さえ駒',panelWasher:'板用座金（外径18 mm）',testPad:'試験用押さえ板（厚さ8 mm）'}[part.kind];
 }
 export function framePartBounds(part) {
@@ -142,6 +142,9 @@ export function validateFrameBox(box,sizingVersion=FRAME_SIZING_VERSION,maxRailL
   if([x,y,z].some(a=>Math.abs(a.lengthSq()-1)>1e-5)||Math.abs(x.dot(y))>1e-5||
       x.clone().cross(y).distanceTo(z)>1e-5)throw boxError();
 }
+export function frameOpeningSize(box,sizingVersion=FRAME_SIZING_VERSION){
+  return sizingVersion===1?box.size.map((v,i)=>i<2?Math.max(20,v):v):box.size;
+}
 export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION,maxRailLength=FRAME_LIMIT) {
   validateFrameBox(box,sizingVersion,maxRailLength);
   const {size}=box;
@@ -150,7 +153,7 @@ export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION,maxRailLeng
   const newFittings=sizingVersion>=3;
   const preferInside=sizingVersion>=4;
   const splice=newFittings?{kind:'splice',span:27}:{kind:'splice'};
-  const clear=legacy?size.map((v,i)=>i<2?Math.max(20,v):v):size;
+  const clear=frameOpeningSize(box,sizingVersion);
   const runs=[clear[0],clear[1],round(clear[2]+56)].map(span=>splitFrameSpan(span,maxRailLength));
   const origin=new Vector3(...box.origin), axes=box.axes.map(a=>new Vector3(...a));
   axes.forEach((a,i)=>origin.addScaledVector(a,(size[i]-clear[i])/2));

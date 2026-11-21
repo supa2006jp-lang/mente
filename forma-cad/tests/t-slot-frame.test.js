@@ -284,11 +284,31 @@ test('M8×10 has a 10 mm under-head length, tapered tip and a mating right-hand 
     assert.ok(Math.max(...clearance)>.1&&Math.min(...clearance)<-.1,'threads must both fit and engage');
   }
 });
+test('both T-nuts retain the inset T-foot and the unpulled M8 thread through a full turn',()=>{
+  const pitch=1.25;
+  for(const [kind,root] of [['nut',4.18],['wideNut',4.28]]){
+    const mesh=stock.mesh({kind}),bore=radialSampler(mesh,0,0);
+    const radii=Array.from({length:64},(_,i)=>bore(2+i*pitch/64));
+    assert.ok(Math.abs(Math.min(...radii)-(root-pitch*.541266))<.008,kind+' crest');
+    assert.ok(Math.abs(Math.max(...radii)-root)<.008,kind+' root');
+    for(const [i,r] of radii.entries()){
+      const z=2+i*pitch/64;
+      assert.ok(Math.abs(bore(z+pitch)-r)<.01&&Math.abs(bore(z+pitch/4,Math.PI/2)-r)<.01);
+    }
+    const report=inspectStlMesh(mesh,{includeComponents:true});
+    assert.ok(report.ok&&report.components.length===1);
+    const [lo,hi]=report.components[0].bounds;
+    [13.7,19.8,6.2].forEach((size,i)=>assert.ok(Math.abs(hi[i]-lo[i]-size)<.0001));
+    let neck=0;
+    for(let i=0;i<mesh.vertices.length;i+=3)if(mesh.vertices[i+2]>5.5)neck=Math.max(neck,Math.abs(mesh.vertices[i]));
+    assert.ok(Math.abs(2*neck-9.8)<.0001);
+  }
+});
 test('0.6 mm filament estimates follow independent Bambu Studio slices of full plates',()=>{
   // These are held-out multi-object projects, separate from the single-part samples.
   const cases=[
-    {size:[117.25,245,87.625],extras:[3,5],grams:[134.88,126.26,801.42,56.70,52.98],meters:[44.15,41.33,262.36,18.56,17.34]},
-    {size:[12.5,31.75,38],extras:[0,0],grams:[227.47,99.03,28.09],meters:[74.47,32.42,9.20]}
+    {size:[117.25,245,87.625],extras:[3,5],grams:[135.05,126.32,801.42,57.23,52.98],meters:[44.21,41.35,262.36,18.73,17.34]},
+    {size:[12.5,31.75,38],extras:[0,0],grams:[227.49,99.35,28.09],meters:[74.47,32.52,9.20]}
   ];
   for(const {size,extras,grams,meters} of cases){
     const plates=framePrintPlates(frameBill(frameAssembly(guide(size)),...extras));
@@ -306,10 +326,10 @@ test('0.6 mm filament estimates follow independent Bambu Studio slices of full p
 test('one startup per plate, legacy fittings, short rails and nozzle-specific 3MF settings',()=>{
   const nut={kind:'nut',key:'nut',count:4},rail={kind:'rail',key:'rail-160',length:160,count:1};
   const gramFor=parts=>estimateFrameFilament(framePrintPlates(parts)).total.grams;
-  assert.ok(Math.abs(gramFor([nut])-5.57)<.01);
+  assert.ok(Math.abs(gramFor([nut])-5.62)<.01);
   const short={kind:'bolt',key:'bolt-10',length:10,count:4};
   assert.ok(Math.abs(gramFor([short])-5.17)<.01);
-  assert.ok(Math.abs(gramFor([{...rail,key:'rail-28',length:28},{...short,count:3},{...nut,count:1},{kind:'bolt',key:'bolt',count:1}])-18.69)<.1);
+  assert.ok(Math.abs(gramFor([{...rail,key:'rail-28',length:28},{...short,count:3},{...nut,count:1},{kind:'bolt',key:'bolt',count:1}])-18.71)<.1);
   assert.ok(Math.abs(gramFor([rail])-63.32)<.01);
   assert.ok(Math.abs(gramFor([{kind:'corner',key:'corner',count:1}])-13.12)<.01);
   assert.ok(Math.abs(gramFor([{kind:'splice',key:'splice',count:1}])-13.00)<.01);
