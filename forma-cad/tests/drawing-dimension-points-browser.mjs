@@ -296,8 +296,38 @@ try{
  const {displayValue,...appearance}=short;
  assert.deepEqual(result.dimensions[0],{...appearance,b:[37,0]});
  assert.deepEqual(result.dimensions.slice(1),previousBatch);
+
+ const filletBox=R.makeBox([0,0,0],[52.066,31,21.965]);
+ const rounded=filletBox.fillet(5,finder=>finder.inDirection('Z'));
+ const roundedFeatures=[{kind:'cadop',id:'part',name:'R5の試験片',remove:[],outputs:[{
+  id:'part',brep:rounded.serialize(),...cadMesh(rounded),cadCoordinatePrecision:true,
+ }]}];
+ filletBox.delete();rounded.delete();
+ await load({...project,features:roundedFeatures,drawing:{...project.drawing,
+  signature:drawingSignature(roundedFeatures),scale:1.9,options:{...project.drawing.options,projectionLocked:false,
+   positions:{front:[75,113],top:[75,34],right:[200,113]},
+  },
+ }});
+ await kind.selectOption('horizontal');
+ await field('dimension-add').click();
+ const autoPoint=(view,point)=>preview.locator('[data-snap-view="'+view+'"][data-snap-point="'+JSON.stringify(point)+'"]');
+ assert.equal(await preview.locator('[data-snap-view="front"]').count(),8);
+ assert.equal(await preview.locator('[data-snap-view="right"]').count(),8);
+ assert.equal(await autoPoint('top',[5,-5]).count(),1,'the radius center remains selectable');
+ assert.equal(await autoPoint('top',[0,-5]).count(),1,'the arc endpoint remains selectable');
+ await autoPoint('front',[5,0]).hover();
+ assert.equal(await hover.getAttribute('data-snap-point'),'[5,0]');
+ await autoPoint('front',[5,0]).click();
+ await autoPoint('front',[47.066,0]).click();
+ await clickAt([26,9]);
+ assert.equal(await label.textContent(),'42.066');
+ await field('dimension-point-add').click();
+ await clickAt([2.65,-.1]);
+ const [custom]=await points();
+ assert.ok(custom[0]>0&&custom[0]<5&&custom[1]===0);
+
  assert.deepEqual(errors,[]);
- console.log('PASS manual points, guides, clearance, value override, outside arrows, endpoint replacement, existing dimensions, undo, save and reload, SVG export, and PDF preview');
+ console.log('PASS manual points, guides, clearance, value override, outside arrows, endpoint replacement, existing dimensions, undo, save and reload, SVG export, PDF preview, and fillet dimension targets');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

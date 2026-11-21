@@ -1,4 +1,5 @@
 import {drawingCurves} from './drawing-curves.js';
+import {pathEndpoints} from './drawing-dimensions.js';
 
 export const maxDrawingDimensionPoints=500;
 
@@ -11,7 +12,10 @@ export function drawingDimensionPointFits(view,[x,y],padding=0){
 
 const curveCache=new WeakMap();
 function curves(paths){
- if(!curveCache.has(paths))curveCache.set(paths,drawingCurves(paths));
+ if(!curveCache.has(paths)){
+  const vertices=new Set(pathEndpoints(paths,{omitStraightSamples:true}).map(point=>point.join(',')));
+  curveCache.set(paths,{...drawingCurves(paths),vertices});
+ }
  return curveCache.get(paths);
 }
 
@@ -47,13 +51,15 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
  };
  const sources=[curves(view.visible)];
  if(hidden&&view.hidden?.length)sources.push(curves(view.hidden));
- for(const {lines,arcs} of sources){
+ for(const {lines,arcs,vertices} of sources){
   for(const line of lines){
    const {a,b}=line,dx=b[0]-a[0],dy=b[1]-a[1];
    const t=Math.max(0,Math.min(1,((point[0]-a[0])*dx+(point[1]-a[1])*dy)/(dx*dx+dy*dy)));
    const projected=[a[0]+dx*t,a[1]+dy*t],d=distance(projected);
    if(d>radius)continue;
-   tryVertex(a);tryVertex(b);tryEdge(projected,d);
+   if(vertices.has(a.join(',')))tryVertex(a);
+   if(vertices.has(b.join(',')))tryVertex(b);
+   tryEdge(projected,d);
    found.push({line,d});
    const delta=[dx,dy];
    for(const axis of guideAxes){

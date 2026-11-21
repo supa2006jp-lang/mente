@@ -125,5 +125,43 @@ export function dimensionSVG(d,view,scale,index,defaults,{inherited=false}={}){
  paths+=geometry.arrows.map(points=>'<path d="'+path(points)+' Z" fill="'+colors.line+'"/>').join('');
  return dimensionGroup(d,index,paths,colors,geometry,inherited);
 }
-// Endpoints of SVG line, arc and Bezier segments; these are model-space coordinates.
-export function pathEndpoints(paths){const points=[];for(const path of paths){const tokens=path.match(/[a-zA-Z]|[-+]?(?:\d*\.)?\d+(?:[eE][-+]?\d+)?/g)||[];let i=0,command='';while(i<tokens.length){if(/^[a-zA-Z]$/.test(tokens[i]))command=tokens[i++];const count={M:2,L:2,A:7,C:6,Q:4}[command];if(!count){if(command==='Z'||command==='z'){command='';continue;}break;}if(i+count>tokens.length)break;const values=tokens.slice(i,i+count).map(Number);if(values.some(v=>!Number.isFinite(v)))break;points.push(values.slice(-2));i+=count;}}return [...new Map(points.map(p=>[p.join(','),p])).values()];}
+const pathCommandSize={M:2,L:2,A:7,C:6,Q:4};
+const pathToken=/[a-zA-Z]|[-+]?(?:\d*\.)?\d+(?:[eE][-+]?\d+)?/g;
+function straightSubdivision(a,b,c){
+ const ux=b[0]-a[0],uy=b[1]-a[1],vx=c[0]-b[0],vy=c[1]-b[1];
+ // Endpoints are rounded to five decimal places by the SVG exporter.
+ return ux*vx+uy*vy>0&&Math.abs(ux*vy-uy*vx)<=2e-5*Math.hypot(ux+vx,uy+vy);
+}
+
+// Keep raw endpoints available for resolving dimensions saved against an older drawing.
+export function pathEndpoints(paths,{omitStraightSamples=false}={}){
+ const points=new Map();
+ const add=point=>points.set(point.join(','),point);
+ for(const path of paths){
+  const tokens=path.match(pathToken)||[],vertices=[];
+  let command='';
+  for(let i=0;i<tokens.length;){
+   if(/^[a-zA-Z]$/.test(tokens[i]))command=tokens[i++];
+   if(command==='Z'||command==='z'){command='';continue;}
+   const count=pathCommandSize[command];
+   if(!count||i+count>tokens.length)break;
+   const values=tokens.slice(i,i+count).map(Number);
+   if(values.some(v=>!Number.isFinite(v)))break;
+   const point=values.slice(-2);
+   if(omitStraightSamples)vertices.push({command,point});
+   else add(point);
+   i+=count;
+   if(command==='M')command='L';
+  }
+  if(!omitStraightSamples)continue;
+  const interior=vertices.map(({command,point},i)=>i>0&&command==='L'&&vertices[i+1]?.command==='L'&&
+   straightSubdivision(vertices[i-1].point,point,vertices[i+1].point));
+  // A fillet viewed edge-on can export many straight segments. Keep the ends of
+  // that run, isolated joins, and points shared with corners or other paths.
+  for(const [i,{point}] of vertices.entries()){
+   if(interior[i]&&(interior[i-1]||interior[i+1]))continue;
+   add(point);
+  }
+ }
+ return [...points.values()];
+}

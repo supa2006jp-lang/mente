@@ -3,7 +3,15 @@ import {pathEndpoints} from './drawing-dimensions.js';
 import {drawingPaperPoint,drawingPointOmitted} from './drawing-break.js';
 export const baseViews=['top','front','right'];
 export function circles(view){return [...new Map(drawingCurves(view.visible).arcs.map(a=>[[...a.center,a.radius].map(v=>v.toFixed(5)).join(','),a])).values()];}
-export function viewPoints(view){const pts=[...pathEndpoints(view.visible),...circles(view).map(a=>a.center)];return [...new Map(pts.filter(p=>insideView(view,p)).map(p=>[p.map(n=>n.toFixed(5)).join(','),p])).values()];}
+const viewPointCache=new WeakMap();
+export function viewPoints(view){
+ if(!viewPointCache.has(view.visible)){
+  const points=[...pathEndpoints(view.visible,{omitStraightSamples:true}),...circles(view).map(arc=>arc.center)];
+  viewPointCache.set(view.visible,[...new Map(points.map(p=>[p.map(n=>n.toFixed(5)).join(','),p])).values()]);
+ }
+ const points=viewPointCache.get(view.visible);
+ return view.clip?points.filter(p=>insideView(view,p)):points;
+}
 export function insideView(view,p){return !view.clip||Math.hypot(p[0]-view.clip.center[0],p[1]-view.clip.center[1])<=view.clip.radius+1e-6;}
 export function withDetails(data,details=[]){const views={...data.views};for(const d of details){const source=views[d.view];if(!source)continue;views[d.id]={...source,viewBox:[d.center[0]-d.radius,d.center[1]-d.radius,2*d.radius,2*d.radius],clip:{center:d.center,radius:d.radius},factor:d.factor};}return {...data,views};}
 export function snapDimension(d,at,others,scale,index=-1){

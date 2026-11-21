@@ -1,13 +1,33 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {drawingDimensionPointFits,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
-import {dimensionLabel,dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
+import {dimensionLabel,dimensionValue,drawingDimensionGeometry,pathEndpoints} from '../src/drawing-dimensions.js';
+import {viewPoints} from '../src/drawing-annotations.js';
 import {replaceDrawingDimensionEndpoint} from '../src/drawing-linear-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
 import {readDrawingState} from '../src/drawing-state.js';
 
 const view={viewBox:[0,0,50,30],visible:['M 10 2 L 10 23'],hidden:['M 3 8 L 41 8']};
+
+test('dimension targets keep straight-run ends, junctions and arc anchors when a radius projects to many segments',()=>{
+ const visible=[
+  'M 0 0 L 0 -20 L .03144 -20 L .12536 -20 L .28058 -20 L 1.09084 -20 L 5 -20 L 47 -20',
+  'M 5 -20 L 5 0',
+  'M 8 0 L 9 0 L 10 0',
+  'M 11 -1 A 1 1 0 0 1 13 -1 A 1 1 0 0 1 11 -1',
+ ];
+ assert.deepEqual(viewPoints({visible}),[
+  [0,0],[0,-20],[47,-20],[5,-20],[5,0],[8,0],[9,0],[10,0],[11,-1],[13,-1],[12,-1],
+ ]);
+ assert.deepEqual(viewPoints({visible,clip:{center:[5,-20],radius:1}}),[[5,-20]]);
+ assert.ok(pathEndpoints(visible).some(([x,y])=>x===.12536&&y===-20));
+});
+
+test('rounded diagonal straight runs omit interior samples while retaining reversals and small corners',()=>{
+ const visible=['M 0 0 L .3 .10001 L .6 .2 L .9 .3 L 1.2 .4 L .9 .3 L .9 .2999 L .8999 .2999'];
+ assert.deepEqual(viewPoints({visible}),[[0,0],[1.2,.4],[.9,.3],[.9,.2999],[.8999,.2999]]);
+});
 
 test('dimension point placement snaps to nearby intersections and displayed hidden lines',()=>{
  assert.deepEqual(snapDrawingDimensionPoint(view,[10.2,8.4],1,{hidden:true}),[10,8]);
@@ -20,6 +40,13 @@ test('dimension point placement snaps to nearby intersections and displayed hidd
  const clipped={...view,clip:{center:[10,8],radius:2}};
  assert.equal(drawingDimensionPointFits(clipped,[10,10]),true);
  assert.equal(drawingDimensionPointFits(clipped,[10,10.1]),false);
+});
+
+test('manual dimension points can snap along an edge without locking to its drawing subdivisions',()=>{
+ const visible=['M 0 0 L 1 0 L 2 0 L 3 0 L 4 0 L 8 0','M 4 0 L 4 5'];
+ const model={viewBox:[0,0,8,5],visible};
+ assert.deepEqual(snapDrawingDimensionPoint(model,[2.1,.2],.4),[2.1,0]);
+ assert.deepEqual(snapDrawingDimensionPoint(model,[4.1,.2],.5),[4,0]);
 });
 
 test('guide snapping aligns one coordinate and intersects nearby straight and round edges',()=>{
