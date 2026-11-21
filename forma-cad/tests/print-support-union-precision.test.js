@@ -22,13 +22,14 @@ test('thin rib and bridge faces retain CAD precision when fused away from the or
   const outputs=[{id:'ceiling',...cadMesh(ceiling),brep:serializeCadShape(ceiling)}];
   const features=[{id:'ceiling',name:'Ceiling',kind:'cadop',outputs,remove:[]}];
   const snapshot=JSON.stringify(features);
-  const result=runOperation(features,{
+  const settings={
    type:'printSupport',id:'support',target:'ceiling',style:'walls',mode:'auto',
    wallDirection:'x',wallPitch:10,edgeMargin:.1,edgeRibs:true,
    wallRoof:true,wallBottomSkin:true,bottomSkinLayers:1,wallTies:true,tieInterval:20,
    contactLines:true,topContactRim:true,topContactRimWidth:2,interfaceSpacing:.2,
    layerHeight:.3,topGap:.3,preview:true
-  });
+  };
+  const result=runOperation(features,settings);
   const analysis=result.analysis.printSupport;
   assert.equal(analysis.count,7);
   assert.equal(analysis.components,1);
@@ -38,6 +39,18 @@ test('thin rib and bridge faces retain CAD precision when fused away from the or
   assert.ok(inspectCadStl(result.outputs[0]).report.ok);
   assert.ok(result.supportPreview.exportStatus.ok);
   assert.ok(printSupport3mf(result.supportPackage).length>0);
+  const changed=runOperation(features,{...settings,tieInterval:22});
+  assert.notDeepEqual(changed.analysis.printSupport.wallTies.levels,analysis.wallTies.levels);
+  const stages=[];
+  const restored=runOperation(features,{...settings,wallPitch:10.1},update=>stages.push(update.stage));
+  assert.equal(restored.analysis.printSupport.ceilingLayoutReuse?.reused,1);
+  assert(stages.includes('作成済みの横つなぎを再利用しています'));
+  assert(stages.includes('結合済みのリブを再利用しています'));
+  assert(stages.includes('線状接触層とリブの表示を再利用しています'));
+  assert.deepEqual(restored.analysis.printSupport.wallTies.levels,analysis.wallTies.levels);
+  assert.equal(restored.outputs[0].brep,result.outputs[0].brep);
+  assert.deepEqual(restored.supportPreview.contact,result.supportPreview.contact);
+  assert(restored.supportPreview.exportStatus.ok);
   assert.equal(JSON.stringify(features),snapshot);
  }finally{ceiling.delete();}
 });

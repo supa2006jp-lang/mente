@@ -10,11 +10,14 @@ export function cadMesh(shape,options={tolerance:.08,angularTolerance:.15}){retu
    const location=new oc.TopLoc_Location();let triangulation,transform;
    try{
     triangulation=oc.BRep_Tool.Triangulation(face.wrapped,location,0);if(!triangulation||triangulation.isNull())continue;
-    transform=location.Transformation();
-    for(let i=1;i<=triangulation.NbNodes();i++){
+    if(!location.IsIdentity())transform=location.Transformation();
+    const count=triangulation.NbNodes();
+    for(let i=1;i<=count;i++){
      const node=triangulation.Node(i);let point;
-     try{point=node.Transformed(transform);vertices.push(point.X(),point.Y(),point.Z());}
-     finally{point?.delete();node.delete();}
+     try{
+      point=transform?node.Transformed(transform):node;
+      vertices.push(point.X(),point.Y(),point.Z());
+     }finally{if(point&&point!==node)point.delete();node.delete();}
     }
    }finally{transform?.delete();triangulation?.delete();location.delete();}
   }

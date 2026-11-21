@@ -472,7 +472,7 @@ function* prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,ski
     part.bottomSkins=bottom.shapes;
     part.bottomHeights=bottom.heights;
     part.bottomSeams=bottom.seams;
-    if(p.contactLines)for(const shape of bottom.shapes)part.contactRegions.push({shape,role:'lower',axis,supportFace});
+    if(p.contactLines)for(const shape of bottom.shapes)part.contactRegions.push({shape,role:'lower',axis,supportFace,contained:true});
    }
    if(prepareTies){
     part.tiePrism=skinPrism;
@@ -484,7 +484,7 @@ function* prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,ski
     }
    }
    if(roof){
-    if(p.contactLines)part.contactRegions.push({shape:hold(roof.clone()),role:'upper',axis,supportFace});
+    if(p.contactLines)part.contactRegions.push({shape:hold(roof.clone()),role:'upper',axis,supportFace,contained:!p.roofSeams});
     part.roof=roof;
     if(p.roofSeams||p.roofTabs||p.preview){
      const {roof:finished,tabs,...detail}=roofRemovalDetails(roof,records,shifted,bodies,p,z-p.topGap,onProgress,
@@ -530,11 +530,19 @@ function* prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,ski
  }
 }
 
-function makeCeilingTies(part,bodies,p,onProgress,hold){
+function makeCeilingTies(part,bodies,p,onProgress,hold,variants){
  const pairs=p.wallTies?supportWallTiePairs(part.wallRecords,p,part.tieSections):[];
+ // An unchanged set of rib positions can still have a different set of
+ // neighbors eligible for ties. Include those pairs in the cache key.
  const key=p.wallTies?JSON.stringify([p.tieInterval,p.autoReinforce,pairs.map(([left,right])=>[left.id,right.id])]):null;
  if(key===part.tieKey)return false;
  if(key){
+  const reused=restoreCeilingTies(variants,part,key,hold);
+  if(reused){
+   part.tieKey=key;
+   onProgress?.({stage:'作成済みの横つなぎを再利用しています'});
+   return true;
+  }
   let prism=part.tiePrism;
   for(const {low,high} of part.tieExclusions)prism=hold(prism.cut(hold(R.makeBox(low,high))));
   const {shapes,...detail}=makeWallTies(part.wallRecords,prism,bodies,p,onProgress,part.tieSections,pairs);
@@ -542,12 +550,41 @@ function makeCeilingTies(part,bodies,p,onProgress,hold){
   part.tieInfo=detail;
   part.tiePrism=prism;
   part.tieExclusions=[];
+  part.tieVersion=++ceilingGeometrySerial;
  }else{
   part.ties=[];
   part.tieInfo=null;
+  part.tieVersion=null;
  }
  part.tieKey=key;
  return true;
+}
+
+function restoreCeilingTies(cache,part,tieKey,hold){
+ const key=cache&&JSON.stringify([part.geometryVersion,tieKey]),saved=key&&cache.get(key);
+ if(!saved)return false;
+ const shapes=[];
+ try{
+  for(const brep of saved.breps)shapes.push(R.deserializeShape(brep).asShape3D());
+  part.tieInfo=structuredClone(saved.detail);
+  part.ties=shapes.map(hold);
+  part.tieVersion=saved.version;
+  return true;
+ }catch(error){
+  shapes.forEach(shape=>shape.delete());
+  cache.delete(key);
+  if(error instanceof WebAssembly.RuntimeError)throw error;
+  return false;
+ }
+}
+
+function rememberCeilingTies(cache,part){
+ if(!part.tieKey)return;
+ const key=JSON.stringify([part.geometryVersion,part.tieKey]);
+ if(cache.get(key))return;
+ const breps=part.ties.map(shape=>shape.serialize()),detail=structuredClone(part.tieInfo);
+ const bytes=breps.reduce((sum,brep)=>sum+brep.length,0);
+ cache.set(key,{breps,detail,version:part.tieVersion},key.length+bytes+JSON.stringify(detail).length);
 }
 
 function* prepareWallSupports(bodies,p,onProgress,scopeCache,ceilingContext,layoutContext,cacheRun){
@@ -564,6 +601,7 @@ function* prepareWallSupports(bodies,p,onProgress,scopeCache,ceilingContext,layo
  const tieLevels=new Set(),blockers=[],baseBodyIds=new Set(),manualBlockers=[],skinPreview=[],exclusionPreview=[],skinChecks=[];
  const columns=[],columnBlockers=[];
  const writtenCeilings=[];
+ const contactStructure=scopeCache&&!p.wallWindows&&!p.fillGaps&&!p.fallbackPosts?[]:null;
  let shape,sideGap,selectedFacePreview,firstSkinFailure,columnBases,accepted=false;
  let omitted=0,faceCount=0,skippedTies=0,roofCuts=0,roofSkippedCuts=0,roofSections=0,roofSkippedTabs=0,roofManualInvalid=0;
  let omittedExterior=0,omittedRibPieces=0,omittedBoreFaces=0,omittedThreadFaces=0,omittedHoleFragments=0,nonHorizontalFaces=0,sideGapLimited=false,alignedCeilings=0,sectionCount=0;
@@ -659,16 +697,19 @@ function* prepareWallSupports(bodies,p,onProgress,scopeCache,ceilingContext,layo
    }
    manualBlockers.push(...part.manualBlockers);
    mapCeilingShapes(part,shape=>ownBlockers.has(shape)?shape:hold(shape));
+   if(partKey)part.geometryVersion??=++ceilingGeometrySerial;
    const reusedPart=cached||part.reusedLayout;
    if(reusedPart&&part.tiePrism)yield;
    const rebuiltTies=reusedPart&&part.tiePrism&&makeCeilingTies(part,bodies,settings,
-    update=>onProgress?.({...update,supportFace}),hold);
+    update=>onProgress?.({...update,supportFace}),hold,scopeCache?.ties);
    if(partKey&&(!cached||rebuiltTies)&&!part.skinFailure){
+    rememberCeilingTies(scopeCache.ties,part);
     const entry=snapshotWallCeiling(part);
     scopeCache.ceilings.set(partKey,entry,partKey.length+entry.snapshot.length);
     writtenCeilings.push(partKey);
     if(part.layoutKey)scopeCache.layouts.set(part.layoutKey,partKey,part.layoutKey.length+partKey.length);
    }
+   if(contactStructure&&part.wallRecords.length)contactStructure.push([part.geometryVersion,part.tieVersion??null]);
    if(part.coverage)coverageRows.push(part.coverage);
    if(part.skippedScope)skippedScopes.push(part.skippedScope);
    for(const column of part.fillColumns)columns.push({...column,ceilingId,ceilingNumber:supportFace.number,id:'column-'+(columns.length+1)});
@@ -841,7 +882,7 @@ function* prepareWallSupports(bodies,p,onProgress,scopeCache,ceilingContext,layo
    skinChecks:skinChecks.map(({item,shape})=>({index:coverage.indexOf(item),shape:shape.clone()})),
    ribPreview:candidateRibs,skinPreview,exclusionPreview,windowCuts,roofPreview:{contactLines:!!p.contactLines,parts:roofPreview,placements:roofPlacements,missing:missingPlacements},
    columnPreview:p.preview?columns.map(({shape,...info})=>({...info,...cadMesh(shape)})):[]};
-  shape=null;accepted=true;return {...result,adjustmentHints};
+  shape=null;accepted=true;return {...result,adjustmentHints,contactStructure};
  }catch(e){
   for(const key of writtenCeilings)scopeCache.ceilings.delete(key);
   throw e;
@@ -862,11 +903,14 @@ const contactOptions=new Set([
  'topContactRim','topContactRimWidth','filamentDiameter','materialDensity',
 ]);
 const finishingOptions=new Set(['wallTies','tieInterval','autoReinforce','wallWindows']);
+let ceilingGeometrySerial=0;
 const wallCaches={
  solids:createPrintSupportCache(8_000_000,48),caps:createPrintSupportCache(4_000_000,96),
  unions:createPrintSupportCache(12_000_000,24),contact:createPrintSupportCache(16_000_000,64),
  ribMeshes:createPrintSupportCache(8_000_000,96),ceilings:createPrintSupportCache(12_000_000,72),
  layouts:createPrintSupportCache(1_000_000,128),structures:createPrintSupportCache(8_000_000,3),
+ ties:createPrintSupportCache(4_000_000,48),
+ contactPreviews:createPrintSupportCache(12_000_000,4),
 };
 
 function wallBodiesKey(bodies,bodyKey){
@@ -1017,6 +1061,7 @@ export function* makeWallSupportSteps(bodies,p,onProgress,{bodyKey}={}){
    const cut=yield* supportContactSteps(shape,contactRegions,p,onProgress,{
     ribRecords:wallRecords,ribsAreContained:!p.wallWindows,
     allowPartial:ribPreview.some(rib=>rib.excluded&&rib.id!==rib.ribId),cache:scopes?.contact,meshCache:scopes?.ribMeshes,
+    previewCache:scopes?.contactPreviews,structure:prepared.contactStructure,
    });
    shape.delete();shape=cut.shape;contactAnalysis=cut.analysis;contactPreview=cut.preview;flatSkinPreview=cut.flatSkinPreview;
    if(contactAnalysis.upper)for(const check of skinChecks){

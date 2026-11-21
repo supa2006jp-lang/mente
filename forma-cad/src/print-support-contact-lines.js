@@ -104,7 +104,27 @@ export function supportContactLines(original,regions,p,onProgress,options){
  return finishCadSteps(supportContactSteps(original,regions,p,onProgress,options));
 }
 
-export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false,cache,meshCache}={}){
+export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[],ribsAreContained=false,allowPartial=false,cache,meshCache,previewCache,structure}={}){
+ // The supplied structure identifies the exact ceiling and tie snapshots.
+ // Equivalent layouts can arrive through different pitch settings.
+ const previewKey=previewCache&&p.preview&&structure&&JSON.stringify([
+  structure,allowPartial,p.bedZ,p.layerHeight,p.lineWidth,
+  contactRoleSettings(p,'upper'),contactRoleSettings(p,'lower'),p.topContactRim?p.topContactRimWidth:0,p.bottomContactInset,
+ ]);
+ const saved=previewKey&&previewCache.get(previewKey);
+ if(saved){
+  let shape;
+  try{
+   const details=structuredClone(saved.details);
+   shape=R.deserializeShape(saved.brep).asShape3D();
+   onProgress?.({stage:'線状接触層とリブの表示を再利用しています'});
+   return {shape,...details};
+  }catch(error){
+   shape?.delete();
+   previewCache.delete(previewKey);
+   if(error instanceof WebAssembly.RuntimeError)throw error;
+  }
+ }
  const masks=[],landings=[],preview=[],ribPreview=[],groups=[],skipped=new Set();let result=null,local=null;const analysis={enabled:true,width:p.interfaceLineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
  try{
   for(const {shape,role,axis,supportFace}of regions){
@@ -158,8 +178,19 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
   }
   function applyCachedMasks(source,tools){
    if(!cache||!tools.length)return applySequentially(source,tools);
-   const key=JSON.stringify(['cut',allowPartial,source.serialize(),...tools.map(mask=>mask.serialize())]);
-   const {shape,reused}=cachedSupportGeometry(cache,key,()=>({shape:applySequentially(source,tools)}));
+   const brep=source.serialize();
+   const keys=tools.map(mask=>mask.serialize());
+   const keyFor=count=>JSON.stringify(['cut',allowPartial,brep,...keys.slice(0,count)]);
+   const {shape,reused}=cachedSupportGeometry(cache,keyFor(tools.length),()=>{
+    if(tools.length===1)return {shape:applySequentially(source,tools)};
+    // Keep the native cut order. For example, an unchanged bottom layer can
+    // be restored when only the last, upper contact layer has been edited.
+    const prefix=cachedSupportGeometry(cache,keyFor(tools.length-1),()=>({shape:applySequentially(source,tools.slice(0,-1))}));
+    try{
+     if(prefix.reused)onProgress?.({stage:'変更していない接触層を再利用しています'});
+     return {shape:applySequentially(prefix.shape,tools.slice(-1))};
+    }finally{prefix.shape.delete();}
+   });
    if(reused)onProgress?.({stage:'接触層を反映済みのリブを再利用しています'});
    return shape;
   }
@@ -189,7 +220,7 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
    }
   }
   function* applyMasks(source,tools){
-   return tools.length?((yield* applyIndependentMasks(source,tools))??applySequentially(source,tools)):source.clone();
+   return tools.length?((yield* applyIndependentMasks(source,tools))??applyCachedMasks(source,tools)):source.clone();
   }
   let activeMasks=masks;
   result=yield* applyMasks(original,masks);
@@ -211,19 +242,21 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
   analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};
   if(p.preview){
    local=supportLocalPreview(original,activeMasks);
-   for(const {shape,role,axis,supportFace} of regions){
+   for(const {shape,role,axis,supportFace,contained} of regions){
     if(skipped.has(shape)||!contactRoleSettings(p,role).enabled)continue;
     const b=bounds(shape);
     if(role==='lower'&&b[0][2]<=p.bedZ+1e-6)continue;
     const a=[...b[0]],c=[...b[1]];
     if(role==='upper')a[2]=Math.max(a[2],c[2]-p.layerHeight);
     else c[2]=Math.min(c[2],a[2]+p.layerHeight);
-    const box=R.makeBox(a,c);let mask,display;
+    let box,mask,display;
     try{
-     mask=shape.intersect(box);display=local.clip(mask);
+     if(a[2]===b[0][2]&&c[2]===b[1][2])mask=shape.clone();
+     else{box=R.makeBox(a,c);mask=shape.intersect(box);}
+     display=local.clip(mask,{contained:ribsAreContained&&contained});
      if(volume(display)>.0001)preview.push({id:role+'-'+preview.length,role,axis,ceilingId:supportFace?.ceilingId,
       bounds:bounds(display),...displayMesh(display)});
-    }finally{display?.delete();mask?.delete();box.delete();}
+    }finally{display?.delete();mask?.delete();box?.delete();}
    }
   }
   if(p.preview)for(const [index,record]of ribRecords.entries()){
@@ -231,6 +264,13 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
    yield;
    ribPreview.push({id:record.id,...local.mesh(record.shape,{contained:ribsAreContained,cache:meshCache,meshShape:displayMesh})});
   }
-  analysis.removedVolume=Math.max(0,volume(original)-volume(result));const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:"flat"})):[];const shape=result;result=null;return {shape,analysis,preview,ribPreview,flatSkinPreview};
+  analysis.removedVolume=Math.max(0,volume(original)-volume(result));
+  const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:'flat'})):[];
+  const details={analysis,preview,ribPreview,flatSkinPreview};
+  if(previewKey){
+   const brep=result.serialize(),size=JSON.stringify(details).length;
+   previewCache.set(previewKey,{brep,details:structuredClone(details)},previewKey.length+brep.length+size);
+  }
+  const shape=result;result=null;return {shape,...details};
  }finally{local?.delete();result?.delete();masks.forEach(s=>s.delete());}
 }
