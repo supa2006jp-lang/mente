@@ -96,6 +96,7 @@ try{
  const saved=JSON.parse((await download(page.locator('#save'))).bytes);
  const {options}=readDrawingState(saved.drawing);
  assert.equal(options.revision,'02');assert.equal(options.holeTable.holes.length,3);
+ assert.equal(options.pageAssignments.holeTable,1);
  assert.ok(options.holeTable.holes.every(hole=>!Object.hasOwn(hole,'machining')));
  await openProject(saved,'saved-plate.forma.json');
  assert.deepEqual((await cells()).slice(8),expected);
@@ -124,7 +125,7 @@ try{
  await row('H2').locator('text').first().click();
  assert.deepEqual(await selectedIds('row'),['H2']);assert.deepEqual(await selectedIds('marker'),[]);
  assert.match((await download(drawing('svg'))).bytes.toString(),/要確認/);
- await drawing('pdf-preview-open').click();await drawing('pdf-preview-next').click();
+ await drawing('pdf-preview-open').click();
  assert.match(await drawing('pdf-preview-host').locator('[data-hole-table]').textContent(),/H2.*要確認/);
  await drawing('pdf-preview-close').click();
  await drawing('hole-remove-row').click();
