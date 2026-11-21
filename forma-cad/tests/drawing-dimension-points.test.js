@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {drawingDimensionPointFits,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
 import {dimensionLabel,dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
-import {drawingDimensionSeries,replaceDrawingDimensionEndpoint} from '../src/drawing-linear-dimensions.js';
+import {replaceDrawingDimensionEndpoint} from '../src/drawing-linear-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
 import {readDrawingState} from '../src/drawing-state.js';
@@ -79,18 +79,6 @@ test('replacing a single endpoint recalculates the measurement and retains the p
  const longer=replaceDrawingDimensionEndpoint(iso,'b',{point:[2,1],model:[3,4,0]});
  assert.deepEqual(longer.modelA,iso.modelA);
  assert.equal(dimensionValue(longer),5);
-});
-
-test('chain dimensions use adjacent points and parallel baseline dimensions start at the first point',()=>{
- const points=[{point:[0,0]},{point:[15,0],manual:true},{point:[37,0]}],at=[8,-11];
- const chain=drawingDimensionSeries('horizontal','front','chain',points,at,2,3.2);
- assert.deepEqual(chain.map(dimensionValue),[15,22]);
- assert.deepEqual(chain.map(d=>d.at),[at,at]);
- assert.deepEqual(chain.map(d=>d.manualEndpoints),[['b'],['a']]);
- const baseline=drawingDimensionSeries('aligned','front','baseline',[points[0],points[2],points[1]],at,2,3.2);
- assert.deepEqual(baseline.map(dimensionValue),[15,37]);
- assert.deepEqual(baseline.map(d=>d.a),[[0,0],[0,0]]);
- assert.deepEqual(baseline.map(d=>d.at),[[8,-11],[8,-14.5]]);
 });
 
 test('saved manual points and dimension endpoints coexist with older drawing data',()=>{

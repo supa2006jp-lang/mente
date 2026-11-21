@@ -31,27 +31,3 @@ export function replaceDrawingDimensionEndpoint(d,end,point){
  for(const key of ['displayValue','overall','automatic','feature','repeat','manualEndpoints'])delete next[key];
  return {...next,...span};
 }
-
-export function drawingDimensionSeries(kind,view,method,points,at,scale,fontSize){
- const dimensions=[];
- for(let i=1;i<points.length;i++){
-  const first=points[method==='baseline'?0:i-1];
-  const span=drawingDimensionBetween(kind,view,first,points[i]);
-  if(!span)return [];
-  dimensions.push({...span,at:[...at]});
- }
- if(method!=='baseline'||dimensions.length<2)return dimensions;
- dimensions.sort((a,b)=>dimensionValue(a)-dimensionValue(b));
- const lane=Math.max(7,fontSize*1.8)/scale;
- let normal;
- if(kind==='horizontal')normal=[0,1];
- else if(kind==='vertical')normal=[1,0];
- else{
-  const {a,b}=dimensions[0],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
-  normal=[-dy/length,dx/length];
-  if(dimensions.some(d=>Math.abs(normal[0]*(d.b[0]-a[0])+normal[1]*(d.b[1]-a[1]))>1e-6))return dimensions;
- }
- const base=points[0].point,side=(at[0]-base[0])*normal[0]+(at[1]-base[1])*normal[1]<0?-1:1;
- for(const [i,d] of dimensions.entries())d.at=at.map((value,axis)=>value+normal[axis]*side*lane*i);
- return dimensions;
-}

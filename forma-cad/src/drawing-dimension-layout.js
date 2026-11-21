@@ -203,7 +203,7 @@ function isometricClearance(d,view,outline){
 
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
-export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false,keepOnPaper=false,hitsLinework}={}){
+export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false,keepOnPaper=false}={}){
  const bodies=Object.entries(sheet.layout).map(([name,v])=>({name,x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
  const isoOutline=sheet.layout.iso&&sheet.isometricOutline?.map(point=>map(sheet.layout.iso,point));
  const labels=[...(sheet.notes??[sheet.note]),sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
@@ -227,8 +227,6 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
    if((keepOnPaper||requireClear)&&
     [...p.main,...p.extensions,...p.arrowBoxes].some(b=>b.x<4.99||b.y<16.99||b.x+b.width>sheet.width-4.99||b.y+b.height>sheet.contentBottom+.01))continue;
    if(requireClear&&(obstacleOverlap(p,obstacles)||placedGeometry.some(other=>dimensionOverlap(p,other))))continue;
-   if(hitsLinework?.(box))continue;
-   if(requireClear&&preferNearby&&candidate===d){bestScore=0;break;}
    const conflicts=labels.filter(label=>overlaps(box,label,1)||labelHitsInk(label,p)).length+
     placedGeometry.filter(other=>labelConflict(p,other)).length;
    if(conflicts>bestConflicts)continue;
