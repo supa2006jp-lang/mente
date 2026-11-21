@@ -34,7 +34,17 @@ function dimensionGroup(d,index,paths,colors,x,y,inherited){
  return '<g '+target+(d.review?' data-dimension-review="true" stroke-dasharray="2 1"':'')+
   ' stroke="'+colors.line+'" stroke-width=".18" fill="none">'+paths+dimensionText(d,x,y,colors.text)+'</g>';
 }
-export function dimensionValue(d){if(d.kind==='diameter')return d.radius*2;if(d.kind==='radius')return d.radius;if(d.kind==='angle'){const a=[d.a[0]-d.vertex[0],d.a[1]-d.vertex[1]],b=[d.b[0]-d.vertex[0],d.b[1]-d.vertex[1]];return Math.acos(Math.max(-1,Math.min(1,(a[0]*b[0]+a[1]*b[1])/(Math.hypot(...a)*Math.hypot(...b)))))*180/Math.PI;}const dx=d.b[0]-d.a[0],dy=d.b[1]-d.a[1];return d.kind==='horizontal'?Math.abs(dx):d.kind==='vertical'?Math.abs(dy):Math.hypot(dx,dy);}
+export function dimensionValue(d){
+ if(d.view==='iso'&&d.modelA&&d.modelB)return Math.hypot(...d.modelB.map((value,axis)=>value-d.modelA[axis]));
+ if(d.kind==='diameter')return d.radius*2;
+ if(d.kind==='radius')return d.radius;
+ if(d.kind==='angle'){
+  const a=[d.a[0]-d.vertex[0],d.a[1]-d.vertex[1]],b=[d.b[0]-d.vertex[0],d.b[1]-d.vertex[1]];
+  return Math.acos(Math.max(-1,Math.min(1,(a[0]*b[0]+a[1]*b[1])/(Math.hypot(...a)*Math.hypot(...b)))))*180/Math.PI;
+ }
+ const dx=d.b[0]-d.a[0],dy=d.b[1]-d.a[1];
+ return d.kind==='horizontal'?Math.abs(dx):d.kind==='vertical'?Math.abs(dy):Math.hypot(dx,dy);
+}
 const add=(p,u,k)=>[p[0]+u[0]*k,p[1]+u[1]*k];
 function arrowPoints(tip,direction){
  const base=add(tip,direction,2),normal=[-direction[1],direction[0]];

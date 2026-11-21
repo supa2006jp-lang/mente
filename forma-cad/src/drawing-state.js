@@ -10,7 +10,8 @@ import {holeReferenceLimit} from './drawing-hole-references.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
-const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
+const coordinates=(p,axes)=>Array.isArray(p)&&p.length===axes&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
+const point=p=>coordinates(p,2);
 const validDimensionPlacement=placement=>point(placement?.at)&&
  (placement.alongOffset===undefined||Number.isFinite(placement.alongOffset)&&Math.abs(placement.alongOffset)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -147,8 +148,18 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  }
  for(const m of markers){if(typeof m.id!=='string'||!/^marker-[a-zA-Z0-9-]{1,60}$/.test(m.id)||!viewNames.has(m.view)||!['line','center'].includes(m.kind))fail();if(m.kind==='line'){if(!point(m.a)||!point(m.b))fail();}else if(!point(m.center)||!Number.isFinite(m.radius)||m.radius<=0||m.radius>1e6)fail();}
  if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(![...drawingProjectionNames,'iso','comment','holeTable',...ids,...commentIds].includes(key)||!point(p))fail();
- for(const d of s.dimensions){if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();if(!viewNames.has(d.view)||!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();if(['diameter','radius'].includes(d.kind)){if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();}else if(!point(d.a)||!point(d.b))fail();if(d.kind==='angle'&&!point(d.vertex))fail();}
  for(const d of s.dimensions){
+  if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();
+  if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();
+  if(!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();
+  if(['diameter','radius'].includes(d.kind)){
+   if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();
+  }else if(!point(d.a)||!point(d.b))fail();
+  if(d.kind==='angle'&&!point(d.vertex))fail();
+  if(d.view==='iso'){
+   if(d.kind!=='aligned'||!coordinates(d.modelA,3)||!coordinates(d.modelB,3)||d.manualEndpoints!==undefined||
+    d.repeat!=null||dimensionValue(d)<1e-6||Math.hypot(d.b[0]-d.a[0],d.b[1]-d.a[1])<1e-6)fail();
+  }else if(!viewNames.has(d.view)||d.modelA!==undefined||d.modelB!==undefined)fail();
   if(d.pdfPlacement!==undefined&&!validDimensionPlacement(d.pdfPlacement))fail();
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();

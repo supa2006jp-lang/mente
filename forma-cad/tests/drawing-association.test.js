@@ -5,6 +5,8 @@ import {readDrawingState} from '../src/drawing-state.js';
 import {drawingHoleMarkers,resolveDrawingHoleTable,drawingHoleTableSVG,drawingHoleTableSize} from '../src/drawing-hole-table.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
 import {alignThirdAngleViews,isThirdAngleLayout} from '../src/drawing-view-preferences.js';
+import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
+import {dimensionLabel} from '../src/drawing-dimensions.js';
 
 const hole=(x,sourceId,radius=2.5)=>({center:[x,0],radius,...(sourceId?{sourceId}:{})});
 const table=(holes,all=holes)=>({view:'top',origin:[0,0],holes,references:holeReferenceInventory(all)});
@@ -78,4 +80,19 @@ test('third-angle lock anchors top, bottom and side projections and keeps unlock
  assert.ok(layout.right.x>90);assert.ok(layout.back.x>layout.right.x+layout.right.width);
  assert.equal(isThirdAngleLayout(layout),true);assert.deepEqual(layout.iso,v(123,43,50,40));
  layout.top.x++;assert.equal(isThirdAngleLayout(layout),false);
+});
+
+test('isometric dimensions retain real vertex positions and require review when a vertex disappears',()=>{
+ const a=[0,0],b=[0,-16.32993],modelA=[0,0,0],modelB=[0,0,20];
+ const d={view:'iso',kind:'aligned',a,b,modelA,modelB,at:[-8,-8]};
+ const state={version:1,signature:'iso',targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',
+  dimensions:[d],options:{paper:'A4',orientation:'landscape',frame:true,name:'',material:'',date:'',positions:{}}};
+ assert.deepEqual(readDrawingState(state),state);
+ assert.throws(()=>readDrawingState({...state,dimensions:[{...d,modelB:undefined}]}));
+ assert.throws(()=>readDrawingState({...state,dimensions:[{...d,kind:'vertical'}]}));
+ const data={views:{iso:{viewBox:[0,-20,45,40],dimensionVertices:[{point:a,model:modelA},{point:b,model:modelB}]}}};
+ assert.deepEqual(captureDrawingReferences(data,[d]),{});
+ assert.equal(dimensionLabel(reconcileDrawingDimensions(data,[d],{})[0]),'20');
+ data.views.iso.dimensionVertices[1]={point:b,model:[1,-1,21]};
+ assert.equal(dimensionLabel(reconcileDrawingDimensions(data,[d],{})[0]),'要確認');
 });

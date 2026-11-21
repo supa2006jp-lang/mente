@@ -49,12 +49,12 @@ try{
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  await page.waitForFunction(()=>typeof document.getElementById('file')?.onchange==='function');
 
- async function open(state){
+ async function open(state,view='front'){
   const project={format:'forma-cad',version:1,features,drawing:state};
   await page.locator('#file').setInputFiles({name:'drawing-pdf-check.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(project))});
   await page.locator('#project-preview-open').click();
   await field('tool').click();
-  await editor.locator('[data-view=front]').waitFor();
+  await editor.locator('[data-view="'+view+'"]').waitFor();
  }
 
  await open(drawing);
@@ -468,6 +468,73 @@ try{
  await field('pdf-preview-open').click();
  assert.equal(await scaleOn(print,'section-a'),.6);
  await selectPage(2);assert.equal(await scaleOn(print,'front'),.9);
+ await field('pdf-preview-close').click();await field('close').click();
+
+ const isoDrawing={...drawing,dimensions:[],comment:'',options:{...drawing.options,viewSelection:[],isoMode:'full',
+  positions:{iso:[65,65]},sections:[],pageAssignments:{pageCount:2,views:{iso:2},comments:{}}}};
+ await open(isoDrawing,'iso');
+ assert(await field('dimension-add').isDisabled());
+ await field('dimension-kind').selectOption('aligned');
+ assert.match(await field('dimension-hint').textContent(),/俯瞰図.*実寸/);
+ await field('dimension-add').click();
+ const isoMarker=point=>editor.locator('[data-snap-view=iso][data-snap-point="'+JSON.stringify(point)+'"]');
+ const isoTop=isoMarker([0,-16.32993]),isoBottom=isoMarker([0,0]);
+ await isoTop.hover();
+ assert.equal(await isoTop.getAttribute('data-dimension-hover'),'point');
+ await isoTop.click();await isoBottom.click();
+ assert.match(await field('status').textContent(),/20 mm/);
+ const localPoint=(host,view,point)=>host.locator('[data-view="'+view+'"] > g[transform]').evaluate((el,[x,y])=>{
+  const p=new DOMPoint(x,y).matrixTransform(el.getScreenCTM());return [p.x,p.y];
+ },point);
+ await page.mouse.click(...await localPoint(editor,'iso',[-10,-8]));
+ assert.equal(await editor.locator('[data-dimension] text').textContent(),'20');
+ await field('scale-manual').fill('1:2');await field('scale-manual').press('Enter');
+ assert.equal(await scaleOn(editor,'iso'),.5);
+ assert.equal(await editor.locator('[data-dimension] text').textContent(),'20');
+ await field('pdf-preview-open').click();
+ assert.equal(await print.locator('[data-dimension]').count(),0);
+ await selectPage(2);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'20');
+ const [isoFile]=await Promise.all([page.waitForEvent('download'),field('pdf-preview-save').click()]);
+ const isoBytes=await fs.readFile(await isoFile.path());
+ assert.match(isoBytes.toString('latin1'),/\/Count 2/);
+ if(process.env.FORMA_TEST_PDF_DIR)await fs.writeFile(path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-iso-dimension.pdf'),isoBytes);
+ await field('pdf-preview-close').click();await field('close').click();
+ const [isoProject]=await Promise.all([page.waitForEvent('download'),page.locator('#save').click()]);
+ const isoReloaded=(await decodeProjectDocument(await fs.readFile(await isoProject.path(),'utf8'))).document.drawing;
+ assert.deepEqual(isoReloaded.dimensions[0].modelA,[0,0,20]);
+ assert.deepEqual(isoReloaded.dimensions[0].modelB,[0,0,0]);
+ await open(isoReloaded,'iso');
+ assert.equal(await editor.locator('[data-dimension] text').textContent(),'20');
+ await field('close').click();
+
+ const coincident={view:'front',kind:'horizontal',a:[0,-20],b:[60,-20],at:[30,-20],lineColor:'#df2562'};
+ await open({...drawing,dimensions:[coincident],comment:'',options:{...drawing.options,viewSelection:['front'],
+  viewBackground:'#c4e3ee',sections:[],positions:{front:[45,68]},pdfLayout:undefined,pageAssignments:undefined}});
+ const overlapPoint=await localPoint(editor,'front',[30,-20]);
+ assert.equal(await page.evaluate(([x,y])=>document.elementFromPoint(x,y)?.closest('[data-view]')?.dataset.view,overlapPoint),'front');
+ await page.mouse.click(...overlapPoint);
+ assert.equal(await editor.locator('[data-dimension][data-edit-selected]').count(),1);
+ await field('pdf-preview-open').click();
+ const colors=await print.locator('svg').evaluate(async svg=>{
+  const copy=svg.cloneNode(true),[, ,width,height]=svg.getAttribute('viewBox').split(' ').map(Number),density=8;
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.ceil(width*density);canvas.height=Math.ceil(height*density);
+  copy.setAttribute('width',canvas.width);copy.setAttribute('height',canvas.height);
+  const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)],{type:'image/svg+xml'}));
+  try{
+   const image=new Image();image.src=url;await image.decode();
+   const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+   const label=copy.querySelector('[data-dimension] > rect');
+   return [57,Number(label.getAttribute('x'))+.8].map(x=>
+    [...ctx.getImageData(Math.floor(x*density),68*density,1,1).data].slice(0,3));
+  }finally{URL.revokeObjectURL(url);}
+ });
+ for(const rgb of colors)assert.ok(Math.max(...rgb)<40,'model stroke stays dark over the dimension line and label background');
+ const [layeredFile]=await Promise.all([page.waitForEvent('download'),field('pdf-preview-save').click()]);
+ const layeredBytes=await fs.readFile(await layeredFile.path());
+ assert.match(layeredBytes.toString('latin1'),/\/Count 1/);
+ if(process.env.FORMA_TEST_PDF_DIR)await fs.writeFile(path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-outline-over-dimension.pdf'),layeredBytes);
  assert.deepEqual(errors,[]);
- console.log('PASS add, reorder and delete PDF pages with scales, inline view scale editing, fixed-scale fit, export and project reload');
+ console.log('PASS PDF page editing, 3D isometric dimensions, drawing line priority, editing, export and project reload');
 }finally{await browser?.close();server.close();}

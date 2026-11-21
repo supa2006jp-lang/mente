@@ -177,18 +177,23 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
   }
  }
  const showsHidden=name=>options.hiddenViews?.[name]??hidden;
- const view=name=>{
-  const layoutView=layout[name],{x,y,bx,by,scale:s}=layoutView,v=data.views[name],clip=v.clip,clipId='clip-'+name;
+ const view=(name,underlay=false)=>{
+  const layoutView=layout[name],{x,y,bx,by,scale:s}=layoutView,v=data.views[name],clip=v.clip;
+  if(underlay&&!(color&&v.silhouette))return '';
+  const layerName=underlay?'underlay-'+name:name,clipId='clip-'+layerName;
   const paths=kind=>v[kind].map((p,i)=>'<path data-curve="'+i+'" d="'+esc(p)+'"/>').join('');
-  const silhouette=color&&v.silhouette?
-   '<path data-drawing-silhouette="true" d="'+esc(v.silhouette)+'" fill="white" fill-rule="evenodd" pointer-events="none"/>':'';
-  const geometry=silhouette+(v.triangles?'<path data-hatch="true" d="'+hatchPaths(v.triangles,s)+'" stroke="#777" stroke-width="'+(.15/s)+'"/>':'')+
+  const geometry=underlay?
+   '<path data-drawing-silhouette="'+name+'" d="'+esc(v.silhouette)+'" fill="white" fill-rule="evenodd" pointer-events="none"/>':
+   (v.triangles?'<path data-hatch="true" d="'+hatchPaths(v.triangles,s)+'" stroke="#777" stroke-width="'+(.15/s)+'"/>':'')+
    (showsHidden(name)?'<g data-hidden="true" stroke="#666666" stroke-width="'+(.18/s)+'" stroke-dasharray="'+(2/s)+' '+(1/s)+'">'+paths('hidden')+'</g>':'')+
    '<g stroke="#111111" stroke-width="'+(.3/s)+'">'+paths('visible')+'</g>';
-  const body=layoutView.break?splitViewGeometry(name,layoutView,geometry):
-   clip?'<defs><clipPath id="'+clipId+'"><circle cx="'+clip.center[0]+'" cy="'+clip.center[1]+'" r="'+clip.radius+'"/></clipPath></defs><g clip-path="url(#'+clipId+')">'+geometry+
-    '</g><circle cx="'+clip.center[0]+'" cy="'+clip.center[1]+'" r="'+clip.radius+'" stroke="#777" stroke-width="'+(.15/s)+'"/>':'<g>'+geometry+'</g>';
-  return '<g data-view="'+name+'">'+drawingViewTitleSVG(titles[name])+'<g transform="translate('+x+' '+y+') scale('+s+') translate('+(-bx)+' '+(-by)+')" fill="none" stroke-linejoin="round" stroke-linecap="round">'+body+'</g>'+
+  const outline=clip&&!underlay?'<circle cx="'+clip.center[0]+'" cy="'+clip.center[1]+'" r="'+clip.radius+'" stroke="#777" stroke-width="'+(.15/s)+'"/>':'';
+  const body=layoutView.break?splitViewGeometry(layerName,layoutView,geometry):
+   clip?'<defs><clipPath id="'+clipId+'"><circle cx="'+clip.center[0]+'" cy="'+clip.center[1]+'" r="'+clip.radius+'"/></clipPath></defs><g clip-path="url(#'+clipId+')">'+geometry+'</g>'+outline:
+   '<g>'+geometry+'</g>';
+  const projected='<g transform="translate('+x+' '+y+') scale('+s+') translate('+(-bx)+' '+(-by)+')" fill="none" stroke-linejoin="round" stroke-linecap="round">'+body+'</g>';
+  if(underlay)return projected;
+  return '<g data-view="'+name+'">'+drawingViewTitleSVG(titles[name])+projected+
    (layoutView.break?viewBreakMarks(layoutView):'')+'</g>';
  };
  const text=(x,y,t,size=3.5,attrs='')=>'<text x="'+x+'" y="'+y+'" font-size="'+size+'" '+attrs+'>'+esc(t)+'</text>';
@@ -206,8 +211,9 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
   }
   frame+='</g>';
  }
- const baseViews=[...drawingProjectionNames,'iso'].filter(key=>layout[key]).map(view).join('');
- const extraViews=extraNames.map(view).join('');
+ const viewNames=[...drawingProjectionNames,'iso'].filter(key=>layout[key]).concat(extraNames);
+ const viewsSVG=viewNames.map(name=>view(name)).join('');
+ const silhouettes=color?viewNames.map(name=>view(name,true)).join(''):'';
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor)).join(''):'';
  const thirdAngle=drawingProjectionNames.some(name=>layout[name])&&isThirdAngleLayout(layout)&&(!layout.front||drawingViewFactor('front',options)===1);
  const sheetTitle='FORMA CAD / '+(options.layout==='compact'?'AUTO LAYOUT':thirdAngle?'THIRD ANGLE':'VIEW LAYOUT');
@@ -216,6 +222,6 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
   return view?dimensionSVG(d,view,view.scale,index,options.dimensionColors,{inherited}):'';
  };
  const dimensionGraphics=inheritedDimensions.map((d,i)=>renderDimension(d,i,true)).join('')+dimensions.map((d,i)=>renderDimension(d,i)).join('');
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,sheetTitle,4.5)+text(width-15,12,scaleSummary.header,3.5,'text-anchor="end" data-sheet-scale="true"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensionGraphics+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+silhouettes+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,sheetTitle,4.5)+text(width-15,12,scaleSummary.header,3.5,'text-anchor="end" data-sheet-scale="true"')+dimensionGraphics+viewsSVG+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
  return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
 }

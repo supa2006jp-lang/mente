@@ -28,7 +28,7 @@ function frame(data,name){
 }
 export function captureDrawingReferences(data,dimensions,previous={}){
  const result={};
- for(const name of new Set(dimensions.filter(d=>!d.review).map(d=>d.view))){
+ for(const name of new Set(dimensions.filter(d=>!d.review&&d.view!=='iso').map(d=>d.view))){
   if(!data.views[name]){
    if(previous[name])result[name]=previous[name];
    continue;
@@ -132,6 +132,13 @@ function unchangedAngle(d,view){
   return Math.abs(x*v-y*u)<=epsilon*Math.hypot(x,y);
  }));
 }
+function followIsometricDimension(d,view){
+ const find=model=>view.dimensionVertices?.find(vertex=>model.every((value,axis)=>near(value,vertex.model[axis])));
+ const first=find(d.modelA),second=find(d.modelB);
+ if(!first||!second||samePoint(first.point,second.point))return null;
+ const a=first.point,b=second.point;
+ return {...d,a,b,modelA:first.model,modelB:second.model,at:translate(d.at,midpoint(d.a,d.b),midpoint(a,b))};
+}
 export function reconcileDrawingDimensions(data,dimensions,references,{targetsChanged=false}={}){
  const contexts=new Map();
  const context=(name,view,reference)=>{
@@ -146,7 +153,8 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
   const view=data.views[d.view],box=frame(data,d.view),reference=references[d.view];
   let updated;
   if(view&&!targetsChanged){
-   if(['horizontal','vertical'].includes(d.kind)&&d.overall===d.view+d.kind)updated=overall(d,box,reference);
+   if(d.view==='iso')updated=followIsometricDimension(d,view);
+   else if(['horizontal','vertical'].includes(d.kind)&&d.overall===d.view+d.kind)updated=overall(d,box,reference);
    else if(['diameter','radius'].includes(d.kind))updated=followCircleDimension(d,context(d.view,view,reference).follow);
    else if(d.kind==='angle')updated=unchangedAngle(d,view)?d:null;
    else if(d.feature==='pitch')updated=followPitch(d,context(d.view,view,reference),reference);

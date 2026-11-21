@@ -64,7 +64,7 @@ try{
  assert.equal(await drawing('preview').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(216, 224, 229)');
  assert.equal(await paper.getAttribute('fill'),'#fff18a');
  assert.equal(Number((await svg.getAttribute('viewBox')).split(' ')[0]),0);
- const silhouette=svg.locator('[data-view=front] [data-drawing-silhouette]');
+ const silhouette=svg.locator('[data-drawing-silhouette=front]');
  assert.equal(await silhouette.getAttribute('fill'),'white');
  assert.deepEqual(await silhouette.evaluate(path=>[path.isPointInFill(new DOMPoint(100,-10)),path.isPointInFill(new DOMPoint(100,10))]),[true,false]);
  await drawing('preview-background-reset').click();

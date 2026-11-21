@@ -2,7 +2,7 @@ import {dimensionLabel,drawingDimensionColor,validDimensionColor} from './drawin
 import {drawingProjections} from './drawing-view-preferences.js';
 
 const kinds={horizontal:'水平',vertical:'垂直',aligned:'２点間',diameter:'直径',radius:'半径 R',angle:'角度'};
-const identity=d=>JSON.stringify([d.view,d.kind,d.a,d.b,d.vertex,d.center,d.radius,d.centers]);
+const identity=d=>JSON.stringify([d.view,d.kind,d.a,d.b,d.vertex,d.center,d.radius,d.centers,d.modelA,d.modelB]);
 export function editDrawingDimensions(dimensions,indices,patch){
  const chosen=new Set(indices);if([...chosen].some(i=>!Number.isInteger(i)||i<0||i>=dimensions.length))throw Error('寸法を選び直してください');
  for(const [key,value] of Object.entries(patch)){
@@ -21,7 +21,7 @@ export function installDrawingDimensionList(anchor,{read,onChange,onFocus,notify
  anchor.before(panel);
  const style=document.createElement('style');style.textContent='#drawing-dimension-list{margin:8px 0}#drawing-dimension-list summary{cursor:pointer}#drawing-dimension-list-rows{max-height:240px;overflow:auto;margin-top:6px}#drawing-dimension-list-rows>div{display:flex;align-items:center;gap:7px;padding:3px 6px;border-bottom:1px solid #8193a333}#drawing-dimension-list-rows button{flex:1;min-width:0;width:auto;text-align:left;padding:4px 7px;min-height:28px}#drawing-dimension-list-rows label{display:flex;align-items:center;gap:4px;white-space:nowrap}#drawing-dimension-list-rows input[type=checkbox]{width:16px;min-width:16px;height:16px;flex:0 0 16px;margin:0}#drawing-dimension-list input[type=number]{width:85px}#drawing-preview [data-bulk-selected]>path{stroke:#e76f00;stroke-width:.6}#drawing-preview [data-bulk-selected]>text{fill:#bd5400}';document.head.append(style);
  const q=id=>panel.querySelector('#drawing-'+id),rows=q('dimension-list-rows'),chosen=new Set();let previous=[],filtered=[];
- const labelView=view=>drawingProjections[view]?.label??view;
+ const labelView=view=>view==='iso'?'ISO':drawingProjections[view]?.label??view;
  function highlight(){for(const node of anchor.parentElement.querySelectorAll('#drawing-preview [data-dimension]'))node.toggleAttribute('data-bulk-selected',chosen.has(Number(node.dataset.dimension)));}
  function state(){const current=read(),next=current.dimensions.map(identity);if(next.length!==previous.length||next.some((id,i)=>id!==previous[i]))chosen.clear();previous=next;return current;}
  function apply(patch){const current=state();if(!current.ready||!chosen.size)return;try{const next=editDrawingDimensions(current.dimensions,[...chosen],patch);onChange(next,{reflow:patch.fontSize!==undefined||patch.hidden===false});notify(chosen.size+' 件の寸法を変更しました。元に戻すで取り消せます');}catch(error){notify(error.message);}}
