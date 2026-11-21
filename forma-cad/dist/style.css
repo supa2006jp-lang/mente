@@ -824,8 +824,16 @@ button.form-control-point.invalid { background:#bc2634; }
 #t-slot-lengths th:first-child{text-align:start}
 #t-slot-frame-dialog select,.t-slot-quantities input,.t-slot-plate select{min-width:0;width:100%;box-sizing:border-box}
 .t-slot-quantities{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.t-slot-plate:not([hidden]){display:flex;align-items:center;justify-content:space-between;gap:14px}
+.t-slot-plate{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.t-slot-print-fields{flex:1;min-width:0}
+.t-slot-print-fields label:last-child{margin-bottom:0}
 .t-slot-plate canvas{width:118px;height:118px;flex:none;border:1px solid #91a6ad}
+.t-slot-filament{margin-top:14px;padding:10px 12px;border:1px solid var(--border);border-radius:6px}
+#export-dialog .t-slot-filament h3{margin:0 0 6px}
+.t-slot-filament dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0}
+.t-slot-filament dd{margin:0;text-align:end;font-variant-numeric:tabular-nums}
+.t-slot-filament dd:first-of-type{font-weight:700}
+.t-slot-filament p{margin:6px 0 0;font-size:.85rem}
 #export-dialog.has-model-preview{width:min(1030px,calc(100vw - 32px));box-sizing:border-box}
 #export-dialog h2{margin:0 0 16px}
 #export-dialog h3{font-size:1rem;margin:18px 0 6px}

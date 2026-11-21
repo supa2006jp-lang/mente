@@ -1,5 +1,6 @@
 import {FRAME_LIMIT,frameAssembly,frameBill,measureFrameGeometry,framePartName,savedFrameAssembly} from './t-slot-frame.js';
 import {framePrintPlates,saveFramePlates} from './t-slot-frame-print.js';
+import {estimateFrameFilament} from './t-slot-filament.js';
 
 const mm=n=>Number(n.toFixed(6));
 export function createTSlotFrameDialog({meshes,getFeatures,bodyName,kernel,commit,notify}) {
@@ -80,12 +81,22 @@ function drawFootprints(canvas,plate) {
     ctx.fillRect(min[0],min[1],max[0]-min[0],max[1]-min[1]);
   }
 }
-function frameOutputEntry(frames,label,{download,name,isCurrent,notify}) {
+const filamentNumber=new Intl.NumberFormat('ja-JP',{minimumFractionDigits:1,maximumFractionDigits:1});
+function filamentLabel(amount) {
+  if(!amount)return '算出不可';
+  return '約 '+filamentNumber.format(amount.grams)+' g（'+filamentNumber.format(amount.meters)+' m）';
+}
+function frameOutputEntry(frames,label,{download,name,isCurrent,notify},printSettings) {
   const assemblies=frames.map(f=>savedFrameAssembly(f.analysis));
   const assembly={parts:assemblies.flatMap(a=>a.parts),fixings:assemblies.reduce((sum,a)=>sum+a.fixings,0)};
   const panelMounts=assembly.parts.some(p=>p.panelHole);
-  let bolts,nuts,select,canvas,layout,plates;
-  const redraw=()=>{if(plates?.length)drawFootprints(canvas,plates[Number(select.value)||0]);};
+  let bolts,nuts,select,canvas,layout,plates,estimate,totalLabel,totalAmount,plateAmount,thinRailNote;
+  function redraw(){
+    const index=select.selectedIndex;
+    if(!plates?.[index])return;
+    drawFootprints(canvas,plates[index]);
+    plateAmount.textContent=filamentLabel(estimate.plates[index]);
+  }
   return {
     label,rows:[],action:'プレートを保存',
     controls(panel,refresh){
@@ -93,15 +104,32 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify}) {
         '<label>追加ナット（個）<input type="number" id="t-slot-extra-nuts" min="0" max="10000" step="1" value="0" required></label></div>'+
         '<p>フレームの取付に使うボルト・ナットは各'+assembly.fixings+'個含まれます。'+
         (panelMounts?'透明板を留める場合は、固定箇所の数を「追加ボルト」に入力してください。':'')+'</p>'+
-        '<div class="t-slot-plate"><label>印刷プレート<select id="t-slot-print-plate"></select></label><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>';
-      [bolts,nuts]=panel.querySelectorAll('input');select=panel.querySelector('select');canvas=panel.querySelector('canvas');layout=panel.querySelector('.t-slot-plate');
+        '<div class="t-slot-layout" hidden><div class="t-slot-plate"><div class="t-slot-print-fields">'+
+        '<label>3MFのノズル径<select id="t-slot-print-nozzle"><option value="0.4">0.4 mm</option><option value="0.6">0.6 mm</option></select></label>'+
+        '<label>印刷プレート<select id="t-slot-print-plate"></select></label></div><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>'+
+        '<section class="t-slot-filament" aria-labelledby="t-slot-filament-heading"><h3 id="t-slot-filament-heading">予想フィラメント使用量（0.6 mmノズル）</h3>'+
+        '<dl aria-live="polite"><dt id="t-slot-total-label"></dt><dd id="t-slot-filament-total"></dd><dt>表示中のプレート</dt><dd id="t-slot-filament-plate"></dd></dl>'+
+        '<p>PETG（径1.75 mm）・積層0.18 mm・壁4周・インフィル30%。フレームのあるプレートは5 mmのブリムを含みます。</p>'+
+        '<p id="t-slot-thin-rail" hidden>長さ0.15 mm未満のフレームは、この設定の初層でスライスできません。</p></section></div>';
+      [bolts,nuts]=panel.querySelectorAll('input');
+      const nozzle=panel.querySelector('#t-slot-print-nozzle');
+      nozzle.value=String(printSettings.nozzle);nozzle.onchange=()=>{printSettings.nozzle=Number(nozzle.value);};
+      select=panel.querySelector('#t-slot-print-plate');
+      canvas=panel.querySelector('canvas');layout=panel.querySelector('.t-slot-layout');
+      totalLabel=panel.querySelector('#t-slot-total-label');totalAmount=panel.querySelector('#t-slot-filament-total');
+      plateAmount=panel.querySelector('#t-slot-filament-plate');thinRailNote=panel.querySelector('#t-slot-thin-rail');
       bolts.oninput=nuts.oninput=refresh;select.onchange=redraw;
     },
     async load(){
       layout.hidden=true;
+      const index=Math.max(0,select.selectedIndex);
       const bill=frameBill(assembly,bolts.valueAsNumber,nuts.valueAsNumber);
       plates=framePrintPlates(bill);
+      estimate=estimateFrameFilament(plates);
       select.replaceChildren(...plates.map((p,i)=>new Option((i+1)+' / '+plates.length+' 枚目（'+p.placements.length+'部品）',i)));
+      select.selectedIndex=Math.min(index,plates.length-1);
+      totalLabel.textContent='全'+plates.length+'枚の合計';totalAmount.textContent=filamentLabel(estimate.total);
+      thinRailNote.hidden=estimate.total!==null;
       layout.hidden=false;redraw();
       return {rows:bill.map(p=>({label:framePartName(p)+' × '+p.count})),data:plates,
         action:plates.length===1?'3MFを保存':'全'+plates.length+'枚をZIPで保存',
@@ -109,14 +137,14 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify}) {
     },
     async run(data){
       try{
-        const saved=await saveFramePlates(data,{download,isCurrent,name:name+'-T溝フレーム',progress:(n,total)=>notify('印刷プレートを作成中 '+n+' / '+total)});
+        const saved=await saveFramePlates(data,{download,isCurrent,nozzle:printSettings.nozzle,name:name+'-T溝フレーム',progress:(n,total)=>notify('印刷プレートを作成中 '+n+' / '+total)});
         if(saved)notify(data.length+'枚のフレーム部品プレートを出力しました。');
       }catch(error){notify('フレーム部品を出力できませんでした。'+error.message);}
     }
   };
 }
 export function frameOutputEntries(frames,options) {
-  const {bodyName}=options;
-  return [...(frames.length>1?[frameOutputEntry(frames,'全てのT溝フレーム',options)]:[]),
-    ...frames.map(f=>frameOutputEntry([f],bodyName(f.spec.target)+' の外周フレーム',options))];
+  const {bodyName}=options,printSettings={nozzle:.4};
+  return [...(frames.length>1?[frameOutputEntry(frames,'全てのT溝フレーム',options,printSettings)]:[]),
+    ...frames.map(f=>frameOutputEntry([f],bodyName(f.spec.target)+' の外周フレーム',options,printSettings))];
 }

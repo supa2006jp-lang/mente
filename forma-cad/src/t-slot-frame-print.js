@@ -4,6 +4,7 @@ import {PRINT_PLATE_SIZE,subtractFree} from './print-layout.js';
 import {pack3mf,xmlAttribute} from './pack-3mf.js';
 import {framePartBounds,framePartKey,framePartName,plateDimensions,plateKey,plateOutline} from './t-slot-frame.js';
 import dimensions from './t-slot-dimensions.json' with {type:'json'};
+import fineNozzle06 from './t-slot-nozzle-06.json' with {type:'json'};
 
 // Allow both the 5 mm rail brims and a gap between neighbouring brims.
 const margin=6,gap=11,usable=PRINT_PLATE_SIZE-2*margin,eps=1e-6;
@@ -122,8 +123,11 @@ export function readFrameStock(bytes) {
       if(!stock.has(key))stock.set(key,stlMesh(archive[key+'.stl']));
       return stock.get(key);
     },
-    settings(rails,fasteners){
-      const preset=JSON.parse(strFromU8(archive[!rails||fasteners?'small-settings.json':'rail-settings.json']));
+    settings(rails,fasteners,nozzle=.4){
+      if(nozzle!==.4&&nozzle!==.6)throw Error('対応するノズル径は0.4 mmと0.6 mmです。');
+      const preset=JSON.parse(strFromU8(archive[nozzle===.6||!rails||fasteners?'small-settings.json':'rail-settings.json']));
+      // The 0.6 mm estimate and its export use the same Fine process on all plates.
+      if(nozzle===.6)Object.assign(preset,structuredClone(fineNozzle06));
       if(rails){preset.brim_type='outer_only';preset.brim_width='5';}
       return preset;
     }
@@ -148,7 +152,7 @@ function meshXML(mesh) {
   for(let i=0;i<triangles.length;i+=3)t.push('<triangle v1="'+triangles[i]+'" v2="'+triangles[i+1]+'" v3="'+triangles[i+2]+'"/>');
   return '<mesh><vertices>'+v.join('')+'</vertices><triangles>'+t.join('')+'</triangles></mesh>';
 }
-export function framePlate3mf(plate,stock,cache=new Map()) {
+export function framePlate3mf(plate,stock,cache=new Map(),nozzle=.4) {
   const objects=[],items=[],settings=[],instances=[],types=new Map();
   for(const {part,transform} of plate.placements) {
     if(!types.has(part.key)){
@@ -166,16 +170,16 @@ export function framePlate3mf(plate,stock,cache=new Map()) {
   const model=xmlHead+'<model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"><metadata name="Application">BambuStudio-02.04.00.70</metadata><metadata name="Designer">Forma CAD</metadata><metadata name="BambuStudio:3mfVersion">1</metadata><resources>'+objects.join('')+'</resources><build>'+items.join('')+'</build></model>';
   const config=xmlHead+'<config>'+settings.join('')+'<plate>'+meta('plater_id',1)+instances.join('')+'</plate></config>';
   const uses=kind=>plate.placements.some(p=>p.part.kind===kind);
-  return pack3mf(model,{'Metadata/model_settings.config':config,'Metadata/project_settings.config':JSON.stringify(stock.settings(uses('rail'),uses('nut')||uses('bolt')))});
+  return pack3mf(model,{'Metadata/model_settings.config':config,'Metadata/project_settings.config':JSON.stringify(stock.settings(uses('rail'),uses('nut')||uses('bolt'),nozzle))});
 }
-export async function saveFramePlates(plates,{download,name,isCurrent,progress}) {
+export async function saveFramePlates(plates,{download,name,isCurrent,progress,nozzle=.4}) {
   const stock=await loadFrameStock(),files=Object.create(null),cache=new Map();
   for(const [index,plate] of plates.entries()) {
     if(!isCurrent())return false;
     progress(index+1,plates.length);
     await new Promise(resolve=>setTimeout(resolve,0));
     if(!isCurrent())return false;
-    const buffer=framePlate3mf(plate,stock,cache);
+    const buffer=framePlate3mf(plate,stock,cache,nozzle);
     if(plates.length===1){download(buffer,name+'.3mf','model/3mf');return true;}
     files['plate-'+String(index+1).padStart(2,'0')+'.3mf']=buffer;
   }

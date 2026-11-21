@@ -9,6 +9,7 @@ import {makeFramePart,makeTSlotFrame} from '../src/t-slot-frame-cad.js';
 import {frameAssembly,frameBill,framePartBounds,measureFrameBox,plateDimensions,plateKey,savedFrameAssembly} from '../src/t-slot-frame.js';
 import {Ray,Vector3} from 'three';
 import {framePlate3mf,framePrintPlates,readFrameStock} from '../src/t-slot-frame-print.js';
+import {estimateFrameFilament} from '../src/t-slot-filament.js';
 import {inspectStlMesh} from '../src/stl-mesh-health.js';
 import {defaults,validateProject} from '../src/geometry.js';
 import {runOperation} from '../src/kernel.js';
@@ -253,6 +254,51 @@ test('all hardware and independent extras are counted once on disjoint 180 mm pl
     assert.ok(report.ok&&report.removedDegenerate===0&&report.components.length===1,part.key);
   }
 });
+test('0.6 mm filament estimates follow independent Bambu Studio slices of full plates',()=>{
+  // These are held-out multi-object projects, separate from the single-part samples.
+  const cases=[
+    {size:[117.25,245,87.625],extras:[3,5],grams:[134.88,126.26,801.42,56.70,52.98],meters:[44.15,41.33,262.36,18.56,17.34]},
+    {size:[12.5,31.75,38],extras:[0,0],grams:[227.47,99.03,28.09],meters:[74.47,32.42,9.20]}
+  ];
+  for(const {size,extras,grams,meters} of cases){
+    const plates=framePrintPlates(frameBill(frameAssembly(guide(size)),...extras));
+    const estimate=estimateFrameFilament(plates);
+    assert.equal(estimate.plates.length,grams.length);
+    for(const [i,amount] of estimate.plates.entries()){
+      assert.ok(Math.abs(amount.grams-grams[i])<.5,'plate '+(i+1)+' of '+size);
+      assert.ok(Math.abs(amount.meters-meters[i])<.17);
+    }
+    for(const unit of ['meters','grams'])
+      assert.ok(Math.abs(estimate.total[unit]-estimate.plates.reduce((sum,p)=>sum+p[unit],0))<1e-8);
+  }
+});
+
+test('one startup per plate, legacy fittings, short rails and nozzle-specific 3MF settings',()=>{
+  const nut={kind:'nut',key:'nut',count:4},rail={kind:'rail',key:'rail-160',length:160,count:1};
+  const gramFor=parts=>estimateFrameFilament(framePrintPlates(parts)).total.grams;
+  assert.ok(Math.abs(gramFor([nut])-5.57)<.01);
+  assert.ok(Math.abs(gramFor([rail])-63.32)<.01);
+  assert.ok(Math.abs(gramFor([{kind:'corner',key:'corner',count:1}])-13.12)<.01);
+  assert.ok(Math.abs(gramFor([{kind:'splice',key:'splice',count:1}])-13.00)<.01);
+  const tooShort=framePrintPlates([{...rail,key:'rail-0.14',length:.14}]);
+  const tooShortEstimate=estimateFrameFilament([...tooShort,...framePrintPlates([nut])]);
+  assert.equal(tooShortEstimate.total,null);assert.equal(tooShortEstimate.plates[0],null);
+  assert.ok(tooShortEstimate.plates[1].grams>0);
+  assert.deepEqual(estimateFrameFilament([]),{plates:[],total:{grams:0,meters:0}});
+  for(const [parts,brim] of [[[nut],'no_brim'],[[rail],'outer_only'],[[nut,rail],'outer_only']]){
+    const [plate]=framePrintPlates(parts),cache=new Map();
+    const profile=nozzle=>JSON.parse(strFromU8(unzipSync(framePlate3mf(plate,stock,cache,nozzle))['Metadata/project_settings.config']));
+    const old=profile(),fine=profile(.6);
+    assert.deepEqual(old.nozzle_diameter,['0.4']);assert.equal(old.layer_height,parts.includes(nut)?'0.16':'0.2');
+    assert.deepEqual(fine.nozzle_diameter,['0.6']);assert.equal(fine.printer_settings_id,'Bambu Lab A1 mini 0.6 nozzle');
+    assert.equal(fine.print_settings_id,'0.18mm Fine @BBL A1M 0.6 nozzle');
+    assert.equal(fine.layer_height,'0.18');assert.equal(fine.initial_layer_print_height,'0.3');
+    assert.equal(fine.wall_loops,'4');assert.equal(fine.sparse_infill_density,'30%');
+    assert.deepEqual(fine.filament_diameter,['1.75']);assert.deepEqual(fine.filament_density,['1.27']);
+    assert.equal(fine.brim_type,brim);assert.equal(fine.brim_width,'5');
+  }
+});
+
 test('replaying an edited guide updates the kit and moving its fixtures includes its rails',()=>{
   const base={...defaults,kind:'extrusion',id:'cube',name:'試験',width:100,height:100,depth:100};
   const spec={type:'tSlotFrame',id:'frame',target:'cube'};
