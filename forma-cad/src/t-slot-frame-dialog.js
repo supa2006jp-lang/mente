@@ -1,9 +1,10 @@
 import {FRAME_LIMIT,frameAssembly,frameBill,frameOpeningSize,measureFrameGeometry,framePartName,savedFrameAssembly} from './t-slot-frame.js';
-import {framePrintPlates,saveFramePlates} from './t-slot-frame-print.js';
+import {framePrintPlates,framePlateRails,saveFramePlates} from './t-slot-frame-print.js';
 import {estimateFrameFilament} from './t-slot-filament.js';
 import {manualFrameBill,mergeFrameBill,preferredRailLimit,rememberRailLimit} from './t-slot-parts.js';
 import {framePanels,PANEL_HOLE_RADIUS} from './t-slot-panels.js';
 import {manualControls,bindManualControls,panelControls,bindPanelControls} from './t-slot-print-options.js';
+import dimensions from './t-slot-dimensions.json' with {type:'json'};
 
 const mm=n=>Number(n.toFixed(6));
 function savedPartsSettings(frame){
@@ -104,11 +105,13 @@ function drawFootprints(canvas,plate) {
   ctx.setTransform(scale,0,0,-scale,0,canvas.height);ctx.fillStyle='#f4f7f8';ctx.fillRect(0,0,180,180);
   const colors={rail:'#718492',bolt:'#4b535d',panelWasher:'#4b535d',nut:'#b68133',wideNut:'#b68133'};
   for(const {part,min,max,transform} of plate.placements) {
-    if(part.kind==='panel'){
+    const rail=part.kind==='rail';
+    if(rail||part.kind==='panel'){
       const m=transform;ctx.save();ctx.transform(m[0],m[1],m[3],m[4],m[9],m[10]);ctx.beginPath();
-      part.outline.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();
-      for(const [x,y] of part.holes){ctx.moveTo(x+PANEL_HOLE_RADIUS,y);ctx.arc(x,y,PANEL_HOLE_RADIUS,0,2*Math.PI);ctx.closePath();}
-      ctx.fillStyle='#b9e7e9';ctx.fill('evenodd');ctx.strokeStyle='#287487';ctx.lineWidth=.8;ctx.stroke();ctx.restore();continue;
+      const outline=rail?dimensions.profile:part.outline;
+      outline.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();
+      for(const [x,y] of part.holes??[]){ctx.moveTo(x+PANEL_HOLE_RADIUS,y);ctx.arc(x,y,PANEL_HOLE_RADIUS,0,2*Math.PI);ctx.closePath();}
+      ctx.fillStyle=rail?colors.rail:'#b9e7e9';ctx.fill('evenodd');ctx.strokeStyle=rail?'#425665':'#287487';ctx.lineWidth=.8;ctx.stroke();ctx.restore();continue;
     }
     ctx.fillStyle=colors[part.kind]??'#138078';
     ctx.fillRect(min[0],min[1],max[0]-min[0],max[1]-min[1]);
@@ -124,11 +127,21 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName,
   const assemblies=frames.map(f=>savedFrameAssembly(f.analysis));
   const modelOpening=frames.length===1?frameOpeningSize(frames[0].analysis.tSlotBox,frames[0].analysis.tSlotSizingVersion??1):null;
   const assembly={parts:assemblies.flatMap(a=>a.parts),fixings:assemblies.reduce((sum,a)=>sum+a.fixings,0)};
-  let bolts,shortBolts,nuts,select,canvas,layout,plates,estimate,totalLabel,totalAmount,plateAmount,clearAmount,thinRailNote,manualOrder,panelSelection;
+  let bolts,shortBolts,nuts,select,canvas,layout,plates,estimate,totalLabel,totalAmount,plateAmount,clearAmount,railList,savePlate,thinRailNote,manualOrder,panelSelection;
+  async function save(selected,plans,suffix=''){
+    try{
+      const saved=await saveFramePlates(selected,{plans,download,isCurrent,nozzle:printSettings.nozzle,name:name+'-T溝フレーム'+suffix,
+        progress:(n,total)=>notify('印刷プレートを作成中 '+n+' / '+total)});
+      if(saved)notify(selected.length+'枚のフレーム部品プレートを出力しました。');
+    }catch(error){notify('フレーム部品を出力できませんでした。'+error.message);}
+  }
   function redraw(){
     const index=select.selectedIndex;
     if(!plates?.[index])return;
     drawFootprints(canvas,plates[index]);
+    const {count,cuts}=framePlateRails(plates[index]);
+    railList.hidden=!count;
+    railList.textContent=count?'縦置きフレーム　'+[...cuts].map(([length,n])=>mm(length)+' mm × '+n+'本').join('、'):'';
     plateAmount.textContent=filamentLabel(estimate.plates[index]);
   }
   return {
@@ -141,7 +154,8 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName,
         '<p>フレームの取付用に、首下16 mmのボルト'+assembly.fixings+'本とT溝ナット'+assembly.fixings+'個を含みます。</p>')+panelControls(manual,modelOpening)+
         '<div class="t-slot-layout" hidden><div class="t-slot-plate"><div class="t-slot-print-fields">'+
         '<label>3MFのノズル径<select id="t-slot-print-nozzle"><option value="0.4">0.4 mm</option><option value="0.6">0.6 mm</option></select></label>'+
-        '<label>印刷プレート<select id="t-slot-print-plate"></select></label></div><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>'+
+        '<label>印刷プレート<select id="t-slot-print-plate"></select></label><p id="t-slot-plate-rails" aria-live="polite" hidden></p>'+
+        '<button type="button" id="t-slot-save-plate" hidden>このプレートの3MFを保存</button></div><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>'+
         '<section class="t-slot-filament" aria-labelledby="t-slot-filament-heading"><h3 id="t-slot-filament-heading">予想フィラメント使用量（0.6 mmノズル）</h3>'+
         '<dl aria-live="polite"><dt id="t-slot-total-label"></dt><dd id="t-slot-filament-total"></dd>'+
         '<dt hidden>うち透明PETG</dt><dd id="t-slot-filament-clear" hidden></dd><dt>表示中のプレート</dt><dd id="t-slot-filament-plate"></dd></dl>'+
@@ -157,6 +171,17 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName,
       const nozzle=panel.querySelector('#t-slot-print-nozzle');
       nozzle.value=String(printSettings.nozzle);nozzle.onchange=()=>{printSettings.nozzle=Number(nozzle.value);};
       select=panel.querySelector('#t-slot-print-plate');
+      railList=panel.querySelector('#t-slot-plate-rails');
+      savePlate=panel.querySelector('#t-slot-save-plate');
+      savePlate.onclick=async event=>{
+        const button=event.currentTarget;
+        const index=select.selectedIndex,plate=plates?.[index];
+        if(!plate||button.disabled)return;
+        if(!isCurrent()){notify('出力対象が変わりました。出力を開き直してください。');return;}
+        button.disabled=true;
+        try{await save([plate],[],'-plate-'+String(index+1).padStart(2,'0'));}
+        finally{button.disabled=false;}
+      };
       canvas=panel.querySelector('canvas');layout=panel.querySelector('.t-slot-layout');
       totalLabel=panel.querySelector('#t-slot-total-label');totalAmount=panel.querySelector('#t-slot-filament-total');
       clearAmount=panel.querySelector('#t-slot-filament-clear');
@@ -185,8 +210,13 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName,
       if(!bill.length)throw Error('印刷する部品の数量を入力するか、透明板の面を選んでください。');
       plates=framePrintPlates(bill);
       estimate=estimateFrameFilament(plates);
-      select.replaceChildren(...plates.map((p,i)=>new Option((i+1)+' / '+plates.length+' 枚目（'+(p.clear?'透明PETG・':'')+p.placements.length+'部品）',i)));
+      select.replaceChildren(...plates.map((p,i)=>{
+        const {count}=framePlateRails(p),other=p.placements.length-count;
+        const label=count?'フレーム'+count+'本'+(other?'・ほか'+other+'部品':''):(p.clear?'透明PETG・':'')+other+'部品';
+        return new Option((i+1)+' / '+plates.length+' 枚目（'+label+'）',i);
+      }));
       select.selectedIndex=Math.min(index,plates.length-1);
+      savePlate.hidden=plates.length<2;
       totalLabel.textContent='全'+plates.length+'枚の合計';totalAmount.textContent=filamentLabel(estimate.total);
       const hasClear=plates.some(p=>p.clear);
       clearAmount.hidden=clearAmount.previousElementSibling.hidden=!hasClear;
@@ -201,14 +231,10 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify,bodyName,
       return {rows:ordered.map(p=>({label:framePartName(p)+' × '+p.count})),data:{plates,plans},
         action:plates.length===1?'3MFを保存':'全'+plates.length+'枚をZIPで保存',
         detail:'180 × 180 mm ／ A1 mini・PETG。'+(plates.length===1?'部品を並べた3MFを保存します。':'プレートごとの3MFを1つのZIPにまとめます。')+
+          (plates.length>1&&ordered[0].kind==='rail'?' フレームは先頭から配置し、該当する3MFのファイル名に本数を付けます。':'')+
           (plans.length?' 透明板用のプレート名には「-clear」が付きます。取付位置は同梱の panel-assembly.txt に記載します。':'')};
     },
-    async run({plates,plans}){
-      try{
-        const saved=await saveFramePlates(plates,{plans,download,isCurrent,nozzle:printSettings.nozzle,name:name+'-T溝フレーム',progress:(n,total)=>notify('印刷プレートを作成中 '+n+' / '+total)});
-        if(saved)notify(plates.length+'枚のフレーム部品プレートを出力しました。');
-      }catch(error){notify('フレーム部品を出力できませんでした。'+error.message);}
-    }
+    run({plates,plans}){return save(plates,plans);}
   };
 }
 export function frameOutputEntries(frames,options) {

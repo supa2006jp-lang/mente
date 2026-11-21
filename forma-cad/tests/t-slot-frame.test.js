@@ -9,7 +9,7 @@ import {cadMesh} from '../src/cad-mesh.js';
 import {makeFramePart,makeTSlotFrame} from '../src/t-slot-frame-cad.js';
 import {frameAssembly,frameBill,framePartBounds,measureFrameBox,plateDimensions,plateKey,savedFrameAssembly} from '../src/t-slot-frame.js';
 import {Ray,Vector3} from 'three';
-import {framePlate3mf,framePrintPlates,readFrameStock} from '../src/t-slot-frame-print.js';
+import {framePlate3mf,framePrintPlates,framePlateRails,readFrameStock} from '../src/t-slot-frame-print.js';
 import {estimateFrameFilament} from '../src/t-slot-filament.js';
 import {manualFrameBill,mergeFrameBill,partChoices} from '../src/t-slot-parts.js';
 import {framePanels,panelTiles,panelAssemblyNotes} from '../src/t-slot-panels.js';
@@ -304,11 +304,18 @@ test('both T-nuts retain the inset T-foot and the unpulled M8 thread through a f
     assert.ok(Math.abs(2*neck-9.8)<.0001);
   }
 });
+test('long rails start on the first plate and continue on consecutive plates until all are packed',()=>{
+  const bill=manualFrameBill([{id:'corner',count:20},{id:'rail',length:103,count:10},{id:'rail',length:150,count:25}],160);
+  const plates=framePrintPlates(bill),cuts=plates.map(framePlateRails);
+  assert.deepEqual(cuts.slice(0,3).map(p=>Object.fromEntries(p.cuts)),[{150:16},{150:9,103:7},{103:3}]);
+  assert.deepEqual(cuts.slice(0,3).map(p=>p.count),[16,16,3]);
+  assert.ok(cuts.slice(3).every(p=>!p.count));
+});
 test('0.6 mm filament estimates follow independent Bambu Studio slices of full plates',()=>{
   // These are held-out multi-object projects, separate from the single-part samples.
   const cases=[
-    {size:[117.25,245,87.625],extras:[3,5],grams:[135.05,126.32,801.42,57.23,52.98],meters:[44.21,41.35,262.36,18.73,17.34]},
-    {size:[12.5,31.75,38],extras:[0,0],grams:[227.49,99.35,28.09],meters:[74.47,32.52,9.20]}
+    {size:[117.25,245,87.625],extras:[3,5],grams:[801.42,135.05,126.32,57.23,52.98],meters:[262.36,44.21,41.35,18.73,17.34]},
+    {size:[12.5,31.75,38],extras:[0,0],grams:[251.19,73.39,26.53],meters:[82.23,24.03,8.69]}
   ];
   for(const {size,extras,grams,meters} of cases){
     const plates=framePrintPlates(frameBill(frameAssembly(guide(size)),...extras));

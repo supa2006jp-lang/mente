@@ -18,7 +18,11 @@ function packParts(bill,margin,gap,clear) {
   const entries=bill.map(part=>{
     const [min,max]=framePartBounds(part);
     return {part,min,max,w:max[0]-min[0],h:max[1]-min[1]};
-  }).sort((a,b)=>b.w*b.h-a.w*a.h);
+  }).sort((a,b)=>{
+    const railA=a.part.kind==='rail',railB=b.part.kind==='rail';
+    if(railA!==railB)return railA?-1:1;
+    return railA?b.part.length-a.part.length:b.w*b.h-a.w*a.h;
+  });
   function place(plate,entry) {
     let best=null;
     for(const space of plate.free) for(const turn of [false,true]) {
@@ -59,6 +63,16 @@ function packParts(bill,margin,gap,clear) {
     }
     return {placements,clear:true};
   });
+}
+
+export function framePlateRails(plate){
+  const cuts=new Map();
+  let count=0;
+  for(const {part} of plate.placements){
+    if(part.kind!=='rail')continue;
+    cuts.set(part.length,(cuts.get(part.length)??0)+1);count++;
+  }
+  return {count,cuts};
 }
 
 function stlMesh(bytes) {
@@ -199,8 +213,9 @@ export async function saveFramePlates(plates,{download,name,isCurrent,progress,n
     await new Promise(resolve=>setTimeout(resolve,0));
     if(!isCurrent())return false;
     const buffer=framePlate3mf(plate,stock,cache,nozzle);
-    if(plates.length===1){download(buffer,name+(plate.clear?'-clear':'')+'.3mf','model/3mf');return true;}
-    files['plate-'+String(index+1).padStart(2,'0')+(plate.clear?'-clear':'')+'.3mf']=buffer;
+    const {count}=framePlateRails(plate),suffix=plate.clear?'-clear':count?'-フレーム'+count+'本':'';
+    if(plates.length===1){download(buffer,name+suffix+'.3mf','model/3mf');return true;}
+    files['plate-'+String(index+1).padStart(2,'0')+suffix+'.3mf']=buffer;
   }
   if(!isCurrent())return false;
   download(zipSync(files,{level:0}),name+'.zip','application/zip');

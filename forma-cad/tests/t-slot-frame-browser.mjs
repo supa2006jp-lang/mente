@@ -40,11 +40,17 @@ try{
     const parts=new Map();
     for(const [name,bytes] of Object.entries(packed).filter(([key])=>key.endsWith('.3mf'))){
       const inner=unzipSync(bytes),xml=strFromU8(inner['3D/3dmodel.model']),ids=new Map();
+      let railCount=0;
       assert.deepEqual(JSON.parse(strFromU8(inner['Metadata/project_settings.config'])).nozzle_diameter,[nozzle]);
       for(const [,id,part,mesh] of xml.matchAll(/<object id="(\d+)" type="model" name="([^"]+)">([\s\S]*?)<\/object>/g)){
         ids.set(id,part);
         const sheet=/ 透明板 |^透明板の継ぎ板/.test(part);
         assert.equal(sheet,name.endsWith('-clear.3mf'));
+        const rail=part.match(/^T溝フレーム ([\d.]+) mm$/);
+        if(rail){
+          const z=Array.from(mesh.matchAll(/<vertex [^>]*z="([^"]+)"/g),v=>Number(v[1]));
+          assert.ok(Math.abs(Math.max(...z)-Math.min(...z)-Number(rail[1]))<1e-5);
+        }
         if(part.startsWith('M8 T溝ナット')){
           const root=part.includes('V印')?4.28:4.18;
           const radii=[];
@@ -65,7 +71,9 @@ try{
       }
       for(const [,id] of xml.matchAll(/<item objectid="(\d+)"/g)){
         const part=ids.get(id);assert.ok(part);parts.set(part,1+(parts.get(part)||0));
+        if(part.startsWith('T溝フレーム '))railCount++;
       }
+      assert.equal(Number(name.match(/-フレーム(\d+)本\.3mf$/)?.[1]??0),railCount);
     }
     return parts;
   }
@@ -101,8 +109,21 @@ try{
   assert.ok(labels.includes('2穴直線連結プレート 45 mm × 4'));
   assert.ok(labels.includes('M8×16 ボルト × 48'));
   const listed=new Map(labels.map(text=>{const [,part,count]=text.match(/^(.*) × (\d+)$/);return [part,Number(count)];}));
+  const railList=page.locator('#t-slot-plate-rails'),shownPlate=page.locator('#t-slot-print-plate');
+  assert.match(await shownPlate.locator('option:checked').textContent(),/1 \/ \d+ 枚目（フレーム16本）/);
+  assert.match(await railList.textContent(),/150 mm × 8本、103 mm × 8本/);
+  const firstName='plate-01-フレーム16本.3mf',first=await download('#t-slot-save-plate');
+  assert.ok(first.name.endsWith(firstName));
+  assert.deepEqual(stockInArchive({[firstName]:first.buffer},'0.4'),new Map([['T溝フレーム 150 mm',8],['T溝フレーム 103 mm',8]]));
+  await shownPlate.selectOption(String(await shownPlate.locator('option').count()-1));
+  assert.equal(await railList.isVisible(),false);
+  const last=await download('#t-slot-save-plate');assert.match(last.name,/-clear\.3mf$/);
   const full=await download('#export-confirm');
-  assert.deepEqual(stockInArchive(unzipSync(full.buffer),'0.4'),listed);
+  const fullPlates=unzipSync(full.buffer);
+  assert.deepEqual(stockInArchive(fullPlates,'0.4'),listed);
+  assert.deepEqual(unzipSync(fullPlates[firstName]),unzipSync(first.buffer));
+  const lastName=Object.keys(fullPlates).find(key=>last.name.endsWith(key));assert.ok(lastName);
+  assert.deepEqual(unzipSync(fullPlates[lastName]),unzipSync(last.buffer));
   await openFrame();await bottom.check();
   for(const i of [0,1,2])assert.equal(await opening(i).inputValue(),'150');
   await bottom.uncheck();assert.ok(await confirm.isDisabled());
