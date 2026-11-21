@@ -49,7 +49,7 @@ function keepDetailLabelNearby(d,detail,view){
 
 // Derive copies from the source dimensions. Page assignment can put the
 // original and the detail on different sheets, so use the complete source.
-export function drawingDetailDimensions(layout,details,sources){
+export function drawingDetailDimensions(layout,details,sources,forPDF=false){
  if(!details?.length)return [];
  const byView=dimensionsByView(sources),copies=[];
  for(const detail of details){
@@ -61,8 +61,24 @@ export function drawingDetailDimensions(layout,details,sources){
    const key=referenceKey(d);
    if(used.has(key))continue;
    used.add(key);
-   copies.push(keepDetailLabelNearby({...d,view:detail.id},detail,view));
+   const copy={...d,view:detail.id,detailDimensionKey:key};
+   const placements=detail.dimensionPlacements?.[key];
+   const placement=(forPDF?placements?.pdf:undefined)??placements?.overview;
+   copies.push(placement?
+    {...copy,at:placement.at,alongOffset:placement.alongOffset}:keepDetailLabelNearby(copy,detail,view));
   }
  }
  return copies;
+}
+
+export function pruneDetailDimensionPlacements(details,sources){
+ if(!details.some(detail=>detail.dimensionPlacements))return details;
+ const byView=dimensionsByView(sources);
+ return details.map(detail=>{
+  if(!detail.dimensionPlacements)return detail;
+  const keys=new Set((byView.get(detail.view)??[]).map(referenceKey));
+  const entries=Object.entries(detail.dimensionPlacements);
+  const retained=entries.filter(([key])=>keys.has(key));
+  return retained.length===entries.length?detail:{...detail,dimensionPlacements:Object.fromEntries(retained)};
+ });
 }

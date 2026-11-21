@@ -11,6 +11,8 @@ import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const point=p=>Array.isArray(p)&&p.length===2&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
+const validDimensionPlacement=placement=>point(placement?.at)&&
+ (placement.alongOffset===undefined||Number.isFinite(placement.alongOffset)&&Math.abs(placement.alongOffset)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
 export function readDrawingState(value){if(value==null)return null;const fail=()=>{throw Error('図面編集データが不正です');};if(value.version!==1||typeof value.signature!=='string'||!Array.isArray(value.dimensions)||value.dimensions.length>500)fail();
  const s=structuredClone(value);if(!validDrawingScale(s.scale)||typeof s.hidden!=='boolean'||typeof s.comment!=='string'||s.comment.length>2000||!Array.isArray(s.targets)||s.targets.some(id=>typeof id!=='string')||!['visible','selected'].includes(s.targetMode))fail();
@@ -81,6 +83,15 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  for(const detail of details){
   if(!extraId(detail.id)||!detail.id.startsWith('detail-')||ids.has(detail.id)||!viewNames.has(detail.view)||!point(detail.center)||
    !Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||!validDrawingDetailFactor(detail.factor))fail();
+  const placements=detail.dimensionPlacements;
+  if(placements!==undefined){
+   if(!placements||typeof placements!=='object'||Array.isArray(placements))fail();
+   const entries=Object.entries(placements);
+   if(entries.length>500||entries.some(([key,item])=>!key.startsWith('[')||key.length>160||!item||
+    (item.overview===undefined&&item.pdf===undefined)||
+    (item.overview!==undefined&&!validDimensionPlacement(item.overview))||
+    (item.pdf!==undefined&&!validDimensionPlacement(item.pdf))))fail();
+  }
   ids.add(detail.id);
  }
  for(const id of ids)viewNames.add(id);
@@ -138,8 +149,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(![...drawingProjectionNames,'iso','comment','holeTable',...ids,...commentIds].includes(key)||!point(p))fail();
  for(const d of s.dimensions){if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();if(!viewNames.has(d.view)||!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();if(['diameter','radius'].includes(d.kind)){if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();}else if(!point(d.a)||!point(d.b))fail();if(d.kind==='angle'&&!point(d.vertex))fail();}
  for(const d of s.dimensions){
-  if(d.pdfPlacement!==undefined&&(!d.pdfPlacement||!point(d.pdfPlacement.at)||
-   d.pdfPlacement.alongOffset!==undefined&&(!Number.isFinite(d.pdfPlacement.alongOffset)||Math.abs(d.pdfPlacement.alongOffset)>1e6)))fail();
+  if(d.pdfPlacement!==undefined&&!validDimensionPlacement(d.pdfPlacement))fail();
   if(d.review!==undefined&&typeof d.review!=='boolean')fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
   if(d.hidden!==undefined&&typeof d.hidden!=='boolean')fail();

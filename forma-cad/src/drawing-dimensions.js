@@ -30,7 +30,7 @@ function dimensionText(d,x,y,color){
   '<text x="'+x+'" y="'+(y+font*.31)+'" text-anchor="middle" font-size="'+font+'" fill="'+color+'" stroke="none">'+escapeDrawingText(label)+'</text>';
 }
 function dimensionGroup(d,index,paths,colors,x,y,inherited){
- const target=inherited?'data-detail-dimension="'+escapeDrawingText(d.view)+'" pointer-events="none"':'data-dimension="'+index+'"';
+ const target=inherited?'data-detail-dimension="'+escapeDrawingText(d.view)+'" data-detail-dimension-index="'+index+'" pointer-events="none"':'data-dimension="'+index+'"';
  return '<g '+target+(d.review?' data-dimension-review="true" stroke-dasharray="2 1"':'')+
   ' stroke="'+colors.line+'" stroke-width=".18" fill="none">'+paths+dimensionText(d,x,y,colors.text)+'</g>';
 }

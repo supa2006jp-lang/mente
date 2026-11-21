@@ -106,16 +106,22 @@ try{
  await label(0).click();
  await field('dimension-pin').uncheck();
  await field('layout-mode').check();
- const textPoint=async()=>Promise.all(['x','y'].map(key=>label(0).getAttribute(key)));
+ const textPoint=async(target=label(0))=>Promise.all(['x','y'].map(key=>target.getAttribute(key)));
  const original=await textPoint();
- async function dragLabel(dx,dy,axis){
-  await label(0).scrollIntoViewIfNeeded();
-  const box=await label(0).boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
+ async function dragLabel(dx,dy,axis,{target=label(0),cancel=false}={}){
+  await target.scrollIntoViewIfNeeded();
+  const box=await target.boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
+  if(cancel)await field('preview').evaluate(host=>{
+   host.addEventListener('pointerdown',e=>{host.testDragPointer=e.pointerId;},{once:true});
+  });
   await page.mouse.move(x,y);await page.mouse.down();
   await page.mouse.move(x+dx,y+dy,{steps:6});
   const guides=field('preview').locator('[data-dimension-drag-guide]');
   if(axis!==undefined)assert.equal(await guides.getAttribute('data-dimension-drag-guide'),String(axis));
   else assert.equal(await guides.count(),0);
+  if(cancel)await field('preview').evaluate(host=>{
+   host.dispatchEvent(new PointerEvent('pointercancel',{pointerId:host.testDragPointer}));
+  });
   await page.mouse.up();
   assert.equal(await guides.count(),0);
  }
@@ -402,12 +408,41 @@ try{
  assert.equal(await detailScale(),2.75);
  await field('redo').click();
  assert.equal(await detailScale(),3.125);
+ const inheritedLabel=preview.locator('[data-detail-dimension] text').filter({hasText:/^8\.25$/});
+ const sourcePosition=await textPoint();
+ const detailPosition=await textPoint(inheritedLabel);
+ await dragLabel(38,5,1,{target:inheritedLabel});
+ const detailRight=await textPoint(inheritedLabel);
+ assert(+detailRight[0]>+detailPosition[0]&&Math.abs(detailRight[1]-detailPosition[1])<1e-6);
+ await dragLabel(5,24,0,{target:inheritedLabel});
+ const detailMoved=await textPoint(inheritedLabel);
+ assert(Math.abs(detailMoved[0]-detailRight[0])<1e-6&&+detailMoved[1]>+detailRight[1]);
+ await dragLabel(20,3,1,{target:inheritedLabel,cancel:true});
+ assert.deepEqual(await textPoint(inheritedLabel),detailMoved);
+ await field('undo').click();
+ assert.deepEqual(await textPoint(inheritedLabel),detailRight);
+ await field('redo').click();
+ assert.deepEqual(await textPoint(inheritedLabel),detailMoved);
+ assert.deepEqual(await textPoint(),sourcePosition);
  await field('pdf-layout').selectOption('manual');
  await field('pdf-placement').selectOption('auto');
+ await field('page-edit').selectOption('1');
+ const pagePosition=await textPoint(inheritedLabel);
+ await dragLabel(-24,4,1,{target:inheritedLabel});
+ const pageMoved=await textPoint(inheritedLabel);
+ assert(+pageMoved[0]<+pagePosition[0]&&Math.abs(pageMoved[1]-pagePosition[1])<1e-6);
+ await field('page-reset').click();
+ assert.deepEqual(await textPoint(inheritedLabel),pagePosition);
+ await field('undo').click();
+ assert.deepEqual(await textPoint(inheritedLabel),pageMoved);
+ await field('page-edit').selectOption('-1');
+ assert.deepEqual(await textPoint(inheritedLabel),detailMoved);
+ assert.deepEqual(await textPoint(),sourcePosition);
  await field('pdf-preview-open').click();
  await printPage.selectOption('1');
  assert.equal(await printPreview.locator('[data-view=top]').count(),0);
  assert.deepEqual(await printPreview.locator('[data-detail-dimension] text').allTextContents(),['8.25','8']);
+ assert.deepEqual(await textPoint(printPreview.locator('[data-detail-dimension] text').first()),pageMoved);
  assert.equal(await printPreview.locator('[data-dimension-drag-guide]').count(),0);
  const detailDownload=page.waitForEvent('download');
  await field('pdf-preview-save').click();
@@ -421,6 +456,8 @@ try{
  await open('saved-detail.forma.json',detailFile);
  assert.equal(await detailScale(),3.125);
  assert.deepEqual(await preview.locator('[data-detail-dimension] text').allTextContents(),['8.25','8']);
+ assert.deepEqual(await textPoint(inheritedLabel),detailMoved);
+ assert.deepEqual(await textPoint(),sourcePosition);
  assert.deepEqual(errors,[]);
- console.log('PASS axis snapping, guide cleanup, free dragging, decimal detail magnification, inherited dimensions on PDF pages, save and reload, and drawing regressions');
+ console.log('PASS independent inherited dimension dragging, axis guides, cancel, undo/redo, PDF page placement, save and reload, and drawing regressions');
 }finally{await browser?.close();server.close();}

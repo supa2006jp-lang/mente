@@ -3,6 +3,7 @@ import test from 'node:test';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {readDrawingState} from '../src/drawing-state.js';
+import {pruneDetailDimensionPlacements} from '../src/drawing-detail-dimensions.js';
 import {snapDrawingDragAxis} from '../src/drawing-placement-guides.js';
 
 const data={bodyCount:1,bounds:[[0,0,0],[40,25,20]],views:{
@@ -41,6 +42,36 @@ test('a decimal detail factor and its inherited dimensions survive separate PDF 
  assert(!enlargement.layout.top);
  assert.equal(enlargement.layout[detail.id].scale,2.2);
  assert.deepEqual(enlargement.dimensionIndices,[]);
+});
+
+test('positions belong to a detail and its PDF page, while values follow the source dimension',()=>{
+ const original=drawingSheet(data,1,true,[width],'',options);
+ const key=original.inheritedDimensions[0].detailDimensionKey;
+ const overview={at:[10,1],alongOffset:4},pdf={at:[10,4]};
+ const adjusted={...detail,dimensionPlacements:{[key]:{overview,pdf}}};
+ const sibling={...detail,id:'detail-b'};
+ const dimensions=[{...width,at:[10,20],alongOffset:8,displayValue:8.5}];
+ const settings={...options,details:[adjusted,sibling]};
+ const draft=drawingSheet(data,1,true,dimensions,'',settings);
+ const [a,b]=draft.inheritedDimensions;
+ assert.deepEqual(a.at,overview.at);
+ assert.equal(a.alongOffset,4);
+ assert.equal(a.displayValue,8.5);
+ assert.notDeepEqual(b.at,overview.at);
+ assert.deepEqual(draft.dimensions,dimensions);
+
+ const state={version:1,signature:'part',targetMode:'visible',targets:['part'],scale:1,hidden:true,comment:'',dimensions,options:settings};
+ assert.deepEqual(readDrawingState(state).options.details[0].dimensionPlacements,{[key]:{overview,pdf}});
+ const [sourcePage,detailPage]=drawingPDFPages(data,1,true,dimensions,'',{
+  ...settings,pdfLayout:'manual',pageAssignments:{pageCount:2,views:{top:1,[detail.id]:2}},
+ });
+ assert.deepEqual(sourcePage.dimensions,dimensions);
+ assert.deepEqual(detailPage.inheritedDimensions[0].at,pdf.at);
+ assert.equal(detailPage.inheritedDimensions[0].alongOffset,undefined);
+ assert.equal(detailPage.inheritedDimensions[0].displayValue,8.5);
+ assert.deepEqual(pruneDetailDimensionPlacements(settings.details,[])[0].dimensionPlacements,{});
+ const invalid={...state,options:{...settings,details:[{...detail,dimensionPlacements:{[key]:{overview:{at:[0,null]}}}}]}};
+ assert.throws(()=>readDrawingState(invalid));
 });
 
 test('drawing drag snaps to the nearby axis at different zoom levels',()=>{
