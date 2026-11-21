@@ -128,6 +128,9 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
   }
  }
  const masks=[],landings=[],preview=[],ribPreview=[],groups=[],skipped=new Set();let result=null,local=null;const analysis={enabled:true,width:p.interfaceLineWidth,spacing:p.interfaceSpacing,depth:p.layerHeight,upper:0,lower:0,bedPreserved:0,slots:0,removedVolume:0};
+ // Use the exact inputs of each mask's geometry cache for the rib mesh keys.
+ // This avoids storing the same large groove BREP for every rib it crosses.
+ const maskRecipes=meshCache?new Map():null;
  try{
   for(const {shape,role,axis,supportFace}of regions){
    const settings=contactRoleSettings(p,role);if(!settings.enabled)continue;const b=bounds(shape),other=1-axis;if(role==='lower'&&b[0][2]<=p.bedZ+1e-6){analysis.bedPreserved++;continue;}const low=b[0][other],high=b[1][other],pitch=settings.width+settings.spacing;
@@ -147,7 +150,8 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
       throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');
      const insetKey=cache&&JSON.stringify(['inset',skinKey,z,top,p.bottomContactInset]);
      const inset=cachedSupportGeometry(cache,insetKey,()=>({shape:bottomContactInsetMask(shape,z,top,p.bottomContactInset)}));
-     masks.push(inset.shape);landings.push({shape,b,z,top,width:settings.width});
+     masks.push(inset.shape);if(insetKey)maskRecipes?.set(inset.shape,insetKey);
+     landings.push({shape,b,z,top,width:settings.width});
      analysis.bottomEndRelief={distance:p.bottomContactInset,count:(analysis.bottomEndRelief?.count||0)+1};
     }
     if(!spans.length)continue;
@@ -158,7 +162,10 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
      analysis.topRim??={enabled:true,width:p.topContactRimWidth,count:0};analysis.topRim.count++;
      if(groove.preserved)analysis.topRim.preserved=(analysis.topRim.preserved||0)+groove.preserved;
     }
-    if(groove.shape){masks.push(groove.shape);analysis[role]++;}
+    if(groove.shape){
+     masks.push(groove.shape);analysis[role]++;
+     if(grooveKey)maskRecipes?.set(groove.shape,grooveKey);
+    }
     if(groove.reused)onProgress?.({stage:'計算済みの線状接触層を再利用しています',supportFace});
    }finally{
     if(masks.length>start)groups.push({shape,role,offset,masks:masks.slice(start),slots:analysis.slots-slots,cut:analysis[role]-cutCount,relief:(analysis.bottomEndRelief?.count??0)-relief});
@@ -243,7 +250,7 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
   for(const {shape,b,z,top,width}of landings){if(skipped.has(shape))continue;const box=R.makeBox([b[0][0],b[0][1],z],[b[1][0],b[1][1],top]);let layer,remaining;try{layer=shape.intersect(box);remaining=result.intersect(layer);if(volume(remaining)<p.lineWidth*width*(top-z))throw Error('底面の端の逃げが大きすぎて十分な接触線を残せません。値を小さくするか0にしてください');}finally{remaining?.delete();layer?.delete();box.delete();}}
   analysis.settings={upper:contactRoleSettings(p,'upper'),lower:contactRoleSettings(p,'lower')};
   if(p.preview){
-   local=supportLocalPreview(original,activeMasks);
+   local=supportLocalPreview(original,activeMasks,maskRecipes);
    for(const {shape,role,axis,supportFace,contained} of regions){
     if(skipped.has(shape)||!contactRoleSettings(p,role).enabled)continue;
     const b=bounds(shape);
@@ -261,10 +268,11 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
     }finally{display?.delete();mask?.delete();box?.delete();}
    }
   }
-  if(p.preview)for(const [index,record]of ribRecords.entries()){
-   onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）',supportFace:record.supportFace});
-   yield;
-   ribPreview.push({id:record.id,...local.mesh(record.shape,{contained:ribsAreContained,cache:meshCache,meshShape:displayMesh})});
+  if(p.preview){
+   const meshes=yield* local.meshSteps(ribRecords,{contained:ribsAreContained,cache:meshCache,meshShape:displayMesh,
+    onRib:(record,index)=>onProgress?.({stage:'リブの表示を準備しています（'+(index+1)+'／'+ribRecords.length+'枚）',supportFace:record.supportFace}),
+   });
+   for(const [index,mesh] of meshes.entries())ribPreview.push({id:ribRecords[index].id,...mesh});
   }
   analysis.removedVolume=Math.max(0,volume(original)-volume(result));
   const flatSkinPreview=p.preview?[...skipped].map(part=>({...displayMesh(part),policy:'flat'})):[];

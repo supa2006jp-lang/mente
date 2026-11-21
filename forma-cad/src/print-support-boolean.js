@@ -11,6 +11,8 @@ export function supportNonDestructiveBoolean(kind,source,tool,{simplify=false}={
   argumentsList.Append(source.wrapped);toolsList.Append(tool.wrapped);
   builder.SetArguments(argumentsList);builder.SetTools(toolsList);
   builder.SetNonDestructive(true);builder.SetFuzzyValue(0);
+  // Support operations only consume the finished shape.
+  builder.SetToFillHistory(false);
   builder.Build();
   if(builder.HasErrors())throw Error('サポートの形状を切り出せませんでした');
   if(simplify)builder.SimplifyResult(true,true,.001);
