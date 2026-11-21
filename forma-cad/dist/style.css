@@ -156,6 +156,12 @@
 #drawing-overflow-list { flex:1 0 100%; gap:4px 6px; max-height:84px; overflow:auto; color:#ffc1bc; }
 #drawing-overflow-list button { padding:4px 8px; border-color:#e06962; color:#ffdbd7; }
 #drawing-preview [data-overflow-outline] { stroke:#cc2620; stroke-width:.65; stroke-dasharray:2 1; cursor:pointer; }
+#drawing-preview [data-view-overlap-outline], #drawing-pdf-preview-host [data-view-overlap-outline] {
+ stroke:#a95309; stroke-width:1.5px; stroke-dasharray:5px 3px; vector-effect:non-scaling-stroke; fill:#f59e0b22;
+}
+#drawing-preview [data-view-overlap-outline="focused"], #drawing-pdf-preview-host [data-view-overlap-outline="focused"] {
+ stroke-width:2.5px; fill:#f59e0b38;
+}
 #drawing-preview [data-drawing-overflow]:not([data-dimension],[data-comment]) text { fill:#b21f1a; }
 #drawing-hidden-views { margin:5px 0; }
 #drawing-hidden-views summary { cursor:pointer; }

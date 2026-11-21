@@ -2,7 +2,7 @@ import {drawingViewport} from './drawing-viewport.js';
 import {drawingPrintSVG} from './drawing-print-palette.js';
 import {loadDrawingCommentFont} from './drawing-comments.js';
 import {drawingScaleSummary} from './drawing-view-preferences.js';
-import {drawingOverflowOutline,drawingSheetItems} from './drawing-sheet-check.js';
+import {drawingOverflowOutline,drawingSheetItems,markDrawingViewOverlap} from './drawing-sheet-check.js';
 import {installDrawingPDFPageList} from './drawing-pdf-page-list.js';
 
 export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onPageOrder,onFit,viewLabel}){
@@ -39,7 +39,10 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onPageO
   host.innerHTML=drawingPrintSVG(page.svg,palette);
   viewport.setSheet(page);
   if(reset)viewport.reset();
-  if(highlight?.box){
+  if(highlight?.kind==='view-overlap'){
+   markDrawingViewOverlap(host.firstElementChild,highlight.regions,true);
+   viewport.focus(highlight.box);
+  }else if(highlight?.box){
    const item=host.querySelectorAll(drawingSheetItems)[highlight.itemIndex];
    // A comment can be hidden behind the title block in the printed layer order.
    if(item)item.parentElement.append(item);
@@ -94,7 +97,13 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onPageO
    q('host').focus({preventScroll:true});
   }catch(error){notice=error.message;showStatus();}
  };
- q('edit').onclick=()=>{if(!saving){dialog.close();onEdit(index);}};
+ q('edit').onclick=()=>{
+  if(saving)return;
+  const issue=highlight;
+  dialog.close();
+  if(issue?.kind==='view-overlap')onIssue(issue);
+  else onEdit(index);
+ };
  q('close').onclick=()=>{if(!saving)dialog.close();};
  dialog.addEventListener('cancel',event=>{if(saving)event.preventDefault();});
  dialog.addEventListener('close',()=>{
@@ -112,9 +121,9 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onPageO
  function showIssues(){
   const check=q('check'),rows=q('issues');
   check.hidden=!issues.length;check.open=!!issues.length;
-  const counts={overlap:0,reference:0,layout:0};
+  const counts={overlap:0,'view-overlap':0,reference:0,layout:0};
   for(const issue of issues)counts[issue.kind]++;
-  const categories=[['overlap','寸法の重なり'],['reference','参照先を要確認'],['layout','配置を要調整']];
+  const categories=[['overlap','寸法の重なり'],['view-overlap','図の重なり'],['reference','参照先を要確認'],['layout','配置を要調整']];
   q('check-summary').textContent='出力前チェック　'+categories.filter(([key])=>counts[key])
    .map(([key,label])=>label+' '+counts[key]+' 件').join(' ／ ');
   rows.replaceChildren(...issues.map(issue=>{
@@ -123,7 +132,7 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onPageO
    button.textContent=(issue.pageIndex+1)+' ページ · '+issue.label;
    button.onclick=()=>{
     if(saving)return;
-    if(issue.kind==='layout'){
+    if(issue.kind==='layout'||issue.kind==='view-overlap'){
      selectPage(issue.pageIndex,issue);
      button.setAttribute('aria-current','true');
      return;

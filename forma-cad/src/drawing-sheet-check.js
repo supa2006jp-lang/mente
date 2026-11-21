@@ -32,6 +32,35 @@ export function drawingOverflowOutline(svg,box){
  return outline;
 }
 
+function overlapRegion(a,b){
+ const x=Math.max(a.x,b.x),y=Math.max(a.y,b.y);
+ const width=Math.min(a.x+a.width,b.x+b.width)-x,height=Math.min(a.y+a.height,b.y+b.height)-y;
+ return width>1e-6&&height>1e-6?{x,y,width,height}:null;
+}
+
+export function drawingViewOverlaps(sheet){
+ const views=Object.entries(sheet.layout).map(([name,view])=>({name,areas:[view,sheet.viewTitles?.[name]].filter(Boolean)}));
+ const issues=[];
+ for(const [index,a] of views.entries())for(const b of views.slice(index+1)){
+  const regions=a.areas.flatMap(area=>b.areas.map(other=>overlapRegion(area,other)).filter(Boolean));
+  if(!regions.length)continue;
+  const x=Math.min(...regions.map(region=>region.x)),y=Math.min(...regions.map(region=>region.y));
+  const width=Math.max(...regions.map(region=>region.x+region.width))-x;
+  const height=Math.max(...regions.map(region=>region.y+region.height))-y;
+  issues.push({views:[a.name,b.name],regions,box:{x,y,width,height}});
+ }
+ return issues;
+}
+
+export function markDrawingViewOverlap(svg,regions,focused=false){
+ for(const region of regions){
+  const outline=svg.ownerDocument.createElementNS(svg.namespaceURI,'rect');
+  for(const [key,value] of Object.entries({...region,'data-view-overlap-outline':focused?'focused':'true',
+   'pointer-events':'none','aria-hidden':'true'}))outline.setAttribute(key,value);
+  svg.append(outline);
+ }
+}
+
 function viewName(view){
  if(drawingProjections[view])return drawingProjections[view].title+'図';
  return view?.startsWith('section-')?'断面図':view?.startsWith('detail-')?'詳細図':'俯瞰図';
@@ -51,7 +80,7 @@ function pageItemName(element,indices){
  return '矢印付き注記';
 }
 
-export function drawingPDFIssues(pages,{checkBounds=false}={}){
+export function drawingPDFIssues(pages,{checkBounds=false,labelView=viewName}={}){
  const issues=[];
  let measurement;
  if(checkBounds){
@@ -68,6 +97,9 @@ export function drawingPDFIssues(pages,{checkBounds=false}={}){
    };
    for(const {index,reason} of drawingDimensionConflicts(dimensions,page)){
     addDimension('overlap',index,dimensionLabel(dimensions[index])+' · '+reason);
+   }
+   for(const issue of drawingViewOverlaps(page)){
+    issues.push({kind:'view-overlap',pageIndex,...issue,label:issue.views.map(labelView).join(' と ')+' の重なり'});
    }
    for(const [index,d] of dimensions.entries()){
     if(d.review&&dimensionPlacement(d,page))addDimension('reference',index,'参照先を要確認');

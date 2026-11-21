@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
 import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
-import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
+import {drawingPDFIssues,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
 import {dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
@@ -88,6 +88,29 @@ test('the PDF checklist maps a filtered page back to original visible dimension 
  const issues=drawingPDFIssues(pages);
  assert.deepEqual(issues.filter(issue=>issue.kind==='overlap').map(issue=>[issue.pageIndex,issue.dimension]),[[1,1],[1,3]]);
  assert.deepEqual(issues.filter(issue=>issue.kind==='reference').map(issue=>[issue.pageIndex,issue.dimension]),[[1,4]]);
+});
+
+test('view and caption intersections are reported on the pages that contain both views',()=>{
+ const {front,top,right}=part.views;
+ const data={...part,views:{front,top,right}};
+ const settings={...options,layout:'compact',projectionLocked:false,sections:[],positions:{top:[40,28],front:[45,74],right:[145,74]}};
+ const titleOnly=drawingSheet(data,1,true,[],'',settings);
+ const [titleIssue]=drawingViewOverlaps(titleOnly);
+ assert.deepEqual(titleIssue.views,['top','front']);
+ assert.equal(titleIssue.regions.length,1);
+ assert(titleIssue.box.y+titleIssue.box.height<=titleOnly.layout.front.y);
+ const crowded={...settings,positions:{...settings.positions,top:[40,55]},pdfLayout:'manual',
+  pageAssignments:{pageCount:2,views:{top:2,front:2},comments:{}}};
+ const editor=drawingSheet(data,1,true,[],'',crowded);
+ const pages=drawingPDFPages(data,1,true,[],'',crowded,editor);
+ const issues=drawingPDFIssues(pages).filter(issue=>issue.kind==='view-overlap');
+ assert.equal(issues.length,1);
+ assert.equal(issues[0].pageIndex,1);
+ assert.equal(issues[0].regions.length,2);
+ assert.deepEqual(issues[0].views,['top','front']);
+ const separated={...crowded,pageAssignments:{pageCount:2,views:{top:2},comments:{}}};
+ assert.equal(drawingPDFIssues(drawingPDFPages(data,1,true,[],'',separated)).filter(issue=>issue.kind==='view-overlap').length,0);
+ assert.deepEqual(drawingViewOverlaps({layout:{front:{x:0,y:0,width:10,height:10},top:{x:10,y:0,width:10,height:10}}}),[]);
 });
 
 test('manufacturing dimensions choose a visible enabled view for each axis',()=>{
@@ -233,6 +256,26 @@ test('initial layout reserves the right side for ISO and can pack linked project
    assert.equal(readDrawingState(saved).options.linkedProjections,true);
    assert.throws(()=>readDrawingState({...saved,options:{...saved.options,linkedProjections:'on'}}));
   }
+ }
+});
+
+test('automatic placement prefers the projection order at the already fitted scales',()=>{
+ const {front,top,right}=part.views;
+ const data={...part,views:{front,top,right,iso:{...rect(70.71,57.2),viewBox:[0,-57.2,70.71,57.2]}}};
+ for(const orientation of ['landscape','portrait']){
+  const settings={...options,orientation,sections:[],isoMode:'full'};
+  const input={options:settings,isoOnRight:true,spreadViews:true};
+  const compact=optimizeDrawingLayout(data,input);
+  const ordered=optimizeDrawingLayout(data,{...input,preferProjectionOrder:true});
+  assert.equal(ordered.scale,compact.scale);
+  assert.equal(ordered.autoIsoScale,compact.autoIsoScale);
+  const sheet=drawingSheet(data,ordered.scale,true,[],'',{...settings,layout:'compact',positions:ordered.positions,
+   autoIsoScale:ordered.autoIsoScale});
+  const {front:f,top:t,right:r,iso}=sheet.layout;
+  assert(t.y+t.height<f.y,'the top view is fitted above the front');
+  if(orientation==='landscape')assert(r.x>f.x+f.width,'the right view is fitted to the right of the front');
+  assert(iso.x>Math.max(f.x+f.width,t.x+t.width,r.x+r.width));
+  assert.deepEqual(drawingViewOverlaps(sheet),[]);
  }
 });
 

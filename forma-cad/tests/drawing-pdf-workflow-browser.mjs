@@ -606,6 +606,10 @@ try{
   const [x,,width]=await viewBox(view);
   assert(isoX>x+width);
  }
+ const [,initialTopY,,initialTopHeight]=await viewBox('top');
+ const [initialFrontX,initialFrontY,initialFrontWidth]=await viewBox('front');
+ assert(initialTopY+initialTopHeight<initialFrontY);
+ assert((await viewBox('right'))[0]>initialFrontX+initialFrontWidth);
  const initialViews=await transforms();
  assert((await scaleOn(editor,'iso'))<(await scaleOn(editor,'front')));
  await field('dimension-auto').click();
@@ -746,6 +750,37 @@ try{
  assert.deepEqual(await transforms(['right','iso']),pageTwo);
  await field('page-edit').selectOption('-1');
  assert.deepEqual(await projectionScales(),[resizedFront,resizedFront,resizedFront]);
+ await field('close').click();
+
+ const overlapCase={...drawing,dimensions:[],comment:'',options:{...drawing.options,layout:'compact',projectionLocked:false,
+  sections:[],positions:{top:[44,25],front:[60,75],right:[145,75]},
+  pageAssignments:{pageCount:2,views:{top:2,front:2},comments:{}}}};
+ await open(overlapCase);
+ await field('page-edit').selectOption('1');
+ assert.equal(await editor.locator('[data-view-overlap-outline]').count(),0);
+ await field('snap').uncheck();
+ const pixelsPerMm=await editor.locator('svg').evaluate(svg=>svg.getScreenCTM().a);
+ await dragView('top',0,20*pixelsPerMm);
+ assert(await editor.locator('[data-view-overlap-outline]').count()>0);
+ assert.match(await field('conflicts').locator('summary').textContent(),/図の重なり 1 件/);
+ await field('pdf-preview-open').click();
+ assert.equal(await field('pdf-preview-page').inputValue(),'0');
+ const overlapIssue=preview.locator('[data-pdf-issue="view-overlap"]');
+ assert.match(await overlapIssue.textContent(),/2 ページ.*TOP.*FRONT/);
+ await overlapIssue.click();
+ assert.equal(await field('pdf-preview-page').inputValue(),'1');
+ assert(await print.locator('[data-view-overlap-outline="focused"]').count()>0);
+ assert(await field('pdf-preview-save').isEnabled());
+ await field('pdf-preview-edit').click();
+ assert.equal(await field('page-edit').inputValue(),'1');
+ assert(await editor.locator('[data-view-overlap-outline="focused"]').count()>0);
+ await field('view-scales').evaluate(details=>details.open=true);
+ await scaleInputFor('top').fill('0.25');
+ await scaleInputFor('top').press('Enter');
+ assert.equal(await editor.locator('[data-view-overlap-outline]').count(),0);
+ await field('pdf-preview-open').click();
+ assert.equal(await overlapIssue.count(),0);
+ await field('pdf-preview-close').click();
  assert.deepEqual(errors,[]);
- console.log('PASS fixed view positions on auto-dimension, linked scales, right-column ISO and projection drag guides');
+ console.log('PASS drawing layout, linked projections and scales, and view overlaps in the editor and PDF preview');
 }finally{await browser?.close();server.close();}

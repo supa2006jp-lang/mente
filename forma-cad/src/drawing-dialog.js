@@ -2,7 +2,7 @@ import {circles,viewPoints,insideView,withDetails,snapDimension} from './drawing
 import {assignDrawingPDFPageItem,drawingPDFHasMultiplePages,drawingPDFPageAssignments,drawingPDFPageItems,drawingPDFPages,
  fitDrawingPDFPage,maxDrawingPDFPages,remapDrawingPDFPages} from './drawing-pdf-pages.js';
 import {installDrawingPDFPreview} from './drawing-pdf-preview.js';
-import {drawingOverflowOutline,drawingPDFIssues,drawingSheetOverflow} from './drawing-sheet-check.js';
+import {drawingOverflowOutline,drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps,markDrawingViewOverlap} from './drawing-sheet-check.js';
 import {pruneDetailDimensionPlacements} from './drawing-detail-dimensions.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
@@ -704,7 +704,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   selectDrawingComment(id);render();$('drawing-comment').focus();
  };
  $('drawing-comment-remove').onclick=()=>{if(busy)return;removeDrawingComment(activeComment);selection=null;render();};
- function applyAutomaticLayout(){if(!data)return false;try{const result=optimizeDrawingLayout(data,{scale:Number($('drawing-scale').value),dimensions,comment:mainComment,options:options(),isoOnRight:true,spreadViews:true});positions=result.positions;dimensions=result.dimensions;autoIsoScale=result.autoIsoScale;layoutKind='compact';setScale(result.scale);$('drawing-paper-size').value=result.paper;picking=null;action=null;selection=null;render(true,{reflowDimensions:true});if(!overflow)status('用紙内で図を大きく自動配置しました。縮尺 '+drawingScaleLabel(result.scale)+'。元に戻すで取消できます');return true;}catch(error){status('自動配置できません：'+error.message);return false;}}
+ function applyAutomaticLayout(){if(!data)return false;try{const result=optimizeDrawingLayout(data,{scale:Number($('drawing-scale').value),dimensions,comment:mainComment,options:options(),isoOnRight:true,spreadViews:true,preferProjectionOrder:true});positions=result.positions;dimensions=result.dimensions;autoIsoScale=result.autoIsoScale;layoutKind='compact';setScale(result.scale);$('drawing-paper-size').value=result.paper;picking=null;action=null;selection=null;render(true,{reflowDimensions:true});if(!overflow)status('用紙内で図を大きく自動配置しました。縮尺 '+drawingScaleLabel(result.scale)+'。元に戻すで取消できます');return true;}catch(error){status('自動配置できません：'+error.message);return false;}}
  function persist(){
   if(!data)return;
   details=pruneDetailDimensionPlacements(details,dimensions);
@@ -1336,14 +1336,38 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   focusDrawingConflict(index,dimensionPlacement(onSheetDimensions()[index],sheet).box);
   status('寸法 '+(index+1)+' だけを再配置しました。元に戻すで取り消せます');
  }
- function renderDimensionConflicts(){
-  if(drag||!sheet)return;
+ function focusDrawingViewOverlap(issue){
+  if(busy||drag||!sheet)return;
+  picking=null;action=null;selection=null;
+  $('drawing-layout-mode').checked=true;
+  render(false);
+  if(!sheet)return;
+  conflictList.open=true;
+  markDrawingViewOverlap(viewportHost.querySelector('svg'),issue.regions,true);
+  viewport.focus(issue.box);viewportHost.scrollIntoView({block:'nearest'});viewportHost.focus({preventScroll:true});
+  status(issue.views.map(pdfViewLabel).join(' と ')+' の重なりを調整できます');
+ }
+ function renderDrawingConflicts(){
+  if(!sheet)return;
+  const svg=viewportHost.querySelector('svg'),viewIssues=drawingViewOverlaps(sheet);
+  for(const issue of viewIssues)markDrawingViewOverlap(svg,issue.regions);
+  if(drag)return;
   const issues=drawingDimensionConflicts(onSheetDimensions(),sheet);
   const rows=$('drawing-conflict-rows');
   rows.replaceChildren();
-  conflictList.hidden=!issues.length;
-  conflictList.firstElementChild.textContent='寸法の重なり '+issues.length+' 件';
-  const svg=viewportHost.querySelector('svg');
+  const counts=[];
+  if(viewIssues.length)counts.push('図の重なり '+viewIssues.length+' 件');
+  if(issues.length)counts.push('寸法の重なり '+issues.length+' 件');
+  conflictList.hidden=!counts.length;
+  conflictList.firstElementChild.textContent=counts.join(' ／ ');
+  for(const issue of viewIssues){
+   const row=document.createElement('div'),focus=document.createElement('button');
+   row.dataset.viewConflict=issue.views.join(' ');
+   focus.type='button';focus.disabled=busy;
+   focus.textContent=issue.views.map(pdfViewLabel).join(' と ')+' の重なり';
+   focus.onclick=()=>focusDrawingViewOverlap(issue);
+   row.append(focus);rows.append(row);
+  }
   for(const node of svg.querySelectorAll('[data-overlap]'))node.removeAttribute('data-overlap');
   for(const {index,reason,box} of issues){
    const d=dimensions[index],row=document.createElement('div'),focus=document.createElement('button'),fix=document.createElement('button');
@@ -1454,7 +1478,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const group of viewportHost.querySelectorAll('[data-detail-dimension]'))group.removeAttribute('pointer-events');
   viewportHost.style.cursor='move';
  }else viewportHost.style.cursor=picking||action?'crosshair':'';
- renderDimensionConflicts();syncAlignment();for(const path of viewportHost.querySelectorAll('[data-break-edge]')){const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','4');hit.setAttribute('pointer-events',picking||action?'none':'stroke');path.before(hit);}if(Object.keys(data.sectionErrors||{}).length)status('断面図：'+Object.values(data.sectionErrors).join(' / ')+'（位置を直すか、この断面図を削除してください）');for(const g of $('drawing-preview').querySelectorAll('[data-section],[data-marker]')){const path=g.querySelector('path');if(!path)continue;const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','3');hit.removeAttribute('stroke-dasharray');g.prepend(hit);}if(commit)persist();
+ renderDrawingConflicts();syncAlignment();for(const path of viewportHost.querySelectorAll('[data-break-edge]')){const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','4');hit.setAttribute('pointer-events',picking||action?'none':'stroke');path.before(hit);}if(Object.keys(data.sectionErrors||{}).length)status('断面図：'+Object.values(data.sectionErrors).join(' / ')+'（位置を直すか、この断面図を削除してください）');for(const g of $('drawing-preview').querySelectorAll('[data-section],[data-marker]')){const path=g.querySelector('path');if(!path)continue;const hit=path.cloneNode();hit.setAttribute('stroke','transparent');hit.setAttribute('stroke-width','3');hit.removeAttribute('stroke-dasharray');g.prepend(hit);}if(commit)persist();
  }catch(error){
   sheet=null;inlineScales.sync(null,{});viewportHost.replaceChildren();
   $('drawing-svg').disabled=$('drawing-pdf').disabled=$('drawing-pdf-preview-open').disabled=true;
@@ -1728,7 +1752,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   return blockPDFPreview()||(!pdfLayout&&overflow);
  }
  function preparePDF(pages=makePDFPages()){
-  return {pages,issues:drawingPDFIssues(pages,{checkBounds:true})};
+  return {pages,issues:drawingPDFIssues(pages,{checkBounds:true,labelView:pdfViewLabel})};
  }
  function movePDFPageItem(item,index,pages){
   const assignment=pdfLayout==='manual'?currentPageAssignments():drawingPDFPageAssignments(pages);
@@ -1799,7 +1823,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function focusPDFIssue(issue){
   if(!sheet||busy)return;
   if(editPageCount>1&&Number.isInteger(issue.pageIndex))editPDFPage(issue.pageIndex);
-  if(issue.dimension!==undefined){
+  if(issue.kind==='view-overlap')focusDrawingViewOverlap(issue);
+  else if(issue.dimension!==undefined){
    const d=onSheetDimensions()[issue.dimension],placement=d&&dimensionPlacement(d,sheet);
    if(!placement)return;
    workspace.reveal($('drawing-editor'));
