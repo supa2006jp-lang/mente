@@ -841,6 +841,9 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='shell'){
   onProgress?.({stage:'開口面を確認し、壁厚に合わせて内外の面を作成しています'});
   const sourceHistory=p.direction!=='外側'?decoratedShellHistory(features,p.target):null;
+  const captureRemoved=context.shellPreview?cavity=>{
+   removedPreview=[{id:p.target,...cavity.mesh({tolerance:.08,angularTolerance:.15})}];
+  }:null;
   let shape;
   if(p.extrusionOnly===true){
    const index=shellExtrusionIndex(features,p.target);
@@ -852,9 +855,6 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     const previous=[p.target,...feature.cadResult.remove].map(id=>before.get(id)).filter(Boolean);
     const depth=feature.endPlane?depthToFacePlane(feature,feature.endPlane):feature.depth;
     const direction=basisFor(feature.region||feature).n.multiplyScalar(Math.sign(depth)).toArray();
-    const captureRemoved=context.shellPreview?cavity=>{
-     removedPreview=[{id:p.target,...cavity.mesh({tolerance:.08,angularTolerance:.15})}];
-    }:null;
     if(p.thickness>=Math.abs(depth)*(feature.symmetric?2:1)-1e-7)throw Error('壁厚は押し出し部分の深さより小さくしてください');
     shape=shellJoinedExtrusion(base,extrusion,previous,direction,p,captureRemoved);
    }finally{extrusion?.delete();before.forEach(body=>body.delete());}
@@ -862,17 +862,17 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
    const sourceBodies=kernelBodies(sourceHistory);
    try{
     const source=sourceBodies.get(p.target),info=svgCylinderInfo(source,features[sourceHistory.length].spec.surfacePoint);
-    const captureRemoved=context.shellPreview?cavity=>{
+    const captureDecoratedRemoved=context.shellPreview?cavity=>{
      // Intersect with the simple cavity directly. Subtracting two decorated
      // bodies repeats the expensive comparison of every identical SVG face.
      const removed=base.intersect(cavity);
      try{removedPreview=R.measureVolume(removed)>1e-7?[{id:p.target,...removed.mesh({tolerance:.08,angularTolerance:.15})}]:[];}
      finally{removed.delete();}
     }:null;
-    shape=shellDecoratedBody(base,source,p,circularLoftInfoForBody(sourceHistory,p.target),info.radius,captureRemoved);
+    shape=shellDecoratedBody(base,source,p,circularLoftInfoForBody(sourceHistory,p.target),info.radius,captureDecoratedRemoved);
    }
    finally{for(const body of sourceBodies.values())body.delete();}
-  }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target));
+  }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target),null,captureRemoved);
   try{onProgress?.({stage:'シェルの面の接続と表示を確認しています'});emit(p.target,shape);}finally{shape.delete();}
  }
  else if(p.type==='filletRadiusSearch'){

@@ -4,6 +4,7 @@ import {shellCoaxialCircularLoft} from './circular-loft.js';
 import {normalizeShellOpenings} from './shell-normalize.js';
 import {shellRecessedSphere} from './shell-recessed-sphere.js';
 import {shellRoundedPrism} from './shell-rounded-prism.js';
+import {shellPrismaticProfile} from './shell-prismatic-profile.js';
 
 // The default rounded offset can return the unmodified solid where short
 // planar faces meet circular walls. Join the offset surfaces by intersection
@@ -17,7 +18,7 @@ function intersectingOffsetShell(base,faces,thickness,rounded=false){
  }finally{builder.delete();list.delete();}
 }
 
-export function shellBody(base,p,circularLoftInfo=null,openingFaces=null){
+export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemoved=null){
  if(!Number.isFinite(p.thickness)||p.thickness<.1||p.thickness>1000)throw Error('壁厚は0.1〜1000 mmで指定してください');
  if(!p.faces?.length&&!openingFaces?.length)throw Error('開口にする面を選択してください');
  const faces=openingFaces?openingFaces.map(face=>face.clone()):selectedCadFaces(base,p.faces),original=R.measureVolume(base);
@@ -26,6 +27,7 @@ export function shellBody(base,p,circularLoftInfo=null,openingFaces=null){
  // Preserve the inexpensive specialized recovery for old faceted lofts before
  // attempting general surface intersections on their many small side faces.
  if(faces.length===1&&circularLoftInfo)attempts.push(()=>shellCoaxialCircularLoft(base,faces[0],circularLoftInfo,p.thickness,p.direction));
+ if(thickness>0)attempts.push(()=>shellPrismaticProfile(base,faces,thickness,original,onRemoved));
  // Revolved swept bodies can have trimmed, overlapping offset surfaces. The
  // default rounded join does not intersect them globally; retain rounded joins
  // and enable that intersection before falling back to sharp surface joins.
