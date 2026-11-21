@@ -245,8 +245,77 @@ try{
  await field('dimension-point-add').click();
  assert.equal(await manual.count(),3);
  assert.deepEqual(await label.allTextContents(),['20']);
+ await field('close').click();
+
+ const short={view:'front',kind:'horizontal',a:[0,0],b:[3,0],at:[1.5,8],precision:1,fontSize:3.4,
+  displayValue:3.25,lineColor:'#123456',textColor:'#654321',note:'端',tolerance:.2,pinned:true,manualEndpoints:['b']};
+ const linearProject={...project,drawing:{...project.drawing,dimensions:[short],dimensionPoints:[3,15,37].map(x=>({
+  id:'dimension-point-linear-'+x,view:'front',point:[x,0],
+ })),options:{...project.drawing.options,projectionLocked:false,positions:{front:[80,90]},
+  pdfLayout:'manual',pageAssignments:{pageCount:2,views:{front:2},comments:{}},
+ }}};
+ await load(linearProject);
+ const outside=preview.locator('[data-dimension-outside]');
+ assert.equal(await outside.count(),1);
+ await field('pdf-preview-open').click();
+ await field('pdf-preview').locator('[data-pdf-page="2"] .drawing-pdf-page-thumb').click();
+ assert.equal(await print.locator('[data-dimension-outside]').count(),1);
+ await field('pdf-preview-close').click();
+ await label.click();
+ await field('dimension-replace-b').click();
+ const picked=preview.locator('[data-dimension-picked]');
+ assert.equal(await picked.count(),1);
+ assert.match(await hint.textContent(),/付け替え先/);
+ await clickAt([0,0]);
+ assert.match(await field('status').textContent(),/寸法が０/);
+ await moveAt([37,0]);
+ assert.equal(await hover.getAttribute('data-dimension-point'),'dimension-point-linear-37');
+ await clickAt([37,0]);
+ assert.equal(await outside.count(),0);
+ assert.equal(await label.textContent(),'37.0 ±0.2 端');
+ assert.equal(await label.getAttribute('fill'),short.textColor);
+ assert.equal(await field('dimension-pin').isChecked(),true);
+ assert.equal(await picked.count(),0);
+
+ await field('page-edit').selectOption('1');
+ const mode=field('dimension-method'),done=field('dimension-points-done');
+ assert.equal(await mode.inputValue(),'single');
+ await kind.selectOption('horizontal');
+ const addSeries=async(method,coordinates)=>{
+  await mode.selectOption(method);
+  await field('dimension-add').click();
+  assert.ok(await done.isDisabled());
+  for(const x of coordinates)await clickAt([x,0]);
+  assert.equal(await picked.count(),coordinates.length);
+  await done.click();
+  assert.match(await hint.textContent(),/寸法を置く位置/);
+  await clickAt([18,21]);
+  assert.equal(await picked.count(),0);
+ };
+ await addSeries('chain',[0,15,37]);
+ assert.deepEqual(await label.allTextContents(),['37.0 ±0.2 端','15','22']);
+ const yAt=i=>label.nth(i).getAttribute('y');
+ assert.equal(await yAt(1),await yAt(2));
+ await field('undo').click();
+ assert.deepEqual(await label.allTextContents(),['37.0 ±0.2 端']);
+ await addSeries('baseline',[0,37,15]);
+ assert.deepEqual(await label.allTextContents(),['37.0 ±0.2 端','15','37']);
+ assert.ok(Number(await yAt(2))>Number(await yAt(1)));
+ await field('pdf-preview-open').click();
+ await field('pdf-preview').locator('[data-pdf-page="2"] .drawing-pdf-page-thumb').click();
+ assert.deepEqual(await print.locator('[data-dimension] text').allTextContents(),['37.0 ±0.2 端','15','37']);
+ assert.equal(await print.locator('[data-dimension-picked]').count(),0);
+ await field('pdf-preview-close').click();
+ await field('close').click();
+ const result=readDrawingState(JSON.parse(await download(page.locator('#save'))).drawing);
+ const {displayValue,...appearance}=short;
+ assert.deepEqual(result.dimensions[0],{...appearance,b:[37,0]});
+ assert.deepEqual(result.dimensions.slice(1).map(d=>[d.a,d.b,d.manualEndpoints]),[
+  [[0,0],[15,0],['b']],[[0,0],[37,0],['b']],
+ ]);
+ assert.ok(result.dimensions.slice(1).every(d=>d.pdfPlacement));
  assert.deepEqual(errors,[]);
- console.log('PASS dimension hover targets, click guidance, manual points, axis guides, hidden-edge snapping, clearance from drawn edges, value override, undo and redo, scale and zoom, save and reload, SVG export, and PDF preview');
+ console.log('PASS manual points, guides, clearance, value override, outside arrows, single endpoint replacement, chain and baseline dimensions, undo, save and reload, SVG export, and PDF preview');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

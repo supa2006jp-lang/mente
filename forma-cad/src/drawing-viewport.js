@@ -2,7 +2,13 @@
 export function drawingViewport({dialog,host,minus,plus,fit,percent,expand,canNavigate=()=>true,onViewChange=()=>{}}){
  let sheet=null,zoom=1,center=[0,0],space=false,pan=null,suppress=false;
  const svg=()=>host.querySelector('svg');
- function markers(){const node=svg(),m=node?.getScreenCTM();if(!m)return;const radius=3.5/Math.hypot(m.a,m.b);for(const p of node.querySelectorAll('[data-snap-point]'))p.setAttribute('r',radius);}
+ function markers(){
+  const node=svg(),m=node?.getScreenCTM();
+  if(!m)return;
+  const radius=3.5/Math.hypot(m.a,m.b);
+  for(const p of node.querySelectorAll('[data-snap-point]'))p.setAttribute('r',radius);
+  for(const p of node.querySelectorAll('[data-dimension-picked]'))p.setAttribute('r',radius*1.55);
+ }
  function screenChanged(){markers();onViewChange();}
  function apply(){const node=svg();if(node&&sheet){
   const w=sheet.width/zoom,h=sheet.height/zoom;

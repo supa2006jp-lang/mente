@@ -242,6 +242,7 @@
 #drawing-settings details > summary { padding:5px 0; cursor:pointer; }
 #drawing-settings small { color:#bdcbd5; }
 #drawing-dimension-hint { flex:0 0 100%; line-height:1.45; }
+#drawing-preview circle[data-dimension-picked] { fill:none; stroke:#c46a15; stroke-width:1.5; vector-effect:non-scaling-stroke; }
 #drawing-preview circle[data-dimension-hover] { fill:#cf2856; stroke:#fff; stroke-width:1.5; vector-effect:non-scaling-stroke; }
 #drawing-preview path[data-dimension-hover] { fill:none; stroke:#cf2856; stroke-width:3; stroke-linecap:round; vector-effect:non-scaling-stroke; pointer-events:none; }
 .drawing-sheet-pane { display:grid; grid-template-rows:auto minmax(0,1fr) clamp(48px,7vh,76px); flex:1; min-width:0; min-height:0; }

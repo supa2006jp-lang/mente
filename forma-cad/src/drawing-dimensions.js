@@ -29,9 +29,10 @@ function dimensionText(d,x,y,color){
  return '<rect x="'+(x-width/2)+'" y="'+(y-font*.75)+'" width="'+width+'" height="'+(font*1.45)+'" fill="white" stroke="none"/>'+
   '<text x="'+x+'" y="'+(y+font*.31)+'" text-anchor="middle" font-size="'+font+'" fill="'+color+'" stroke="none">'+escapeDrawingText(label)+'</text>';
 }
-function dimensionGroup(d,index,paths,colors,x,y,inherited){
+function dimensionGroup(d,index,paths,colors,geometry,inherited){
+ const [x,y]=geometry.at;
  const target=inherited?'data-detail-dimension="'+escapeDrawingText(d.view)+'" data-detail-dimension-index="'+index+'" pointer-events="none"':'data-dimension="'+index+'"';
- return '<g '+target+(d.review?' data-dimension-review="true" stroke-dasharray="2 1"':'')+
+ return '<g '+target+(geometry.outside?' data-dimension-outside="true"':'')+(d.review?' data-dimension-review="true" stroke-dasharray="2 1"':'')+
   ' stroke="'+colors.line+'" stroke-width=".18" fill="none">'+paths+dimensionText(d,x,y,colors.text)+'</g>';
 }
 export function dimensionValue(d){
@@ -46,8 +47,9 @@ export function dimensionValue(d){
  return d.kind==='horizontal'?Math.abs(dx):d.kind==='vertical'?Math.abs(dy):Math.hypot(dx,dy);
 }
 const add=(p,u,k)=>[p[0]+u[0]*k,p[1]+u[1]*k];
+const arrowLength=2;
 function arrowPoints(tip,direction){
- const base=add(tip,direction,2),normal=[-direction[1],direction[0]];
+ const base=add(tip,direction,arrowLength),normal=[-direction[1],direction[0]];
  return [tip,add(base,normal,.7),add(base,normal,-.7)];
 }
 export function drawingDimensionGeometry(d,view,scale=view.scale){
@@ -86,16 +88,27 @@ export function drawingDimensionGeometry(d,view,scale=view.scale){
  }
  const n=[-u[1],u[0]],offset=(at[0]-a[0])*n[0]+(at[1]-a[1])*n[1];
  const along=(d.alongOffset??0)*scale;
- const q=add(add(a,n,offset),u,along),r=add(q,u,(b[0]-a[0])*u[0]+(b[1]-a[1])*u[1]);
+ const span=(b[0]-a[0])*u[0]+(b[1]-a[1])*u[1];
+ const q=add(add(a,n,offset),u,along),r=add(q,u,span);
  const overrun=Math.sign(offset)*1.5;
  const extensionEnd=(origin,tip)=>{
   if(!along)return add(tip,n,overrun);
   const dx=tip[0]-origin[0],dy=tip[1]-origin[1],length=Math.hypot(dx,dy)||1;
   return add(tip,[dx/length,dy/length],1.5);
  };
- return {at:[(q[0]+r[0])/2,(q[1]+r[1])/2],direction:u,main:[[q,r]],
-  extensions:[[a,extensionEnd(a,q)],[b,extensionEnd(b,r)]],
-  arrows:[arrowPoints(q,u),arrowPoints(r,[-u[0],-u[1]])]};
+ const labelCenter=[(q[0]+r[0])/2,(q[1]+r[1])/2],reverse=[-u[0],-u[1]];
+ const extensions=[[a,extensionEnd(a,q)],[b,extensionEnd(b,r)]];
+ const font=d.fontSize??3.2,half=dimensionLabelWidth(dimensionLabel(d),font)/2;
+ const labelAlong=Math.abs(u[0])*half+Math.abs(u[1])*font*.75;
+ if(span>1e-8&&span<2*(arrowLength+labelAlong+.6)){
+  const center=[view.x+(view.width??0)/2,view.y+(view.height??0)/2];
+  const towardCenter=center.map((value,i)=>value-(a[i]+b[i])/2);
+  // Prefer the extension towards the rest of the view, leaving more room at the sheet edge.
+  const side=towardCenter[0]*u[0]+towardCenter[1]*u[1]<0?-1:1,tail=arrowLength+1;
+  return {outside:true,at:add(side>0?r:q,u,side*(tail+labelAlong+.6)),direction:u,
+   main:[[add(q,u,-tail),add(r,u,tail)]],extensions,arrows:[arrowPoints(q,reverse),arrowPoints(r,u)]};
+ }
+ return {at:labelCenter,direction:u,main:[[q,r]],extensions,arrows:[arrowPoints(q,u),arrowPoints(r,reverse)]};
 }
 export function dimensionSVG(d,view,scale,index,defaults,{inherited=false}={}){
  const geometry=drawingDimensionGeometry(d,view,scale);
@@ -110,7 +123,7 @@ export function dimensionSVG(d,view,scale,index,defaults,{inherited=false}={}){
   paths+='<path d="M '+first.join(' ')+' A '+radius+' '+radius+' 0 0 '+(sweep>0?1:0)+' '+last.join(' ')+'"/>';
  }
  paths+=geometry.arrows.map(points=>'<path d="'+path(points)+' Z" fill="'+colors.line+'"/>').join('');
- return dimensionGroup(d,index,paths,colors,...geometry.at,inherited);
+ return dimensionGroup(d,index,paths,colors,geometry,inherited);
 }
 // Endpoints of SVG line, arc and Bezier segments; these are model-space coordinates.
 export function pathEndpoints(paths){const points=[];for(const path of paths){const tokens=path.match(/[a-zA-Z]|[-+]?(?:\d*\.)?\d+(?:[eE][-+]?\d+)?/g)||[];let i=0,command='';while(i<tokens.length){if(/^[a-zA-Z]$/.test(tokens[i]))command=tokens[i++];const count={M:2,L:2,A:7,C:6,Q:4}[command];if(!count){if(command==='Z'||command==='z'){command='';continue;}break;}if(i+count>tokens.length)break;const values=tokens.slice(i,i+count).map(Number);if(values.some(v=>!Number.isFinite(v)))break;points.push(values.slice(-2));i+=count;}}return [...new Map(points.map(p=>[p.join(','),p])).values()];}
