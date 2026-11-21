@@ -5,7 +5,7 @@ import {drawingScaleSummary} from './drawing-view-preferences.js';
 import {drawingOverflowOutline,drawingSheetItems} from './drawing-sheet-check.js';
 import {installDrawingPDFPageList} from './drawing-pdf-page-list.js';
 
-export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onFit,viewLabel}){
+export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onPageOrder,onFit,viewLabel}){
  const dialog=document.createElement('dialog');
  dialog.id='drawing-pdf-preview';
  dialog.innerHTML='<div class="drawing-heading"><h2>PDFの印刷プレビュー</h2><button id="drawing-pdf-preview-close" type="button" aria-label="閉じる">×</button></div>'+
@@ -25,7 +25,7 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onFit,v
  let pages=[],issues=[],palette='screen',index=0,saving=false,blocked=false,revision=0,highlight=null,notice='';
  const viewport=drawingViewport({dialog,host:q('host'),minus:q('minus'),plus:q('plus'),fit:q('fit'),
   percent:q('percent'),expand:q('expand'),canNavigate:()=>!saving});
- const pageList=installDrawingPDFPageList(q('pages'),{viewLabel,selectPage,moveItem,canEdit:()=>!saving});
+ const pageList=installDrawingPDFPageList(q('pages'),{viewLabel,selectPage,moveItem,changeOrder,canEdit:()=>!saving});
  function showStatus(){
   const page=pages[index];
   const scales=Object.values(page.layout).map(view=>view.scale);
@@ -76,6 +76,14 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onFit,v
    pageList.focus(to);
   }catch(error){notice=error.message;showStatus();}
  }
+ function changeOrder(kind,from,to){
+  if(saving)return;
+  try{
+   const next=onPageOrder(kind,from,to,pages);
+   update(next,next.index);
+   pageList.focus(next.index);
+  }catch(error){notice=error.message;showStatus();}
+ }
  q('prev').onclick=()=>{if(index>0)selectPage(index-1);};
  q('next').onclick=()=>{if(index<pages.length-1)selectPage(index+1);};
  q('page').onchange=()=>selectPage(Number(q('page').value));
@@ -95,10 +103,10 @@ export function installDrawingPDFPreview({download,onIssue,onEdit,onMove,onFit,v
  });
  q('save').onclick=async()=>{
   if(saving||blocked||!pages.length)return;
-  saving=true;q('save').disabled=true;
+  saving=true;q('save').disabled=true;pageList.syncButtons();
   try{await download(pages,palette);}
   catch(error){q('status').textContent='PDF保存に失敗しました。'+error.message;}
-  finally{saving=false;q('save').disabled=blocked;}
+  finally{saving=false;q('save').disabled=blocked;pageList.syncButtons();}
  };
 
  function showIssues(){

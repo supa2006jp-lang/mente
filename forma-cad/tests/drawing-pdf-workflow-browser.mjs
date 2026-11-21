@@ -366,12 +366,108 @@ try{
  await field('pdf-preview-close').click();
  await field('pdf-layout').selectOption('');
  await field('pdf-preview-open').click();
- assert(await field('pdf-preview-pages').isHidden());
+ assert(await field('pdf-preview-pages').locator('.drawing-pdf-thumbnails').isHidden());
  assert(await field('pdf-preview-save').isDisabled());
  await field('pdf-preview-fit-page').click();
  assert.equal(await preview.locator('[data-pdf-issue=layout]').count(),0);
  assert.equal(await scaleOn(print,'front'),1);
  assert(await field('pdf-preview-save').isEnabled());
+ const singleFront=await geometry(print,'front');
+ await field('pdf-preview-add-page').click();
+ assert.match(await pdfPage(2).textContent(),/空白ページ/);
+ assert.equal(await field('pdf-preview-page').inputValue(),'1');
+ await selectPage(1);
+ assert.equal(await geometry(print,'front'),singleFront);
+ assert(await field('pdf-preview-remove-page').isHidden());
+ await selectPage(2);
+ await field('pdf-preview-remove-page').click();
+ assert(await field('pdf-preview-pages').locator('.drawing-pdf-thumbnails').isHidden());
+ assert.equal(await geometry(print,'front'),singleFront);
+ await field('pdf-preview-close').click();
+ await field('close').click();
+
+ const withPageScales={...drawing,dimensions:[width],options:{...drawing.options,pdfLayout:'multi',
+   pdfPageScales:{1:.9,2:.5}}};
+ await open(withPageScales);
+ const inlineBadge=name=>page.locator('[data-inline-view-scale="'+name+'"]');
+ const inlineInput=page.locator('[data-inline-scale-input]');
+ const inlineStep=direction=>page.locator('[data-inline-scale-step="'+direction+'"]');
+ assert.equal(await inlineBadge('front').textContent(),'1:1');
+ await inlineBadge('front').click();
+ await inlineInput.fill('1:2.5');await inlineInput.press('Enter');
+ assert.equal(await scaleOn(editor,'front'),.4);
+ assert.equal(await scaleOn(editor,'top'),.4);
+ await inlineStep(1).click();
+ assert.equal(await scaleOn(editor,'front'),.5);
+ await inlineStep(-1).click();
+ assert.equal(await scaleOn(editor,'front'),.4);
+ await inlineInput.fill('0.8');await inlineInput.press('Escape');
+ assert(await inlineInput.isHidden());
+ assert(await field('dialog').isVisible());
+ assert.equal(await scaleOn(editor,'front'),.4);
+ assert.equal(await inlineBadge('front').textContent(),'1:2.5');
+ assert.equal(await editor.locator('[data-dimension] text').textContent(),'60');
+ await field('undo').click();assert.equal(await scaleOn(editor,'front'),.5);
+ await field('redo').click();assert.equal(await scaleOn(editor,'front'),.4);
+ await field('page-edit').selectOption('1');
+ assert.equal(await inlineBadge('section-a').textContent(),'1:2');
+ const inlineSection=await geometry(editor,'section-a');
+ await inlineBadge('section-a').click();await inlineStep(1).click();
+ assert.equal(await scaleOn(editor,'section-a'),.6);
+ assert.equal(place(await geometry(editor,'section-a')),place(inlineSection));
+ if(process.env.FORMA_TEST_PDF_DIR){
+  await page.screenshot({path:path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-inline-scale-edit.png')});
+ }
+ await field('page-edit').selectOption('-1');
+ assert.equal(await scaleOn(editor,'section-a'),.4);
+
+ await field('pdf-preview-open').click();
+ assert.equal(await scaleOn(print,'front'),.9);
+ await field('pdf-preview-add-page').click();
+ assert.match(await pdfPage(3).textContent(),/空白ページ/);
+ await page.waitForFunction(()=>[...document.querySelectorAll('.drawing-pdf-page-thumb img')].every(image=>image.naturalWidth>0));
+ if(process.env.FORMA_TEST_PDF_DIR){
+  await page.screenshot({path:path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-page-order-edit.png')});
+ }
+ await pdfPage(2).locator('.drawing-pdf-page-thumb').dragTo(pdfPage(1).locator('.drawing-pdf-page-thumb'));
+ assert.equal(await field('pdf-preview-page').inputValue(),'0');
+ assert.equal(await scaleOn(print,'section-a'),.6);
+ assert.equal(await pdfPage(1).locator('[data-page-item=section-a]').count(),1);
+ assert.equal(await pdfPage(2).locator('[data-page-item=front]').count(),1);
+ await selectPage(2);assert.equal(await scaleOn(print,'front'),.9);
+ assert.equal(await print.locator('[data-dimension] text').textContent(),'60');
+ await field('pdf-preview-page-earlier').click();
+ assert.equal(await scaleOn(print,'front'),.9);
+ await field('pdf-preview-page-later').click();
+ assert.equal(await field('pdf-preview-page').inputValue(),'1');
+ await selectPage(3);
+ await field('pdf-preview-page-earlier').click();
+ assert.match(await pdfPage(2).textContent(),/空白ページ/);
+ await field('pdf-preview-remove-page').click();
+ assert.equal(await pdfPage(3).count(),0);
+ assert.equal(await scaleOn(print,'front'),.9);
+ const [orderedPDF]=await Promise.all([page.waitForEvent('download'),field('pdf-preview-save').click()]);
+ const orderedBytes=await fs.readFile(await orderedPDF.path());
+ assert.match(orderedBytes.toString('latin1'),/\/Count 2/);
+ if(process.env.FORMA_TEST_PDF_DIR){
+  await fs.writeFile(path.join(process.env.FORMA_TEST_PDF_DIR,'drawing-page-reordered.pdf'),orderedBytes);
+ }
+ await field('pdf-preview-close').click();
+ await field('undo').click();
+ await field('pdf-preview-open').click();
+ assert.match(await pdfPage(2).textContent(),/空白ページ/);
+ await field('pdf-preview-close').click();
+ await field('redo').click();
+ await field('close').click();
+ const [orderedProject]=await Promise.all([page.waitForEvent('download'),page.locator('#save').click()]);
+ const ordered=(await decodeProjectDocument(await fs.readFile(await orderedProject.path(),'utf8'))).document.drawing;
+ assert.deepEqual(ordered.options.pdfPageScales,{1:.5,2:.9});
+ assert.deepEqual(ordered.options.pdfViewScales,{'section-a':.6});
+ assert.deepEqual(ordered.options.pageAssignments,{pageCount:2,views:{top:2,front:2,right:2,'section-a':1},comments:{comment:2}});
+ await open(ordered);
+ await field('pdf-preview-open').click();
+ assert.equal(await scaleOn(print,'section-a'),.6);
+ await selectPage(2);assert.equal(await scaleOn(print,'front'),.9);
  assert.deepEqual(errors,[]);
- console.log('PASS page thumbnails, reassignment with dimensions and leaders, isolated fixed-scale fit, PDF export and project reload');
+ console.log('PASS add, reorder and delete PDF pages with scales, inline view scale editing, fixed-scale fit, export and project reload');
 }finally{await browser?.close();server.close();}

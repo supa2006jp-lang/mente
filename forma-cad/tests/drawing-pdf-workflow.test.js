@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
-import {drawingPDFHasMultiplePages,drawingPDFPages} from '../src/drawing-pdf-pages.js';
+import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues} from '../src/drawing-sheet-check.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
@@ -125,6 +125,10 @@ test('the keyboard and resize handle adjust the drawing scale in tenths',()=>{
  assert.equal(stepDrawingScale(.375,1),.4);
  assert.equal(stepDrawingScale(.375,-1),.3);
  assert.equal(stepDrawingScale(maxDrawingScale,1),maxDrawingScale);
+ assert.equal(drawingScaleLabel(stepDrawingScale(.1,-1)),'1:10.1');
+ assert.equal(stepDrawingScale(1/10.1,1),.1);
+ assert.equal(drawingScaleLabel(stepDrawingScale(.05,-1)),'1:20.1');
+ assert.equal(stepDrawingScale(minDrawingScale,-1),minDrawingScale);
  const resize=(start,target)=>snapDrawingResizeScale(start,target,minDrawingScale,maxDrawingScale);
  assert.equal(resize(1,1.04),1);
  assert.equal(resize(1,1.06),1.1);
@@ -202,4 +206,17 @@ test('a fixed PDF scale stays editable when the shapes overflow',()=>{
  assert.equal(first.layout.front.scale,7);
  assert.equal(second.layout['section-a'].scale,.5);
  assert.ok(first.layout.front.x+first.layout.front.width>first.width);
+});
+
+test('page order edits remap every item and the corresponding scale settings',()=>{
+ const assignments={pageCount:3,views:{front:1,right:1,left:3},comments:{comment:2},holeTable:2};
+ const scales={1:.9,2:.5,3:.3};
+ const pages=drawingPDFPages(part,1,true,[frontDimension],'工場向け',{...options,pdfLayout:'manual',
+  pageAssignments:assignments,pdfPageScales:scales});
+ const moved=remapDrawingPDFPages(pages,[1,0,2,null],assignments,scales);
+ assert.deepEqual(moved,{assignments:{pageCount:4,views:{front:2,top:2,right:2,'section-a':1,left:3},
+  comments:{comment:1},holeTable:1},scales:{1:.5,2:.9,3:.3}});
+ const removed=remapDrawingPDFPages(pages,[0,1],assignments,scales);
+ assert.equal(removed.assignments.views.left,2);
+ assert.deepEqual(removed.scales,{1:.9,2:.5});
 });

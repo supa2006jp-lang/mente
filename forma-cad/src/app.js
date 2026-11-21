@@ -1345,6 +1345,7 @@ function performToolEscape(){
  if(imageReferences?.escapeTrace())return;
  if(sketchVertexRotation?.active){sketchVertexRotation.escape();return;}
  if(outputDialog.active){outputDialog.cancel();return;}
+ if(drawingController?.escape())return;
  if(printSupportController?.active){printSupportController.close();return;}
  if(assemblyController?.cancelDrag())return;
  if(channelResize?.cancelDrag())return;

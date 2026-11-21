@@ -4,6 +4,7 @@ import {drawingViewFrames,optimizeDrawingLayout,rescaleDrawingAnnotations} from 
 import {drawingSheet} from './drawing-sheet.js';
 
 const isAuxiliaryView=name=>name.startsWith('section-')||name.startsWith('detail-');
+export const maxDrawingPDFPages=32;
 
 function auxiliaryPDFItems(views,holeTable){
  const items=views.filter(isAuxiliaryView);
@@ -35,6 +36,20 @@ export function drawingPDFPageAssignments(pages){
   for(const item of drawingPDFPageItems(page))assignDrawingPDFPageItem(assignment,item,index+1);
  }
  return assignment;
+}
+
+export function remapDrawingPDFPages(pages,order,assignments={},scales={}){
+ const visible=drawingPDFPageAssignments(pages);
+ const numbers=new Map(order.flatMap((old,index)=>old===null?[]:[[old+1,index+1]]));
+ const pageOf=old=>numbers.get(old)??Math.min(old,order.length);
+ const remap=kind=>Object.fromEntries(Object.entries({...assignments[kind],...visible[kind]})
+  .map(([id,page])=>[id,pageOf(page)]));
+ const table=visible.holeTable??assignments.holeTable;
+ return {
+  assignments:{pageCount:order.length,views:remap('views'),comments:remap('comments'),
+   ...(table===undefined?{}:{holeTable:pageOf(table)})},
+  scales:Object.fromEntries([...numbers].flatMap(([old,next])=>scales[old]===undefined?[]:[[next,scales[old]]])),
+ };
 }
 
 export function fitDrawingPDFPage(data,page,{scale,dimensions,options}){

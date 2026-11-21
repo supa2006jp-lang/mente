@@ -69,6 +69,12 @@ const scaleTicks=1/drawingScaleStep,scaleTickTolerance=1e-9;
 export const validDrawingScale=value=>Number.isFinite(value)&&value>=minDrawingScale&&value<=maxDrawingScale;
 export const validDrawingDetailFactor=value=>value>=1&&validDrawingScale(value);
 export function stepDrawingScale(value,direction){
+ if(value<drawingScaleStep||(value===drawingScaleStep&&direction<0)){
+  // At high reductions keep changing the denominator in tenths.
+  const inverse=scaleTicks/value;
+  const next=direction>0?Math.ceil(inverse-scaleTickTolerance)-1:Math.floor(inverse+scaleTickTolerance)+1;
+  return scaleTicks/Math.max(scaleTicks/drawingScaleStep,Math.min(scaleTicks/minDrawingScale,next));
+ }
  const ticks=value*scaleTicks;
  const next=direction>0?Math.floor(ticks+scaleTickTolerance)+1:Math.ceil(ticks-scaleTickTolerance)-1;
  return next<1?Math.min(value,drawingScaleStep):Math.min(maxDrawingScale,next/scaleTicks);

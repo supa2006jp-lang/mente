@@ -179,10 +179,13 @@
 #drawing-pdf-preview-host [data-overflow-outline] { stroke:#bc2822; stroke-width:2px; stroke-dasharray:6 3; vector-effect:non-scaling-stroke; fill:#e13c2612; }
 #drawing-pdf-preview [hidden] { display:none; }
 #drawing-pdf-preview-pages { min-width:0; }
+.drawing-pdf-page-tools { gap:6px; margin-bottom:4px; }
+.drawing-pdf-page-tools button { padding:5px 8px; }
 .drawing-pdf-thumbnails { display:flex; gap:8px; overflow-x:auto; padding:3px 3px 6px; }
 .drawing-pdf-page-card { flex:0 0 clamp(112px,17vw,162px); min-width:0; padding:5px; border:1px solid #486071; border-radius:7px; background:#172635; }
 .drawing-pdf-page-card[data-page-drop] { border-color:#68dcec; background:#21495a; }
-.drawing-pdf-page-thumb { display:block; width:100%; padding:4px; border:1px solid #526d80; border-radius:4px; }
+.drawing-pdf-page-card[data-page-drop=page] { box-shadow:inset 3px 0 #68dcec; }
+.drawing-pdf-page-thumb { display:block; width:100%; padding:4px; border:1px solid #526d80; border-radius:4px; cursor:grab; }
 .drawing-pdf-page-thumb[aria-current=page] { border-color:#68dcec; background:#214c60; }
 .drawing-pdf-page-thumb img { display:block; width:100%; height:clamp(44px,9vh,86px); margin-bottom:3px; object-fit:contain; background:#c4d3dd; border-radius:2px; }
 .drawing-pdf-page-contents { display:grid; align-content:start; gap:3px; max-height:72px; overflow:auto; padding:4px 1px 1px; color:#c7d9e5; font-size:12px; }
@@ -237,6 +240,15 @@
 #drawing-preview path[data-dimension-hover] { fill:none; stroke:#cf2856; stroke-width:3; stroke-linecap:round; vector-effect:non-scaling-stroke; pointer-events:none; }
 .drawing-sheet-pane { display:grid; grid-template-rows:auto minmax(0,1fr) clamp(48px,7vh,76px); flex:1; min-width:0; min-height:0; }
 .drawing-sheet-pane .drawing-viewport-controls { position:static; gap:5px 8px; margin:0; padding:6px 8px; }
+.drawing-paper-frame { position:relative; min-width:0; min-height:0; }
+.drawing-inline-scales { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+.drawing-inline-scales > :is(button,div) { position:absolute; pointer-events:auto; }
+.drawing-inline-scale-badge { padding:2px 5px; border:1px solid #3f91ab; border-radius:4px; background:#164c61; color:#fff; font-size:12px; line-height:1.3; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.drawing-inline-scale-badge:hover,.drawing-inline-scale-badge:focus-visible { background:#0b6f8b; }
+.drawing-inline-scale-editor { display:flex; align-items:center; gap:3px; max-width:calc(100% - 8px); padding:3px; border:1px solid #65c3d9; border-radius:6px; background:#173144; color:#fff; box-shadow:0 2px 8px #0d22365c; }
+.drawing-inline-scale-editor button { min-width:26px; padding:3px; line-height:1.2; }
+.drawing-inline-scale-editor input { box-sizing:border-box; width:7.2em; min-width:0; padding:3px 4px; border:1px solid #597687; border-radius:3px; background:#111c29; color:#fff; text-align:center; font-size:13px; font-variant-numeric:tabular-nums; }
+.drawing-inline-scales [hidden] { display:none; }
 #drawing-pdf-pages-note { box-sizing:border-box; flex:0 0 100%; margin:0; padding:5px 8px; border-inline-start:2px solid #50a4bc; background:#173144; color:#d5edf3; font-size:.875rem; line-height:1.45; }
 .drawing-sheet-pane #drawing-preview { height:100%; min-height:0; min-width:0; }
 .drawing-feedback { display:flex; align-items:flex-start; gap:12px; padding-top:4px; min-height:0; overflow:auto; }

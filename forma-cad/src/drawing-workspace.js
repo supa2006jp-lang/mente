@@ -1,4 +1,4 @@
-export function installDrawingWorkspace(dialog){
+export function installDrawingWorkspace(dialog,overlay){
  const get=id=>dialog.querySelector('#drawing-'+id);
  const heading=dialog.querySelector('.drawing-heading'),actions=dialog.querySelector('.drawing-actions');
  const toolbar=dialog.querySelector('.drawing-viewport-controls'),paper=get('preview'),status=get('status');
@@ -38,7 +38,9 @@ export function installDrawingWorkspace(dialog){
  settings.append(appearance,print,navigationHelp);
  heading.insertBefore(toggle,get('close'));
  heading.insertBefore(actions,get('close'));
- sheet.append(toolbar,paper,feedback);
+ const frame=document.createElement('div');
+ frame.className='drawing-paper-frame';frame.append(paper,overlay);
+ sheet.append(toolbar,frame,feedback);
  body.append(settings,sheet);dialog.append(body);
  return {
   open(){
