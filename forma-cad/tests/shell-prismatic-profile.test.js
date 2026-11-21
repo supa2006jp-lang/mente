@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
+import {Vector3} from 'three';
 import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {selectedCadFaces} from '../src/face-pull.js';
 import {runOperation} from '../src/kernel.js';
 import {inspectCadStl} from '../src/stl-cad-inspection.js';
 import {inspectStlMesh} from '../src/stl-mesh-health.js';
+import {shellSteppedExterior} from '../src/shell-stepped-exterior.js';
 
 R.setOC(await init({wasmBinary:await readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const depth=15.5,thickness=2;
@@ -39,6 +41,12 @@ function shellPreview(features,faces,direction='内側'){
 function closedSTL(output){
  const {report}=inspectCadStl(output);
  assert.ok(report.ok,JSON.stringify(report.issues));
+}
+
+function steppedBlock(boss){
+ const stock=R.makeBox([0,0,0],[40,26,13]);
+ try{return stock.fuse(boss);}
+ finally{boss.delete();stock.delete();}
 }
 
 test('a faceted prism uses the native profile inset when the ordinary shell removes no material',()=>{
@@ -141,4 +149,67 @@ test('faceted shells preserve round and square through-holes and export their ac
    }finally{exterior.delete();}
   }finally{base.delete();tool.delete();stock.delete();}
  }
+});
+
+test('an outside shell carries the opening through a shallow shoulder at the requested wall thickness',()=>{
+ const base=steppedBlock(R.makeBox([4,4,13],[35,22,14]));
+ try{
+  const features=savedPrism(base),spec={type:'shell',id:'shell',target:'body',thickness:2,direction:'外側',faces:[opening([13,13,14],[0,0,1])]};
+  const thinSpec={...spec,thickness:1},thin=runOperation(features,thinSpec);
+  assert.equal(thin.analysis.shellOpeningExtension,undefined);
+  near(thin.outputs[0].shapeMetrics.bounds[1][2],14);
+  const result=runOperation(features,{type:'preview',operation:spec}),[output]=result.outputs;
+  near(result.analysis.shellOpeningExtension,1);
+  assert.equal(output.shapeMetrics.solids,1);
+  output.shapeMetrics.bounds.forEach((point,i)=>point.forEach((v,j)=>near(v,[[-2,-2,-2],[42,28,15]][i][j])));
+  const shape=R.deserializeShape(output.brep).asShape3D();
+  try{
+   near(distance(shape,[13,13,14]),9);
+   near(distance(shape,[13,13,15]),9);
+   near(distance(shape,[4.02,12,14.5]),.02);
+   near(distance(shape,[2,13,12.98]),.02);
+   near(distance(shape,[2,13,15.02]),.02);
+   near(distance(shape,[20,13,.02]),.02);
+   near(distance(shape,[20,13,-2.02]),.02);
+   near(distance(shape,[20,.02,6]),.02);
+   near(distance(shape,[20,-2.02,6]),.02);
+   const originalMaterial=shape.intersect(base);
+   try{near(R.measureVolume(originalMaterial),0);}
+   finally{originalMaterial.delete();}
+   closedSTL(output);
+  }finally{shape.delete();}
+
+  const feature={kind:'cadop',id:spec.id,name:'Shell',spec:thinSpec,...thin};
+  const replay=runOperation([...features,{...feature,spec}],{type:'replay',before:[...features,feature],start:1});
+  const applied=replay.features.at(-1);
+  assert.deepEqual(replay.features[0],features[0]);
+  assert.deepEqual(applied.spec,spec);
+  near(applied.analysis.shellOpeningExtension,1);
+  near(applied.outputs[0].shapeMetrics.volume,output.shapeMetrics.volume);
+ }finally{base.delete();}
+});
+
+test('the extended aperture follows an exact circular rim on an inclined shoulder',()=>{
+ const axis=new Vector3(2,-1,1).normalize(),angle=37;
+ const rotate=point=>new Vector3(...point).applyAxisAngle(axis,angle*Math.PI/180).toArray();
+ const base=steppedBlock(R.makeCylinder(7,1,[13,13,13])).rotate(angle,[0,0,0],axis.toArray());
+ try{
+  const result=shellPreview(savedPrism(base),[opening(rotate([13,13,14]),rotate([0,0,1]))],'外側');
+  near(result.analysis.shellOpeningExtension,1);
+  const [output]=result.outputs,shape=R.deserializeShape(output.brep).asShape3D();
+  try{
+   assert.equal(output.shapeMetrics.solids,1);
+   near(distance(shape,rotate([13,13,15])),7);
+   near(distance(shape,rotate([19.98,13,14.5])),.02);
+   near(distance(shape,rotate([3,13,15.02])),.02);
+   closedSTL(output);
+  }finally{shape.delete();}
+ }finally{base.delete();}
+});
+
+test('stepped exterior recovery requires a single raised aperture on the shoulder',()=>{
+ const first=steppedBlock(R.makeBox([4,4,13],[24,22,14])),boss=R.makeBox([30,8,13],[35,18,13.6]);
+ const base=first.fuse(boss),openings=selectedCadFaces(base,[opening([13,13,14],[0,0,1])]);
+ try{assert.equal(shellSteppedExterior(base,openings[0],2,R.measureVolume(base)),null);}
+ finally{openings.forEach(face=>face.delete());base.delete();boss.delete();first.delete();}
 });

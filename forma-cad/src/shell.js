@@ -5,6 +5,7 @@ import {normalizeShellOpenings} from './shell-normalize.js';
 import {shellRecessedSphere} from './shell-recessed-sphere.js';
 import {shellRoundedPrism} from './shell-rounded-prism.js';
 import {shellPrismaticProfile} from './shell-prismatic-profile.js';
+import {shellSteppedExterior} from './shell-stepped-exterior.js';
 import {MODEL_PRECISION} from './model-precision.js';
 
 // The default rounded offset can return the unmodified solid where short
@@ -19,7 +20,7 @@ function intersectingOffsetShell(base,faces,thickness,rounded,tolerance){
  }finally{builder.delete();list.delete();}
 }
 
-export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemoved=null){
+export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemoved=null,onOpeningExtended=null){
  if(!Number.isFinite(p.thickness)||p.thickness<.1||p.thickness>1000)throw Error('壁厚は0.1〜1000 mmで指定してください');
  if(!p.faces?.length&&!openingFaces?.length)throw Error('開口にする面を選択してください');
  const faces=openingFaces?openingFaces.map(face=>face.clone()):selectedCadFaces(base,p.faces),original=R.measureVolume(base);
@@ -49,6 +50,13 @@ export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemov
  }
  if(thickness>0&&faces.length===1)attempts.push(()=>shellRoundedPrism(base,faces[0],thickness,original));
  if(thickness>0)attempts.push(()=>shellRecessedSphere(base,faces,thickness,p.includeOpeningRecess));
+ let openingExtension=0;
+ if(thickness<0&&faces.length===1)attempts.push(()=>{
+  const recovery=shellSteppedExterior(base,faces[0],p.thickness,original);
+  if(!recovery)return null;
+  openingExtension=recovery.extension;
+  return recovery.shape;
+ });
  let reason='この壁厚ではシェルを作成できません。壁厚を小さくするか、開口面を変更してください';
  try{
   for(const build of attempts){
@@ -63,7 +71,10 @@ export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemov
      try{valid=check.IsValid();}finally{check.delete();}
      volume=R.measureVolume(shape);
     }catch{}
-    if(valid&&Number.isFinite(volume)&&volume>1e-8&&!shape.isSame(base)&&(p.direction==='外側'||original-volume>Math.max(1e-7,original*1e-8))){accepted=true;return shape;}
+    if(valid&&Number.isFinite(volume)&&volume>1e-8&&!shape.isSame(base)&&(p.direction==='外側'||original-volume>Math.max(1e-7,original*1e-8))){
+     if(openingExtension>0)onOpeningExtended?.(openingExtension);
+     accepted=true;return shape;
+    }
     reason=valid&&Number.isFinite(volume)&&volume>1e-8?'シェル計算で内側の空間を作れませんでした。壁厚や開口面を確認してください':'有効なシェルを作成できません。壁厚と選択面を確認してください';
    }finally{if(!accepted)shape.delete();}
   }

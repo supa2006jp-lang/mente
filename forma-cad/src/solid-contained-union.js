@@ -8,7 +8,7 @@ function checkedBoolean(a,b,type,tolerance=0){
  try{args.Append(a.wrapped);tools.Append(b.wrapped);builder.SetArguments(args);builder.SetTools(tools);builder.SetNonDestructive(true);builder.SetFuzzyValue(tolerance);builder.Build();if(builder.HasErrors())return null;return R.cast(builder.Shape()).asShape3D();}
  finally{builder.delete();args.delete();tools.delete();}
 }
-function containsExactly(container,body,volume){
+export function containsExactly(container,body,volume){
  let difference,common;
  try{
   if(!valid(container)||!valid(body))return false;

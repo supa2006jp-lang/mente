@@ -4884,6 +4884,12 @@ function displayMachiningPreview(result,spec,original,editingId=null){
    }
    $('enclose-motion-result').textContent=notes.join(' ');
   }
+  const openingExtension=result.analysis?.shellOpeningExtension;
+  if(spec.type==='shell'&&openingExtension>0){
+   const length=openingExtension<.01?'0.01 mm未満':fmt(openingExtension)+' mm';
+   $('cad-error').textContent='開口を外側へ'+length+'延ばし、壁厚を'+fmt(spec.thickness)+' mmに保ちます。「'+$('cad-apply').textContent+'」で確定します';
+   return;
+  }
   $('cad-error').textContent=(result.analysis?.fillets?.some(f=>f.arcRecovery)?'元のスケッチの円弧を復元しました。':'')+(result.analysis?.partialFillet?(result.analysis.partialFillet.limitReason==='trial-time'?'時間の掛かる輪郭を保留しました。':'')+'一部のみ適用可能です（'+result.analysis.partialFillet.accepted+'辺）。実行後の確認でOKを押すまでは変更しません。':spec.type==='coilJoint'?'半透明：水色の本体／橙色の蓋。':spec.type==='enclose'?'半透明：新規作成する囲み'+(spec.enclosureSplit!=='分割しない'?'（水色／橙色の２ボディ）':'')+'。':result.added?.length?'水色：元の部分 / オレンジ：増える部分。':result.removed?.length?(result.analysis?.patternHybrid?'通常色：既存 / 水色：新規 / 赤：削られる部分。':'水色：加工後 / 赤：削られる部分。'):'加工後のプレビューです。')+(result.previewWarnings?.length?(result.previewWarnings.some(w=>w.code==='added-preview-unavailable')?' 追加部分の色分けだけ省略しています。':' 削られる部分の赤い表示だけ省略しています。'):'')+'「'+$('cad-apply').textContent+'」で確定します';
 }
 joinPreviewView=createJoinPreviewView({scene,host,fields:$('cad-fields'),dialog:$('tools-dialog'),getBodyName:bodyDisplayName});

@@ -872,7 +872,10 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
     shape=shellDecoratedBody(base,source,p,circularLoftInfoForBody(sourceHistory,p.target),info.radius,captureDecoratedRemoved);
    }
    finally{for(const body of sourceBodies.values())body.delete();}
-  }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target),null,captureRemoved);
+  }else shape=shellBody(base,p,circularLoftInfoForBody(features,p.target),null,captureRemoved,extension=>{
+   analysis={...analysis,shellOpeningExtension:extension};
+   if(context.shellPreview)removedPreview=[];
+  });
   try{onProgress?.({stage:'シェルの面の接続と表示を確認しています'});emit(p.target,shape);}finally{shape.delete();}
  }
  else if(p.type==='filletRadiusSearch'){
