@@ -4,10 +4,23 @@ import {innerCornerPositions,placementBox,planInteriorSplices} from './t-slot-in
 import dimensions from './t-slot-dimensions.json' with {type:'json'};
 
 export const FRAME_LIMIT = 160;
+export const FRAME_PRINT_HEIGHT = 180;
 export const FRAME_SIZING_VERSION = 4;
 const unit = i => new Vector3().setComponent(i, 1);
 const round = n => Math.round(n * 1e6) / 1e6;
 const boxError = () => Error('6面が直交する立方体または直方体を選んでください。');
+export function validateFrameLimit(limit){
+  if(!Number.isFinite(limit)||limit<=0||limit>FRAME_PRINT_HEIGHT)throw Error('フレーム1本の上限は0 mmより大きく180 mm以下で指定してください。');
+  return limit;
+}
+export function splitFrameSpan(span,limit){
+  validateFrameLimit(limit);
+  if(!Number.isFinite(span)||span<=0)throw Error('辺の長さは0 mmより大きい数値で指定してください。');
+  const count=Math.ceil(span/limit),length=span/count;
+  // A splice bore is 13.5 mm from the joint and its T-nut extends another 9.9 mm.
+  if(count>1&&length<23.4)throw Error('分割後の材に直線治具のT溝ナットが収まりません。1本の長さの上限を大きくしてください。');
+  return {span,count,length};
+}
 
 // Identify the six supporting planes, not the world-aligned bounding box.
 export function measureFrameBox(vertices, triangles) {
@@ -88,6 +101,7 @@ export function plateOutline(part) {
   return [[-x+r,-y],[x-r,-y],[x,-y+r],[x,y-r],[x-r,y],[-x+r,y],[-x,y-r],[-x,-y+r]];
 }
 export function framePartKey(part) {
+  if (part.kind==='panel') return part.key;
   if (part.kind==='rail') return 'rail-'+part.length;
   if (part.kind==='bolt'&&part.length===10) return 'bolt-10';
   if (part.kind==='splice'&&part.span!==undefined) return 'splice-2';
@@ -96,15 +110,19 @@ export function framePartKey(part) {
   return part.kind;
 }
 export function framePartName(part) {
+  if (part.kind==='panel') return part.name;
+  if (part.kind==='panelClamp') return '透明板用押さえプレート（穴間28 mm）';
   if (part.kind==='rail') return 'T溝フレーム '+round(part.length)+' mm';
   if (part.kind==='bolt') return part.length===10?'M8×10 ボルト':'M8×16 ボルト';
   if (part.kind==='splice') return part.span===undefined?'4穴直線連結プレート 90 mm':'2穴直線連結プレート '+plateDimensions(part).length+' mm';
   if (part.kind==='corner'&&part.panelHole) return '直角連結ブラケット（透明板用M8めねじ）';
   if (part.keyed) return '短尺材用キー付きプレート '+round(part.span+18)+' mm';
   if (part.kind==='strap') return part.shared?'3穴外付けプレート '+Number((part.span+18).toFixed(3))+' mm':'2穴外付けプレート';
-  return {corner:'直角連結ブラケット',nut:'M8 T溝ナット（−0.10 mm調整版）'}[part.kind];
+  return {corner:'直角連結ブラケット',nut:'M8 T溝ナット（−0.10 mm調整版）',wideNut:'M8 T溝ナット（広め・V印・−0.10 mm）',
+    panelFoot:'透明板固定治具（T足一体）',slotBlock:'T足用の溝固定押さえ駒',panelWasher:'板用座金（外径18 mm）',testPad:'試験用押さえ板（厚さ8 mm）'}[part.kind];
 }
 export function framePartBounds(part) {
+  if (part.kind==='panel') return part.bounds;
   if (part.kind==='rail') return [[-14,-14,0],[14,14,part.length]];
   const plate=plateDimensions(part);
   if (plate) {
@@ -114,7 +132,8 @@ export function framePartBounds(part) {
   return dimensions.bounds[framePartKey(part)]??dimensions.bounds[part.kind];
 }
 
-export function validateFrameBox(box,sizingVersion=FRAME_SIZING_VERSION) {
+export function validateFrameBox(box,sizingVersion=FRAME_SIZING_VERSION,maxRailLength=FRAME_LIMIT) {
+  validateFrameLimit(maxRailLength);
   if(!Number.isInteger(sizingVersion)||sizingVersion<1||sizingVersion>FRAME_SIZING_VERSION)throw Error('このフレームの寸法形式を読み込めません。');
   const triple=a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite);
   if(!triple(box?.origin)||!triple(box.size)||box.size.some(v=>v<=0||v>200000)||
@@ -123,8 +142,8 @@ export function validateFrameBox(box,sizingVersion=FRAME_SIZING_VERSION) {
   if([x,y,z].some(a=>Math.abs(a.lengthSq()-1)>1e-5)||Math.abs(x.dot(y))>1e-5||
       x.clone().cross(y).distanceTo(z)>1e-5)throw boxError();
 }
-export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION) {
-  validateFrameBox(box,sizingVersion);
+export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION,maxRailLength=FRAME_LIMIT) {
+  validateFrameBox(box,sizingVersion,maxRailLength);
   const {size}=box;
   // Old saved bodies used a 20 mm minimum opening and micron-rounded seam positions.
   const legacy=sizingVersion===1;
@@ -132,10 +151,7 @@ export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION) {
   const preferInside=sizingVersion>=4;
   const splice=newFittings?{kind:'splice',span:27}:{kind:'splice'};
   const clear=legacy?size.map((v,i)=>i<2?Math.max(20,v):v):size;
-  const runs=[clear[0],clear[1],round(clear[2]+56)].map(span=>{
-    const count=Math.ceil(span/FRAME_LIMIT);
-    return {span,count,length:span/count};
-  });
+  const runs=[clear[0],clear[1],round(clear[2]+56)].map(span=>splitFrameSpan(span,maxRailLength));
   const origin=new Vector3(...box.origin), axes=box.axes.map(a=>new Vector3(...a));
   axes.forEach((a,i)=>origin.addScaledVector(a,(size[i]-clear[i])/2));
   const world=new Matrix4().makeBasis(...axes).setPosition(origin);
@@ -228,13 +244,17 @@ export function frameAssembly(box,sizingVersion=FRAME_SIZING_VERSION) {
   }
   for(const group of jointGroups.values()){
     const placements=planInteriorSplices(group,railBoxes,fixtureBoxes,fixedNuts);
-    placements.forEach((p,i)=>plate(splice,p.at,group[i].along,p.normal,p.inside?'inside':'outside'));
+    placements.forEach((p,i)=>{
+      plate(splice,p.at,group[i].along,p.normal,p.inside?'inside':'outside');
+      // A lower cut limit can bring subsequent seams into this one's footprint.
+      if(maxRailLength<FRAME_LIMIT){fixtureBoxes.push(p.body);fixedNuts.push(...p.nuts);}
+    });
   }
   return {parts,fixings,runs,clearance:clear.map((v,i)=>(v-size[i])/2)};
 }
 
 export function savedFrameAssembly(analysis) {
-  return frameAssembly(analysis.tSlotBox,analysis.tSlotSizingVersion??1);
+  return frameAssembly(analysis.tSlotBox,analysis.tSlotSizingVersion??1,analysis.tSlotMaxRailLength);
 }
 
 export function frameBill(assembly,extraBolts=0,extraNuts=0,extraShortBolts=0) {

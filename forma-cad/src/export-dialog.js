@@ -115,7 +115,8 @@ export function createExportDialog({createPreview}={}){
  return {
   get active(){return dialog.open;},
   cancel(){if(dialog.open)dialog.close();},
-  open({choices,initial,initialTarget,isCurrent=()=>true}){
+  open({choices,initial,initialTarget,isCurrent=()=>true,title='出力'}){
+   find('title').textContent=title;
    formats=choices.filter(choice=>choice.entries.length);
    if(!formats.length)return;
    current=isCurrent;

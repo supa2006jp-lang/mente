@@ -36,22 +36,94 @@ try{
     const event=page.waitForEvent('download');await page.locator(button).click();const file=await event;
     return {name:file.suggestedFilename(),buffer:await fs.readFile(await file.path())};
   }
+  async function openFrame(){
+    const tool=page.locator('#t-slot-frame-tool');
+    if(await tool.isVisible()){await tool.click();return;}
+    await page.locator('#advanced-tools').click();
+    if(await page.locator('#cad-command').isVisible())await page.locator('#cad-command').selectOption('tSlotFrame');
+  }
+  assert.equal(await page.locator('#body-count').textContent(),'0');
+  await openFrame();
+  assert.equal(await page.locator('#export-title').textContent(),'T溝フレームの部品と設定');
+  const standaloneLimit=page.locator('#t-slot-manual-limit'),confirm=page.locator('#export-confirm');
+  assert.equal(await standaloneLimit.inputValue(),'160');assert.equal(await confirm.isDisabled(),true);
+  const rows=page.locator('#t-slot-order-lines .t-slot-order-row');
+  await standaloneLimit.fill('120');
+  await rows.first().locator('.order-dimension input').fill('330');
+  await rows.first().locator('.order-count').fill('2');
+  await page.locator('#t-slot-add-line').click();
+  await rows.nth(1).locator('select').selectOption('short');await rows.nth(1).locator('.order-count').fill('3');
+  const manualBill=await page.locator('#export-contents').textContent();
+  for(const expected of ['110 mm × 6','45 mm × 4','M8×16 ボルト × 8','M8×10 ボルト × 3','ナット（−0.10 mm調整版） × 8'])assert.ok(manualBill.includes(expected));
+  await page.locator('#t-slot-add-line').click();await rows.last().getByRole('button').click();assert.equal(await rows.count(),2);
+  await page.locator('#t-slot-add-line').click();await rows.last().locator('select').selectOption('panelFoot');
+  const sides=page.locator('#t-slot-panel-sides'),front=page.locator('#t-slot-panel-front');
+  await sides.check();
+  for(const face of ['front','back','left','right'])assert.ok(await page.locator('#t-slot-panel-'+face).isChecked());
+  await front.uncheck();assert.ok(await sides.evaluate(el=>el.indeterminate));
+  await sides.click();await sides.uncheck();
+  assert.equal(await page.locator('#t-slot-panel-bottom').isChecked(),false);
+  await page.locator('#t-slot-panel-top').check();await front.check();
+  for(const [i,dim] of [265,200,110].entries())await page.locator('#t-slot-opening-'+i).fill(String(dim));
+  await page.locator('#t-slot-print-nozzle').selectOption('0.6');
+  assert.match(await page.locator('#t-slot-filament-clear').textContent(),/ g/);
+  await page.setViewportSize({width:390,height:844});
+  const fits=await page.locator('#export-options').evaluate(el=>el.scrollWidth<=el.clientWidth+1);
+  assert.ok(fits,'The parts order must fit a narrow dialog');
+  await page.setViewportSize({width:1740,height:1060});
+  const order=await download('#export-confirm'),packed=unzipSync(order.buffer),notes=strFromU8(packed['panel-assembly.txt']);
+  assert.match(notes,/上面　264 × 199　2列 × 2行/);assert.match(notes,/前面　264 × 109　2列 × 1行/);
+  assert.doesNotMatch(notes,/下面　264/);
+  const orderedParts=new Map();
+  for(const [name,bytes] of Object.entries(packed).filter(([key])=>key.endsWith('.3mf'))){
+    const inner=unzipSync(bytes),xml=strFromU8(inner['3D/3dmodel.model']),ids=new Map();
+    assert.deepEqual(JSON.parse(strFromU8(inner['Metadata/project_settings.config'])).nozzle_diameter,['0.6']);
+    for(const [,id,part,mesh] of xml.matchAll(/<object id="(\d+)" type="model" name="([^"]+)">([\s\S]*?)<\/object>/g)){
+      ids.set(id,part);
+      const sheet=/^(上面 透明板|前面 透明板|透明板の継ぎ板)/.test(part);
+      assert.equal(sheet,name.endsWith('-clear.3mf'));
+      if(sheet){
+        const zs=Array.from(mesh.matchAll(/<vertex [^>]*z="([^"]+)"/g),v=>Number(v[1]));
+        assert.equal(Math.max(...zs)-Math.min(...zs),2);
+      }
+    }
+    for(const [,id] of xml.matchAll(/<item objectid="(\d+)"/g)){
+      const part=ids.get(id);orderedParts.set(part,1+(orderedParts.get(part)||0));
+    }
+  }
+  assert.equal(orderedParts.get('T溝フレーム 110 mm'),6);
+  assert.equal(orderedParts.get('2穴直線連結プレート 45 mm'),4);
+  assert.equal(orderedParts.get('透明板固定治具（T足一体）'),1);
+  assert.equal(orderedParts.get('透明板の継ぎ板 42 × 18 × 2 mm'),5);
+  assert.equal([...orderedParts.keys()].filter(s=>s.startsWith('上面 透明板')).length,4);
+  assert.equal([...orderedParts.keys()].filter(s=>s.startsWith('前面 透明板')).length,2);
+  assert.equal(await page.locator('#body-count').textContent(),'0');
+  await openFrame();assert.equal(await standaloneLimit.inputValue(),'120');
+  await rows.first().locator('select').selectOption('backing');await rows.first().locator('.order-count').fill('2');
+  assert.ok(await page.locator('#t-slot-filament-clear').isVisible());
+  const strips=await download('#export-confirm');assert.match(strips.name,/-clear\.3mf$/);
+  const stripXml=strFromU8(unzipSync(strips.buffer)['3D/3dmodel.model']);
+  assert.equal((stripXml.match(/<item /g)||[]).length,2);assert.match(stripXml,/透明板の継ぎ板/);
   const guide={...defaults,id:'test-cube',name:'寸法確認用の基準',kind:'extrusion',width:117.25,height:245,depth:87.625};
   await load(Buffer.from(JSON.stringify({format:'forma-cad',version:1,units:'mm',features:[guide]})));
   await page.locator('#export').click();
   assert.equal(await page.locator('#export-format').inputValue(),'stl');
   assert.equal(await page.locator('#export-options').isVisible(),false);
   await page.locator('#export-cancel').click();
-  await page.locator('#advanced-tools').click();
-  await page.locator('#cad-command').selectOption('tSlotFrame');
+  await openFrame();
   await page.locator('#t-slot-frame-dialog').waitFor();
+  const cutLimit=page.locator('#t-slot-rail-limit');
+  assert.equal(await cutLimit.inputValue(),'120');
+  assert.match(await page.locator('#t-slot-lengths').textContent(),/81\.666667 mm × 3本/);
+  await cutLimit.fill('160');
   assert.match(await page.locator('#t-slot-summary').textContent(),/フレーム 16本、固定治具 20個（内側20個・外側0個）/);
   const cutList=await page.locator('#t-slot-lengths tbody tr').allTextContents();
   assert.deepEqual(cutList,['幅117.25 mm117.25 mm × 1本','奥行き245 mm122.5 mm × 2本','支柱143.625 mm143.625 mm × 1本']);
   await page.locator('#t-slot-apply').click();
   await page.waitForFunction(()=>!document.querySelector('#t-slot-frame-dialog').open&&document.querySelector('#body-count').textContent==='3');
   const saved=await download('#save');
-  assert.equal(JSON.parse(saved.buffer).features.at(-1).spec.type,'tSlotFrame');
+  const savedFrame=JSON.parse(saved.buffer).features.at(-1);
+  assert.equal(savedFrame.spec.type,'tSlotFrame');assert.equal(savedFrame.spec.maxRailLength,160);
   await page.locator('#undo').click();
   await page.waitForFunction(()=>document.querySelector('#body-count').textContent==='1');
   await load(saved.buffer);
@@ -133,5 +205,12 @@ try{
   assert.deepEqual(fittingCounts,{corner:16,splice:4});
   assert.deepEqual(boltCounts,{10:4,16:43});
   assert.equal(count,128);assert.equal(await page.locator('#body-count').textContent(),'3');
-  assert.deepEqual(errors,[]);console.log('PASS create, undo, reopen, independent extras and export of '+count+' parts on '+plates+' plates');
+  await page.locator('#export').click();
+  await page.locator('#t-slot-panel-top').check();await sides.check();await page.locator('#t-slot-panel-bottom').check();
+  const assembledBill=await page.locator('#export-contents').textContent();
+  for(const label of ['上面','前面','背面','左面','右面','下面'])assert.ok(assembledBill.includes(label+' 透明板'));
+  assert.match(assembledBill,/上面 透明板 116\.25 × 244 × 2 mm/);
+  assert.match(assembledBill,/前面 透明板 116\.25 × 86\.625 × 2 mm/);
+  assert.equal(await confirm.isEnabled(),true);await page.locator('#export-cancel').click();
+  assert.deepEqual(errors,[]);console.log('PASS standalone cut orders, interlocking clear panels, saved frame limits, undo, reopen and export of '+count+' standard parts on '+plates+' plates');
 }finally{await browser?.close();if(server.listening)await new Promise(r=>server.close(r));}

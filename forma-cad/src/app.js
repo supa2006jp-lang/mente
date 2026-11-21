@@ -50,7 +50,7 @@ import {edgeBodyRevolveOptions} from './edge-body-revolve.js';
 import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
 import {printSupportExportCandidates,savedSupportExportGroups,savedSupportExportIds} from './print-support-export-choice.js';
 import {createExportDialog} from './export-dialog.js';
-import {createTSlotFrameDialog,frameOutputEntries} from './t-slot-frame-dialog.js';
+import {createTSlotFrameDialog,frameOutputEntries,manualFrameOutputEntry} from './t-slot-frame-dialog.js';
 let tSlotFrameController=null;
 import {createExport3mfPreview} from './export-3mf-preview.js';
 import {supportAutoFaceColor,supportAutoFaceLabel,supportAutoFaceMessage} from './print-support-auto-faces.js';
@@ -5532,9 +5532,16 @@ function openCylinderHinge(){if(stage!=='model'||document.querySelector('dialog[
 cylinderHingeButton.onclick=openCylinderHinge;
 
 
-tSlotFrameController=createTSlotFrameDialog({meshes,getFeatures:()=>features,bodyName:bodyDisplayName,
+function openTSlotParts(){
+ const before=features,isCurrent=()=>features===before;
+ const entry=manualFrameOutputEntry({download,notify,isCurrent,name:'部品単体'});
+ outputDialog.open({title:'T溝フレームの部品と設定',isCurrent,choices:[
+  {id:'frame3mf',label:'3MF（T溝フレーム・180 mmプレート）',entries:[entry]}]});
+}
+tSlotFrameController=createTSlotFrameDialog({meshes,getFeatures:()=>features,bodyName:bodyDisplayName,openParts:openTSlotParts,
  kernel:kernelClient,notify,commit(next){setProject(next);selected=null;stage='model';dropPreview();syncFields();renderTree();fit();}});
 function openTSlotFrame(){
+ if(!meshes.size&&!extrusionBusy&&!machiningBusy&&!document.querySelector('dialog[open]')){openTSlotParts();return;}
  if(stage!=='model'||pendingExtrude||extrusionBusy||machiningBusy||moveTool?.active||document.querySelector('dialog[open]')){
   notify('編集中の操作を終了してからフレームを配置してください');return;
  }
@@ -5543,7 +5550,7 @@ function openTSlotFrame(){
 }
 const tSlotButton=document.createElement('button');
 tSlotButton.id='t-slot-frame-tool';tSlotButton.type='button';tSlotButton.textContent='T溝フレーム';
-tSlotButton.title='直方体の外側12辺にM8フレームと固定治具を配置';tSlotButton.dataset.overflowPriority='1';
+tSlotButton.title='直方体へのフレーム配置、部品単体の印刷と分割設定';tSlotButton.dataset.overflowPriority='1';
 tSlotButton.onclick=openTSlotFrame;$('move-tool').after(tSlotButton);
 $('cad-command').add(new Option('T溝フレーム','tSlotFrame'));
 

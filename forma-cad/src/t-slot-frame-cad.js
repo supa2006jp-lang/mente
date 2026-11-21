@@ -43,7 +43,7 @@ function located(shape,matrix) {
   } finally {pose.delete();}
 }
 export function makeTSlotFrame(box,spec,onProgress) {
-  const {parts}=frameAssembly(box), prototypes=new Map(), outputs=[],bodyNames={},bodyColors={};
+  const {parts}=frameAssembly(box,FRAME_SIZING_VERSION,spec.maxRailLength), prototypes=new Map(), outputs=[],bodyNames={},bodyColors={};
   try {
     for(const group of ['rails','fittings']) {
       const members=parts.filter(p=>(p.kind==='rail')===(group==='rails'));
@@ -70,6 +70,7 @@ export function makeTSlotFrame(box,spec,onProgress) {
         } finally {instances.forEach(s=>s.delete());}
       }
     }
-    return {outputs,remove:[],bodyNames,bodyColors,analysis:{tSlotBox:box,tSlotSizingVersion:FRAME_SIZING_VERSION}};
+    return {outputs,remove:[],bodyNames,bodyColors,analysis:{tSlotBox:box,tSlotSizingVersion:FRAME_SIZING_VERSION,
+      ...(spec.maxRailLength===undefined?{}:{tSlotMaxRailLength:spec.maxRailLength})}};
   } finally {prototypes.forEach(shape=>shape.delete());}
 }

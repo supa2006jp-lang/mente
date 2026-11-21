@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import * as R from 'replicad';
+import ClipperLib from 'clipper-lib';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {strFromU8,unzipSync} from 'three/addons/libs/fflate.module.js';
 import {cadMesh} from '../src/cad-mesh.js';
@@ -10,6 +11,8 @@ import {frameAssembly,frameBill,framePartBounds,measureFrameBox,plateDimensions,
 import {Ray,Vector3} from 'three';
 import {framePlate3mf,framePrintPlates,readFrameStock} from '../src/t-slot-frame-print.js';
 import {estimateFrameFilament} from '../src/t-slot-filament.js';
+import {manualFrameBill,mergeFrameBill,partChoices} from '../src/t-slot-parts.js';
+import {framePanels,panelTiles,panelAssemblyNotes} from '../src/t-slot-panels.js';
 import {inspectStlMesh} from '../src/stl-mesh-health.js';
 import {defaults,validateProject} from '../src/geometry.js';
 import {runOperation} from '../src/kernel.js';
@@ -327,6 +330,95 @@ test('one startup per plate, legacy fittings, short rails and nozzle-specific 3M
     assert.deepEqual(fine.filament_diameter,['1.75']);assert.deepEqual(fine.filament_density,['1.27']);
     assert.equal(fine.brim_type,brim);assert.equal(fine.brim_width,'5');
   }
+});
+
+test('manual parts and saved custom rail limits produce the requested rail lengths and seam hardware',()=>{
+  const kit=manualFrameBill([{id:'rail',length:330,count:2},{id:'rail',length:110,count:1},
+    {id:'short',count:3},{id:'bolt',count:2},{id:'nut',count:0},{id:'shared',length:25,count:1}],120);
+  assert.deepEqual(Object.fromEntries(kit.map(p=>[p.key,p.count])),{'rail-110':7,'splice-2':4,bolt:10,nut:8,'bolt-10':3,'strap-53-shared':1});
+  const catalog=manualFrameBill(partChoices.map(c=>({id:c.id,count:1,length:c.initial})),160);
+  assert.equal(catalog.length,partChoices.length);
+  assert.ok(estimateFrameFilament(framePrintPlates(catalog)).total.grams>0);
+  for(const part of catalog){
+    const report=inspectStlMesh(stock.mesh(part),{includeComponents:true,maxSegments:0});
+    assert.ok(report.ok&&report.components.length===1,part.key);
+    const bounds=framePartBounds(part);
+    for(const [i,point] of report.components[0].bounds.entries())for(const [k,v] of point.entries())assert.ok(Math.abs(v-bounds[i][k])<1e-4,part.key);
+  }
+  for(const limit of [0,-1,181,Infinity,NaN])assert.throws(()=>manualFrameBill([],limit));
+  assert.throws(()=>manualFrameBill([{id:'nut',count:1.2}],160));
+  const old=guide([117.25,245,87.625]),spec={type:'tSlotFrame',target:'box',id:'kit',maxRailLength:105};
+  const made=makeTSlotFrame(old,spec),assembly=savedFrameAssembly(made.analysis);
+  assert.equal(made.analysis.tSlotMaxRailLength,105);
+  assert.deepEqual(assembly.runs.map(r=>r.count),[2,3,2]);
+  const native=made.outputs.filter(o=>o.id.startsWith('kit-rails')).map(o=>R.deserializeShape(o.brep).asShape3D());
+  const members=native.flatMap(body=>body.solids);
+  try{assert.equal(members.length,28);for(const m of members)assert.ok(R.measureVolume(m)/348.19<=105.00001);}
+  finally{members.forEach(s=>s.delete());native.forEach(body=>body.delete());}
+  assert.deepEqual(savedFrameAssembly({tSlotBox:old,tSlotSizingVersion:4}).runs.map(r=>r.count),[1,2,1]);
+});
+test('selected clear faces follow the actual corner seats; horizontal mounts clear the solid and support a 2 mm panel',()=>{
+  const box=guide([100,120,90]),assembly=frameAssembly(box),out=framePanels(box,assembly,['top','front','bottom']);
+  assert.deepEqual(out.plans.map(p=>[p.face.id,p.width,p.height,p.mounts.filter(m=>m.extraCorner).length]),
+    [['top',99,119,4],['front',99,89,0],['bottom',99,119,4]]);
+  const bill=mergeFrameBill(out.bill);
+  for(const [k,n] of [['corner-panel',8],['bolt',16],['nut',16],['bolt-10',12]])assert.equal(bill.find(p=>p.key===k).count,n);
+  const upper=out.plans[0];
+  assert.deepEqual(upper.mounts.map(m=>m.hole),[[13.5,13.5],[85.5,13.5],[13.5,105.5],[85.5,105.5]]);
+  const built=makeTSlotFrame(box,{id:'panel-check'}),bodies=built.outputs.map(o=>R.deserializeShape(o.brep).asShape3D());
+  const bracket=makeFramePart({kind:'corner',panelHole:true}).rotate(180,[0,0,0],[1,1,0]).translateZ(116);
+  const panel=R.makeBox([.5,.5,116],[99.5,119.5,118]);
+  try{
+    for(const body of [...bodies,panel]){
+      const hit=bracket.intersect(body);try{assert.ok(Math.abs(R.measureVolume(hit))<1e-5);}finally{hit.delete();}
+    }
+    assert.ok(R.measureDistanceBetween(panel,bracket)<1e-6);
+  }finally{bracket.delete();panel.delete();bodies.forEach(b=>b.delete());}
+  const rotated={...box,origin:[37,-18,92],axes:[[0,1,0],[0,0,1],[1,0,0]]};
+  assert.deepEqual(framePanels(rotated,frameAssembly(rotated),['top','front','bottom']).plans,out.plans);
+  const tight=guide([80,75,80]),tightPlan=framePanels(tight,frameAssembly(tight),['top']);
+  assert.ok(tightPlan.plans[0].mounts.some(m=>m.anchor));assert.ok(tightPlan.bill.some(p=>p.kind==='panelClamp'));
+});
+test('two-axis panel tiling preserves corner holes, fits every keyed tile, and supplies backing strips',()=>{
+  const box=guide([365,370,190]),assembly=frameAssembly(box),out=framePanels(box,assembly,['top']);
+  const plan=out.plans[0],tiles=panelTiles(plan);
+  assert.equal(tiles.length,9);assert.equal(plan.cols,3);assert.equal(plan.rows,3);
+  assert.equal(tiles.reduce((n,p)=>n+p.holes.length,0),4+2*12);
+  assert.equal(out.bill.find(p=>p.key==='panel-join').count,12);
+  const shifts=tiles.map((p,i)=>[i%3*plan.width/3,Math.floor(i/3)*plan.height/3]);
+  const loops=tiles.map((tile,i)=>tile.outline.map(([x,y])=>({
+    X:Math.round((x+shifts[i][0])*10000),Y:Math.round((y+shifts[i][1])*10000)
+  })));
+  for(const [i,loop] of loops.entries())for(const previous of loops.slice(0,i)){
+    const clip=new ClipperLib.Clipper(),intersection=[];
+    clip.AddPath(loop,ClipperLib.PolyType.ptSubject,true);
+    clip.AddPath(previous,ClipperLib.PolyType.ptClip,true);
+    clip.Execute(ClipperLib.ClipType.ctIntersection,intersection);
+    assert.equal(intersection.length,0,'Assembled dovetails must fit without overlapping');
+  }
+  for(const [width,count] of [[180,1],[180.01,2],[350.25,2],[350.26,3]]){
+    const row=panelTiles({...plan,width,height:95,mounts:[]});
+    assert.equal(row.length,count);
+    assert.ok(row.every(p=>p.bounds[1][0]-p.bounds[0][0]<=180.000001));
+  }
+  const globalHoles=tiles.flatMap((p,i)=>p.holes.map(([x,y])=>[x+shifts[i][0],y+shifts[i][1]]));
+  for(const {hole} of plan.mounts)assert.equal(globalHoles.filter(([x,y])=>Math.hypot(x-hole[0],y-hole[1])<1e-4).length,1);
+  const at=([x,y])=>globalHoles.some(([a,b])=>Math.hypot(a-x,b-y)<1e-4);
+  for(const x of [1,2])for(const y of [0,1,2])for(const d of [-12,12])assert.ok(at([x*plan.width/3+d,(y+.5)*plan.height/3]));
+  for(const y of [1,2])for(const x of [0,1,2])for(const d of [-12,12])assert.ok(at([(x+.5)*plan.width/3,y*plan.height/3+d]));
+  const sheet=tiles[0],w=plan.width/3,right=sheet.outline.filter(([x])=>x>w+4);
+  assert.ok(right.length>=4&&Math.max(...right.map(p=>p[0]))>w+4.8);
+  // The neighbour's pocket surrounds the male dovetail, including tip and neck clearance.
+  const pocketDepth=Math.max(...tiles[1].outline.filter(([x])=>x<8).map(([x])=>x));
+  assert.ok(pocketDepth>Math.max(...right.map(([x])=>x-w)));
+  const plates=framePrintPlates(mergeFrameBill(out.bill)),est=estimateFrameFilament(plates);
+  assert.ok(est.total.grams>0&&est.plates.every(p=>p.grams>0));
+  for(const plate of plates)for(const {part,min,max} of plate.placements){
+    assert.equal(!!plate.clear,part.kind==='panel');assert.ok(min.every(v=>v>=-1e-6)&&max.every(v=>v<=180.000001));
+    if(plate.clear){const health=inspectStlMesh(stock.mesh(part),{includeComponents:true});assert.ok(health.ok&&health.components.length===1);assert.equal(max[2],2);}
+  }
+  const notes=panelAssemblyNotes(out.plans);assert.match(notes,/3列 × 3行/);assert.match(notes,/追加の直角ブラケット/);
+  const subset=framePanels(box,assembly,['left','bottom']);assert.deepEqual(subset.plans.map(p=>p.face.id),['left','bottom']);
 });
 
 test('replaying an edited guide updates the kit and moving its fixtures includes its rails',()=>{

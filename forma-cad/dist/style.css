@@ -827,6 +827,22 @@ button.form-control-point.invalid { background:#bc2634; }
 .t-slot-extras legend{margin-bottom:6px;padding:0;font-weight:600}
 .t-slot-quantities{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,126px),1fr));gap:8px 12px}
 .t-slot-quantities label{margin:0}
+.t-slot-panel-options{margin:12px 0}
+.t-slot-face-options{display:flex;flex-wrap:wrap;gap:5px 16px}
+.t-slot-face-options label{display:inline-flex;align-items:center;gap:5px;margin:0}
+.t-slot-face-options input{width:auto;margin:0}
+.t-slot-side-options{margin:5px 0 0 12px}
+.t-slot-panel-note,.t-slot-panel-size p{margin:6px 0;font-size:.88rem}
+.t-slot-order-row{display:grid;grid-template-columns:minmax(130px,2fr) minmax(76px,1fr) 58px auto;align-items:end;gap:5px;margin:7px 0}
+.t-slot-order-row label{min-width:0;margin:0}
+.t-slot-order-row .order-dimension span{float:none;font-size:inherit;color:inherit}
+.t-slot-order-row .order-count{min-width:0}
+.t-slot-order-row label:has(.order-count){grid-column:3}
+@media(max-width:520px){
+ .t-slot-order-row{grid-template-columns:minmax(95px,1fr) 68px auto}
+ .t-slot-order-row label:first-child{grid-column:1/-1}
+ .t-slot-order-row label:has(.order-count){grid-column:2}
+}
 .t-slot-plate{display:flex;align-items:center;justify-content:space-between;gap:14px}
 .t-slot-print-fields{flex:1;min-width:0}
 .t-slot-print-fields label:last-child{margin-bottom:0}

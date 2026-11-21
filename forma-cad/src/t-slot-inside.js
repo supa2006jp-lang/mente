@@ -53,9 +53,7 @@ function candidates(joint,rails,fixtures,fixedNuts){
   }
   return options;
 }
-// Only the four parallel edges at the same seam can meet. Consecutive seams
-// are at least 80 mm apart; seams on perpendicular edges are at least 94 mm
-// apart along one axis. Choose the fewest exterior plates among these four.
+// Choose the fewest exterior plates among the four parallel edges at this seam.
 export function planInteriorSplices(group,rails,fixtures,fixedNuts){
   const options=group.map(j=>candidates(j,rails,fixtures,fixedNuts)),selected=[];
   let best=null,bestExterior=Infinity;

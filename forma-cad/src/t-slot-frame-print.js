@@ -3,12 +3,17 @@ import {strFromU8,unzipSync,zipSync} from 'three/addons/libs/fflate.module.js';
 import {PRINT_PLATE_SIZE,subtractFree} from './print-layout.js';
 import {pack3mf,xmlAttribute} from './pack-3mf.js';
 import {framePartBounds,framePartKey,framePartName,plateDimensions,plateKey,plateOutline} from './t-slot-frame.js';
+import {PANEL_HOLE_RADIUS,PANEL_THICKNESS,panelAssemblyNotes} from './t-slot-panels.js';
 import dimensions from './t-slot-dimensions.json' with {type:'json'};
 import fineNozzle06 from './t-slot-nozzle-06.json' with {type:'json'};
 
-// Allow both the 5 mm rail brims and a gap between neighbouring brims.
-const margin=6,gap=11,usable=PRINT_PLATE_SIZE-2*margin,eps=1e-6;
 export function framePrintPlates(bill) {
+  // Isolate the clear filament so a single-material A1 mini can run each plate.
+  return [...packParts(bill.filter(p=>p.kind!=='panel'),6,11,false),
+    ...packParts(bill.filter(p=>p.kind==='panel'),0,3,true)];
+}
+function packParts(bill,margin,gap,clear) {
+  const usable=PRINT_PLATE_SIZE-2*margin,eps=1e-6;
   const plates=[];
   const entries=bill.map(part=>{
     const [min,max]=framePartBounds(part);
@@ -44,7 +49,16 @@ export function framePrintPlates(bill) {
       }
     }
   }
-  return plates.map(({placements})=>({placements}));
+  return plates.map(({placements})=>{
+    if(!clear)return {placements};
+    const dx=(PRINT_PLATE_SIZE-placements.reduce((v,p)=>Math.max(v,p.max[0]),0))/2;
+    const dy=(PRINT_PLATE_SIZE-placements.reduce((v,p)=>Math.max(v,p.max[1]),0))/2;
+    for(const p of placements){
+      p.transform[9]+=dx;p.transform[10]+=dy;
+      for(const point of [p.min,p.max]){point[0]+=dx;point[1]+=dy;}
+    }
+    return {placements,clear:true};
+  });
 }
 
 function stlMesh(bytes) {
@@ -108,15 +122,17 @@ function prismMesh(rings,height,key=null) {
 }
 export function readFrameStock(bytes) {
   const archive=unzipSync(bytes),stock=new Map();
+  const circle=(x,y,radius)=>Array.from({length:64},(_,i)=>{
+    const a=-2*Math.PI*i/64;return [x+radius*Math.cos(a),y+radius*Math.sin(a)];
+  });
   return {
     mesh(part){
       if(part.kind==='rail')return prismMesh([dimensions.profile],part.length);
+      if(part.kind==='panel')return prismMesh([part.outline,...part.holes.map(([x,y])=>circle(x,y,PANEL_HOLE_RADIUS))],PANEL_THICKNESS);
       const plate=plateDimensions(part);
       if(plate){
         const {holes,height}=plate;
-        const rings=holes.map(x=>Array.from({length:64},(_,i)=>{
-          const a=-2*Math.PI*i/64;return [x+4.5*Math.cos(a),4.5*Math.sin(a)];
-        }));
+        const rings=holes.map(x=>circle(x,0,4.5));
         return prismMesh([plateOutline(part),...rings],height,plateKey(part));
       }
       const key=framePartKey(part);
@@ -135,7 +151,7 @@ export function readFrameStock(bytes) {
 }
 let stockPromise;
 export function loadFrameStock() {
-  if(!stockPromise)stockPromise=fetch(new URL('t-slot-m8.dat?v=4',import.meta.url)).then(async response=>{
+  if(!stockPromise)stockPromise=fetch(new URL('t-slot-m8.dat?v=5',import.meta.url)).then(async response=>{
     if(!response.ok)throw Error('M8フレーム部品を読み込めませんでした。');
     return readFrameStock(new Uint8Array(await response.arrayBuffer()));
   }).catch(error=>{stockPromise=undefined;throw error;});
@@ -170,18 +186,21 @@ export function framePlate3mf(plate,stock,cache=new Map(),nozzle=.4) {
   const model=xmlHead+'<model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021"><metadata name="Application">BambuStudio-02.04.00.70</metadata><metadata name="Designer">Forma CAD</metadata><metadata name="BambuStudio:3mfVersion">1</metadata><resources>'+objects.join('')+'</resources><build>'+items.join('')+'</build></model>';
   const config=xmlHead+'<config>'+settings.join('')+'<plate>'+meta('plater_id',1)+instances.join('')+'</plate></config>';
   const uses=kind=>plate.placements.some(p=>p.part.kind===kind);
-  return pack3mf(model,{'Metadata/model_settings.config':config,'Metadata/project_settings.config':JSON.stringify(stock.settings(uses('rail'),uses('nut')||uses('bolt'),nozzle))});
+  const preset=stock.settings(uses('rail'),['nut','bolt','wideNut','panelFoot'].some(uses),nozzle);
+  if(plate.clear)preset.filament_colour=['#FFFFFF'];
+  return pack3mf(model,{'Metadata/model_settings.config':config,'Metadata/project_settings.config':JSON.stringify(preset)});
 }
-export async function saveFramePlates(plates,{download,name,isCurrent,progress,nozzle=.4}) {
+export async function saveFramePlates(plates,{download,name,isCurrent,progress,nozzle=.4,plans=[]}) {
   const stock=await loadFrameStock(),files=Object.create(null),cache=new Map();
+  if(plans.length)files['panel-assembly.txt']=new TextEncoder().encode('\uFEFF'+panelAssemblyNotes(plans));
   for(const [index,plate] of plates.entries()) {
     if(!isCurrent())return false;
     progress(index+1,plates.length);
     await new Promise(resolve=>setTimeout(resolve,0));
     if(!isCurrent())return false;
     const buffer=framePlate3mf(plate,stock,cache,nozzle);
-    if(plates.length===1){download(buffer,name+'.3mf','model/3mf');return true;}
-    files['plate-'+String(index+1).padStart(2,'0')+'.3mf']=buffer;
+    if(plates.length===1){download(buffer,name+(plate.clear?'-clear':'')+'.3mf','model/3mf');return true;}
+    files['plate-'+String(index+1).padStart(2,'0')+(plate.clear?'-clear':'')+'.3mf']=buffer;
   }
   if(!isCurrent())return false;
   download(zipSync(files,{level:0}),name+'.zip','application/zip');
