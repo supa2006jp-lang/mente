@@ -77,6 +77,8 @@ import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
 import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {cadMesh} from './cad-mesh.js';
+import {makeTSlotFrame} from './t-slot-frame-cad.js';
+import {measureFrameBox,measureFrameGeometry} from './t-slot-frame.js';
 import {cadPlanarFaceIds} from './cad-topology.js';
 import {printSupportExportMesh} from './print-support-export-mesh.js';
 import {createPrintSupportCache} from './print-support-cache.js';
@@ -537,6 +539,13 @@ export function* runOperationSteps(features,spec,onProgress,context={}){
  try{return yield* computeOperation(features,spec,onProgress,context);}catch(error){throw withFailureDiagnostics(error,spec);}
 }
 function* computeOperation(features,spec,onProgress,context={}){
+ if(spec.type==='tSlotFrame'){
+  const saved=currentBodyMeshRecords(features).get(spec.target)?.output;
+  if(saved?.vertices?.length&&saved.triangles?.length)return makeTSlotFrame(measureFrameBox(saved.vertices,saved.triangles),spec,onProgress);
+  const bodies=rebuild(features);
+  try{return makeTSlotFrame(measureFrameGeometry(bodies.get(spec.target)?.geometry),spec,onProgress);}
+  finally{bodies.forEach(body=>body.geometry.dispose());}
+ }
  if(['assemblyAudit','assemblyAuditPair'].includes(spec.type))return auditAssembly(features,spec,onProgress);
  if(spec.type==='machiningValueTrial'){
   const operation=spec.operation;

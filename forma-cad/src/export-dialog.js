@@ -5,6 +5,7 @@ export function createExportDialog({createPreview}={}){
  dialog.innerHTML='<h2 id="export-title">出力</h2>'+
   '<label>形式<select id="export-format"></select></label>'+
   '<label id="export-target-label">対象<select id="export-target"></select></label>'+
+  '<div id="export-options" hidden></div>'+
   '<div class="export-review"><section><h3>ファイルに含まれる内容</h3><ul id="export-contents" aria-live="polite"></ul></section>'+
   '<section id="export-preview" hidden><div class="export-preview-controls">'+
   '<button type="button" id="export-preview-all">全体表示</button><button type="button" id="export-preview-top">上から見る</button></div>'+
@@ -64,7 +65,7 @@ export function createExportDialog({createPreview}={}){
   detail.textContent=item?.load?'出力対象を確認しています…':item?.detail??'';
   if(!item?.load)return;
   try{
-   const {rows,parts,plateSize,data,autoFaces:faces=[]}=await item.load(currentEntry);
+   const {rows,parts,plateSize,data,detail:loadedDetail,action,autoFaces:faces=[]}=await item.load(currentEntry);
    if(!currentEntry())return;
    let warning='';
    if(view&&parts?.length){
@@ -81,19 +82,25 @@ export function createExportDialog({createPreview}={}){
      warning='3Dプレビューを表示できませんでした。';
     }
    }
-   drawRows(rows);detail.textContent=[item.detail,warning].filter(Boolean).join(' ');
+   drawRows(rows);detail.textContent=[loadedDetail??item.detail,warning].filter(Boolean).join(' ');
+   if(action)confirm.textContent=action;
    payload=data;confirm.disabled=false;ready=true;
   }catch(error){if(token===revision&&dialog.open)detail.textContent=error.message;}
+ }
+ function selectEntry(){
+  const options=find('options'),item=entry();
+  options.replaceChildren();options.hidden=!item?.controls;
+  item?.controls?.(options,showEntry);showEntry();
  }
  function showFormat(initialTarget=0){
   const choices=entries();
   target.replaceChildren(...choices.map((item,i)=>new Option(item.label,String(i))));
   if(choices[initialTarget])target.value=String(initialTarget);
   find('target-label').hidden=choices.length<2;
-  showEntry();
+  selectEntry();
  }
  find('cancel').onclick=()=>dialog.close();
- format.onchange=()=>showFormat();target.onchange=showEntry;
+ format.onchange=()=>showFormat();target.onchange=selectEntry;
  confirm.onclick=()=>{
   const item=entry();
   if(!item||!ready)return;

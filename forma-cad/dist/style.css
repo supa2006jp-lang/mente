@@ -816,6 +816,16 @@ button.form-control-point.invalid { background:#bc2634; }
 #drawing-page-count{width:65px}
 
 #export-dialog{width:min(490px,calc(100vw - 32px));padding:22px}
+#t-slot-frame-dialog{width:min(420px,calc(100vw - 36px));box-sizing:border-box}
+#t-slot-frame-dialog p,#export-options p{line-height:1.55}
+#t-slot-lengths{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+#t-slot-lengths caption{font-weight:600;text-align:start;padding:4px 0}
+#t-slot-lengths th,#t-slot-lengths td{text-align:end;padding:4px 6px;border-bottom:1px solid var(--border)}
+#t-slot-lengths th:first-child{text-align:start}
+#t-slot-frame-dialog select,.t-slot-quantities input,.t-slot-plate select{min-width:0;width:100%;box-sizing:border-box}
+.t-slot-quantities{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.t-slot-plate:not([hidden]){display:flex;align-items:center;justify-content:space-between;gap:14px}
+.t-slot-plate canvas{width:118px;height:118px;flex:none;border:1px solid #91a6ad}
 #export-dialog.has-model-preview{width:min(1030px,calc(100vw - 32px));box-sizing:border-box}
 #export-dialog h2{margin:0 0 16px}
 #export-dialog h3{font-size:1rem;margin:18px 0 6px}

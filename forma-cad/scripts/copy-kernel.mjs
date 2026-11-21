@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {TEXT_FONT_ASSETS} from '../src/text-fonts.js';
 await fs.copyFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm','dist/replicad_single.wasm');
+await fs.copyFile('assets/t-slot-m8.dat','dist/t-slot-m8.dat');
 await fs.mkdir('dist/fonts',{recursive:true});
 for(const file of TEXT_FONT_ASSETS)await fs.copyFile('assets/fonts/'+file,'dist/fonts/'+file);
 // Version the UI, styling and worker together so cached releases cannot mix.

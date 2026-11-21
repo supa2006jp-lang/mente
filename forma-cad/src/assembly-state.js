@@ -6,6 +6,10 @@ export function assemblyLinks(features,available=null){
   for(const id of result?.remove||[])for(const [key,link]of links)if(link.bodies.includes(id))links.delete(key);
   if(spec?.type==='assemblyMate'&&typeof spec.source?.bodyId==='string'&&typeof spec.destination?.bodyId==='string')links.set(f.id,{id:f.id,bodies:[spec.source.bodyId,spec.destination.bodyId],mode:spec.mode});
   if(spec?.type==='assemblyRelease')links.delete(spec.linkId);
+  if(spec?.type==='tSlotFrame'&&f.outputs?.length){
+   const id=f.id+'-frame-link';
+   links.set(id,{id,bodies:f.outputs.map(part=>part.id),mode:'frame'});
+  }
   for(const link of result?.analysis?.assemblyCopies||[])links.set(link.id,link);
   for(const link of result?.analysis?.supportLinks||[])links.set(link.id,link);
  }

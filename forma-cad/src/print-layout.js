@@ -3,7 +3,7 @@ import {Matrix4,Vector3} from 'three';
 export const PRINT_PLATE_SIZE=180;
 const EPS=1e-6;
 const overlaps=(a,b)=>a.x<b.x+b.w-EPS&&b.x<a.x+a.w-EPS&&a.y<b.y+b.h-EPS&&b.y<a.y+a.h-EPS;
-function subtractFree(free,used){
+export function subtractFree(free,used){
  const next=[];
  for(const f of free){
   if(!overlaps(f,used)){next.push(f);continue;}
