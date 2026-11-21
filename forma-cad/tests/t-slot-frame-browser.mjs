@@ -24,6 +24,9 @@ try{
   page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
   page.on('dialog',d=>d.accept(d.defaultValue()));await page.addInitScript(()=>window.showSaveFilePicker=undefined);
   await page.goto(siteUrl??('http://127.0.0.1:'+server.address().port));
+  // Pages redirects from the entry page to dist. Wait for the app to bind its
+  // handlers before sending a file to the static file input.
+  await page.locator('#t-slot-frame-tool').waitFor({state:'attached'});
   async function load(bytes){
     await page.locator('#file').setInputFiles({name:'frame-test.forma.json',mimeType:'application/json',buffer:bytes});
     await page.locator('#project-preview-open').click();
