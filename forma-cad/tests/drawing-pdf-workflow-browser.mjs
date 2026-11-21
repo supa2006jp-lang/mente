@@ -618,6 +618,11 @@ try{
  assert.notEqual(manualColor,automaticColor);
  await link.check();
  await aligned();
+ const settledScales=await Promise.all(drawingViews.map(name=>scaleOn(editor,name)));
+ await field('auto-layout').click();
+ assert.deepEqual(await Promise.all(drawingViews.map(name=>scaleOn(editor,name))),settledScales);
+ const [,topY,,topHeight]=await viewBox('top'),[,frontY]=await viewBox('front');
+ assert(frontY-topY-topHeight>=10,'the extra paper space separates aligned views');
  assert.equal(await editor.locator('[data-overflow-outline]').count(),0);
  const isoPosition=await geometry(editor,'iso');
  const firstFront=await viewAt(editor,'front');

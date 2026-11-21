@@ -7,7 +7,9 @@ import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmit
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout} from './drawing-leaders.js';
 import {drawingViewTitle} from './drawing-view-title.js';
-const GAP=3;
+const minimumGap=3;
+const minimumGaps=[minimumGap,minimumGap];
+const preferredGap=12;
 const overlap=(a,b)=>a.x<b.x+b.width-1e-8&&a.x+a.width>b.x+1e-8&&a.y<b.y+b.height-1e-8&&a.y+a.height>b.y+1e-8;
 export function drawingViewFrames(input,options={},scale=1){
  const data=withDetails(input,options.details),frames={};
@@ -55,12 +57,12 @@ export function decoratedDrawingViews(frames,scale,dimensions,options){const box
    include(key,{x:x-2,y:y-(origin?10:5),width:11,height:origin?12:7});
  }
  return Object.entries(boxes).map(([key,box])=>({key,box,width:box.width,height:box.height}));}
-function slicingPack(items,width,height){const limitW=width+GAP,limitH=height+GAP,memo=new Map(),n=items.length;function variants(mask){if(memo.has(mask))return memo.get(mask);if(!(mask&(mask-1))){const i=Math.log2(mask),item=items[i],v={w:item.width+GAP,h:item.height+GAP,at:{[item.key]:[0,0]}};const result=v.w<=limitW+1e-8&&v.h<=limitH+1e-8?[v]:[];memo.set(mask,result);return result;}const result=[],first=mask&-mask;
+function slicingPack(items,width,height,[gapX,gapY]){const limitW=width+gapX,limitH=height+gapY,memo=new Map(),n=items.length;function variants(mask){if(memo.has(mask))return memo.get(mask);if(!(mask&(mask-1))){const i=Math.log2(mask),item=items[i],v={w:item.width+gapX,h:item.height+gapY,at:{[item.key]:[0,0]}};const result=v.w<=limitW+1e-8&&v.h<=limitH+1e-8?[v]:[];memo.set(mask,result);return result;}const result=[],first=mask&-mask;
  for(let left=(mask-1)&mask;left;left=(left-1)&mask){if(!(left&first))continue;const right=mask^left;if(!right)continue;for(const a of variants(left))for(const b of variants(right))for(const horizontal of [true,false]){const w=horizontal?a.w+b.w:Math.max(a.w,b.w),h=horizontal?Math.max(a.h,b.h):a.h+b.h;if(w>limitW+1e-8||h>limitH+1e-8||result.some(v=>v.w<=w+1e-8&&v.h<=h+1e-8))continue;for(let i=result.length-1;i>=0;i--)if(w<=result[i].w+1e-8&&h<=result[i].h+1e-8)result.splice(i,1);const at={...a.at};for(const [key,p]of Object.entries(b.at))at[key]=[p[0]+(horizontal?a.w:0),p[1]+(horizontal?0:a.h)];result.push({w,h,at});}}
  result.sort((a,b)=>a.w*a.h-b.w*b.h);if(result.length>96)result.length=96;memo.set(mask,result);return result;}
  const result=variants((1<<n)-1);return result.sort((a,b)=>a.w*a.h-b.w*b.h)[0]||null;}
-function freeRectPack(items,width,height){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+GAP,height:height+GAP}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+GAP,ih=item.height+GAP,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
-function groupLinkedProjections(views,frames,scale){
+function freeRectPack(items,width,height,[gapX,gapY]){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+gapX,height:height+gapY}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+gapX,ih=item.height+gapY,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
+function groupLinkedProjections(views,frames,scale,[gapX,gapY]){
  const members=views.filter(({key})=>linkedDrawingViews.includes(key));
  if(members.length<2||!frames.front)return views;
  const layout=Object.fromEntries(members.map(({key})=>{
@@ -71,10 +73,10 @@ function groupLinkedProjections(views,frames,scale){
  const front=members.find(({key})=>key==='front');
  const top=members.find(({key})=>key==='top');
  const right=members.find(({key})=>key==='right');
- if(top)layout.top.y=Math.min(layout.top.y,front.box.y-top.box.y-top.height-GAP);
+ if(top)layout.top.y=Math.min(layout.top.y,front.box.y-top.box.y-top.height-gapY);
  if(right){
   const edge=Math.max(front.box.x+front.width,top?layout.top.x+top.box.x+top.width:-Infinity);
-  layout.right.x=Math.max(layout.right.x,edge-right.box.x+GAP);
+  layout.right.x=Math.max(layout.right.x,edge-right.box.x+gapX);
  }
  const children=members.map(member=>({...member,offset:[
   layout[member.key].x+member.box.x,layout[member.key].y+member.box.y,
@@ -87,16 +89,35 @@ function groupLinkedProjections(views,frames,scale){
  return [{key:'front',width,height,children},...views.filter(({key})=>!linkedDrawingViews.includes(key))];
 }
 
-function packDrawingItems(items,width,height,isoOnRight){
- const pack=(blocks,w,h)=>blocks.length<=6?slicingPack(blocks,w,h):freeRectPack(blocks,w,h);
+function packDrawingItems(items,width,height,isoOnRight,gaps){
+ const [gapX,gapY]=gaps;
+ const pack=(blocks,w,h)=>blocks.length<=6?slicingPack(blocks,w,h,gaps):freeRectPack(blocks,w,h,gaps);
  const iso=isoOnRight&&items.find(item=>item.key==='iso');
  if(!iso||items.length===1)return pack(items,width,height);
- if(iso.width+GAP>=width||iso.height>height)return null;
- const others=pack(items.filter(item=>item!==iso),width-iso.width-GAP,height);
+ if(iso.width+gapX>=width||iso.height>height)return null;
+ const others=pack(items.filter(item=>item!==iso),width-iso.width-gapX,height);
  if(!others)return null;
- const h=iso.height+GAP;
- return {w:others.w+iso.width+GAP,h:Math.max(others.h,h),
+ const h=iso.height+gapY;
+ return {w:others.w+iso.width+gapX,h:Math.max(others.h,h),
   at:{...others.at,iso:[others.w,Math.max(0,(others.h-h)/2)]}};
+}
+
+function spreadDrawingItems(initial,area){
+ const pack=initial.packWithGaps;
+ function widen(layout,low,high,gapsFor){
+  let best=layout;
+  while(low<high){
+   const gap=Math.ceil((low+high)/2),candidate=pack(gapsFor(gap));
+   if(candidate){low=gap;best=candidate;}
+   else high=gap-1;
+  }
+  return best;
+ }
+ const width=Math.min(preferredGap,Math.floor(area.width)),height=Math.min(preferredGap,Math.floor(area.height));
+ // Prefer shared clearance, then spend any remaining space along each axis.
+ const balanced=widen(initial,minimumGap,Math.min(width,height),gap=>[gap,gap]);
+ const horizontal=widen(balanced,balanced.gaps[0],width,gap=>[gap,balanced.gaps[1]]);
+ return widen(horizontal,horizontal.gaps[1],height,gap=>[horizontal.gaps[0],gap]);
 }
 
 function largestFittingScale(attempt){
@@ -116,7 +137,7 @@ function largestFittingScale(attempt){
  return {scale:scaleAt(low),result};
 }
 
-export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false,isoOnRight=false}={}){
+export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false,isoOnRight=false,spreadViews=false}={}){
  if(options.holeTable)options={...options,holeTable:resolveDrawingHoleTable(options.holeTable,data.views)};
  if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.pageSize??(options.orientation==='portrait'?[size[1],size[0]]:size),area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
  const maxNoteWidth=width-2*drawingCommentMargin;
@@ -143,14 +164,20 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   const nextFrames=drawingViewFrames(data,nextOptions,s);
   const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,nextOptions);
   for(const column of noteColumns){
-   const items=[...(options.linkedProjections?groupLinkedProjections(views,nextFrames,s):views)];
+   const annotations=[];
    for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){
     const width=Math.max(block.width,Math.min(block.wrapWidth??0,maxNoteWidth))+2,height=block.height+2;
-    items.push({key,box:{x:-1,y:-1,width,height},width,height});
+    annotations.push({key,box:{x:-1,y:-1,width,height},width,height});
    }
-   if(items.length>24)throw Error('自動配置する図が多すぎます');
-   const packed=packDrawingItems(items,area.width,area.height,right);
-   if(packed)return {items,packed,dimensions:resized,autoIsoScale};
+   const packWithGaps=gaps=>{
+    const grouped=options.linkedProjections?groupLinkedProjections(views,nextFrames,s,gaps):views;
+    const items=[...grouped,...annotations];
+    if(items.length>24)throw Error('自動配置する図が多すぎます');
+    const packed=packDrawingItems(items,area.width,area.height,right,gaps);
+    return packed?{items,packed,gaps}:null;
+   };
+   const layout=packWithGaps(minimumGaps);
+   if(layout)return {...layout,packWithGaps,dimensions:resized,autoIsoScale};
   }
   return null;
  };
@@ -179,9 +206,11 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    if(larger?.scale>result.autoIsoScale)result=larger.result;
   }
  }
- const positions={},boxes=[],offset=[area.x+(area.width-(result.packed.w-GAP))/2,area.y+(area.height-(result.packed.h-GAP))/2];
- for(const block of result.items){
-  const [px,py]=result.packed.at[block.key];
+ const layout=spreadViews&&Object.keys(frames).length>1?spreadDrawingItems(result,area):result;
+ const {gaps:[gapX,gapY],packed}=layout;
+ const positions={},boxes=[],offset=[area.x+(area.width-(packed.w-gapX))/2,area.y+(area.height-(packed.h-gapY))/2];
+ for(const block of layout.items){
+  const [px,py]=packed.at[block.key];
   for(const item of block.children??[block]){
    const [dx,dy]=item.offset??[0,0],x=offset[0]+px+dx,y=offset[1]+py+dy;
    positions[item.key]=[x-item.box.x,y-item.box.y];

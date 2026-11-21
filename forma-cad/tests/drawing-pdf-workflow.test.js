@@ -247,6 +247,12 @@ test('right-column sizing reduces only ISO and respects a manually specified sca
  assert.equal(placed.layout.iso.scale,autoIsoScale);
  assert(['front','top','right'].every(name=>placed.layout[name].scale===scale));
  assert(placed.layout.iso.x>placed.layout.right.x+placed.layout.right.width);
+ const spaced=optimizeDrawingLayout(data,{options:settings,isoOnRight:true,spreadViews:true});
+ const columnGap=({boxes})=>boxes.find(box=>box.key==='iso').x-
+  Math.max(...boxes.filter(box=>box.key!=='iso').map(box=>box.x+box.width));
+ assert.equal(spaced.scale,scale);
+ assert.equal(spaced.autoIsoScale,autoIsoScale);
+ assert(columnGap(spaced)>columnGap(fitted));
  const sameSize={...settings,viewScales:{iso:scale}};
  assert.equal(optimizeDrawingLayout(data,{options:sameSize,isoOnRight:true,scale,fixedScale:true}),null);
  const narrow=optimizeDrawingLayout(data,{options:{...settings,pageSize:[227,210]},isoOnRight:true,scale:1.5,fixedScale:true});
@@ -262,6 +268,34 @@ test('right-column sizing reduces only ISO and respects a manually specified sca
   options:{...settings,positions,autoIsoScale}};
  assert.equal(readDrawingState(saved).options.autoIsoScale,autoIsoScale);
  assert.throws(()=>readDrawingState({...saved,options:{...saved.options,autoIsoScale:0}}));
+});
+
+test('larger spacing uses vertical slack at the same scale when the linked row already fills the width',()=>{
+ const {front,top,right}=part.views;
+ const data={...part,views:{front,top,right}};
+ const settings={...options,sections:[],linkedProjections:true};
+ const input={options:settings,scale:1.2,fixedScale:true,dimensions:[frontDimension]};
+ const roomy=optimizeDrawingLayout(data,input);
+ const left=Math.min(...roomy.boxes.map(box=>box.x));
+ const upper=Math.min(...roomy.boxes.map(box=>box.y));
+ const width=Math.max(...roomy.boxes.map(box=>box.x+box.width))-left+12;
+ const height=Math.max(...roomy.boxes.map(box=>box.y+box.height))-upper+54;
+ const narrow={...input,options:{...settings,pageSize:[width,210]}};
+ const compact=optimizeDrawingLayout(data,narrow);
+ const spaced=optimizeDrawingLayout(data,{...narrow,spreadViews:true});
+ const box=(result,view)=>result.boxes.find(box=>box.key===view);
+ const rowGap=result=>box(result,'right').x-(box(result,'front').x+box(result,'front').width);
+ const columnGap=result=>box(result,'front').y-(box(result,'top').y+box(result,'top').height);
+ assert.equal(spaced.scale,compact.scale);
+ assert.deepEqual(spaced.dimensions,compact.dimensions);
+ assert(Math.abs(rowGap(spaced)-rowGap(compact))<1e-8);
+ assert(columnGap(spaced)>columnGap(compact)+5);
+ for(const rect of spaced.boxes){
+  assert(rect.x>=spaced.area.x-1e-8&&rect.y>=spaced.area.y-1e-8);
+  assert(rect.x+rect.width<=spaced.area.x+spaced.area.width+1e-8&&rect.y+rect.height<=spaced.area.y+spaced.area.height+1e-8);
+ }
+ const full={...input,options:{...settings,pageSize:[width,height]}};
+ assert.deepEqual(optimizeDrawingLayout(data,{...full,spreadViews:true}).positions,optimizeDrawingLayout(data,full).positions);
 });
 
 test('linked scales share the overview override and only the PDF overrides for the current page',()=>{
