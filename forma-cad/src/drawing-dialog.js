@@ -311,7 +311,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function scaleInput(onChange,{optional=true,effectiveScale=()=>Number($('drawing-scale').value)}={}){
   const input=document.createElement('input');input.type='text';input.inputMode='decimal';input.maxLength=32;
   input.spellcheck=false;input.placeholder='例 1:2.5';
-  input.title='↑・↓キーで縮尺を'+drawingScaleStep+'刻みで変更';
+  input.title='↑・↓キーで縮尺を'+drawingScaleStep+'刻みで変更できます。1:2.5 のような比率も入力できます。';
   input.oninput=()=>input.setCustomValidity('');
   input.onkeydown=event=>{
    if(event.isComposing)return;
