@@ -121,7 +121,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const columnWidth=Math.max(...['top','front','bottom'].map(key=>sizeOf(key,'width')));
  const upperHeight=Math.max(sizeOf('top','height'),sizeOf('iso','height'));
  const middleHeight=Math.max(...['left','front','right','back'].map(key=>sizeOf(key,'height')));
- const top=options.sections?.some(cut=>cut.orientation==='vertical'&&frames[cut.view])?32:27;
+ const top=options.sections?.some(cut=>!cut.review&&cut.orientation==='vertical'&&frames[cut.view])?32:27;
  const left=20,mainX=left+(frames.left?sizeOf('left','width')+20:0);
  const rightX=mainX+columnWidth+(columnWidth?20:0),frontY=top+upperHeight+(upperHeight?24:0);
  const projectionPositions={

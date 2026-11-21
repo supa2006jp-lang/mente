@@ -7,7 +7,7 @@ export const maxDrawingLeaderText=240;
 const size=3.2,lineHeight=4.6;
 const textWidth=line=>[...line].reduce((width,c)=>width+(c.codePointAt(0)>255?1:.68)*size,0);
 export function drawingLeaderLayout(note,view){
- if(!view||drawingPointOmitted(view,note.anchor))return null;
+ if(note.review||!view||drawingPointOmitted(view,note.anchor))return null;
  const anchor=drawingPaperPoint(view,note.anchor),at=drawingPaperPoint(view,note.at);
  const lines=commentLines(note.text,57,size),side=at[0]>=anchor[0]?1:-1;
  const end=[at[0]-side*2,at[1]-.9],elbow=[end[0]-side*5,end[1]];

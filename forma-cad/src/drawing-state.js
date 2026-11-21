@@ -12,6 +12,7 @@ import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const coordinates=(p,axes)=>Array.isArray(p)&&p.length===axes&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 const point=p=>coordinates(p,2);
+const validReview=item=>item.review===undefined||typeof item.review==='boolean';
 const validDimensionPlacement=placement=>point(placement?.at)&&
  (placement.alongOffset===undefined||Number.isFinite(placement.alongOffset)&&Math.abs(placement.alongOffset)<=1e6);
 export function drawingSignature(features){let a=2166136261,b=5381;for(const c of JSON.stringify(features)){a=Math.imul(a^c.charCodeAt(0),16777619);b=Math.imul(b,33)^c.charCodeAt(0);}return (a>>>0).toString(16)+(b>>>0).toString(16);}
@@ -61,7 +62,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(!table||!drawingProjectionNames.includes(table.view)||!point(table.origin)||
    !Array.isArray(table.holes)||!table.holes.length||table.holes.length>maxDrawingTableHoles||
    table.holes.some(hole=>!point(hole?.center)||!Number.isFinite(hole.radius)||hole.radius<=0||hole.radius>1e6)||
-   table.review!==undefined&&typeof table.review!=='boolean')fail();
+   !validReview(table)||table.originReview!==undefined&&typeof table.originReview!=='boolean')fail();
   const validSource=h=>h.sourceId===undefined||typeof h.sourceId==='string'&&h.sourceId.length>0&&h.sourceId.length<=200;
   const numbers=table.holes.map((h,i)=>h.number??i+1);
   if(new Set(numbers).size!==numbers.length||numbers.some(n=>!Number.isSafeInteger(n)||n<1)||
@@ -82,11 +83,11 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   }
  }
  const sections=o.sections||[],details=o.details||[],markers=o.markers||[];if(!Array.isArray(sections)||sections.length>8||!Array.isArray(details)||details.length>8||!Array.isArray(markers)||markers.length>200)fail();
- const viewNames=new Set(drawingProjectionNames),ids=new Set();for(const section of sections){if(!extraId(section.id)||!section.id.startsWith('section-')||ids.has(section.id)||!viewNames.has(section.view)||!['vertical','horizontal'].includes(section.orientation)||!Number.isFinite(section.coordinate)||Math.abs(section.coordinate)>1e6||typeof section.reverse!=='boolean')fail();ids.add(section.id);}
+ const viewNames=new Set(drawingProjectionNames),ids=new Set();for(const section of sections){if(!extraId(section.id)||!section.id.startsWith('section-')||ids.has(section.id)||!viewNames.has(section.view)||!['vertical','horizontal'].includes(section.orientation)||!Number.isFinite(section.coordinate)||Math.abs(section.coordinate)>1e6||typeof section.reverse!=='boolean'||!validReview(section))fail();ids.add(section.id);}
  for(const id of ids)viewNames.add(id);
  for(const detail of details){
   if(!extraId(detail.id)||!detail.id.startsWith('detail-')||ids.has(detail.id)||!viewNames.has(detail.view)||!point(detail.center)||
-   !Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||!validDrawingDetailFactor(detail.factor))fail();
+   !Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||!validDrawingDetailFactor(detail.factor)||!validReview(detail))fail();
   const placements=detail.dimensionPlacements;
   if(placements!==undefined){
    if(!placements||typeof placements!=='object'||Array.isArray(placements))fail();
@@ -104,7 +105,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   const pointIds=new Set();
   for(const item of s.dimensionPoints){
    if(!item||typeof item.id!=='string'||!/^dimension-point-[a-zA-Z0-9-]{1,60}$/.test(item.id)||
-    pointIds.has(item.id)||!viewNames.has(item.view)||!point(item.point))fail();
+    pointIds.has(item.id)||!viewNames.has(item.view)||!point(item.point)||!validReview(item))fail();
    pointIds.add(item.id);
   }
  }
@@ -132,7 +133,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   for(const note of o.leaders){
    if(!note||typeof note.id!=='string'||!/^leader-[a-zA-Z0-9-]{1,60}$/.test(note.id)||leaderIds.has(note.id)||
     !viewNames.has(note.view)||!point(note.anchor)||!point(note.at)||typeof note.text!=='string'||!note.text.trim()||
-    note.text.length>maxDrawingLeaderText)fail();
+    note.text.length>maxDrawingLeaderText||!validReview(note))fail();
    leaderIds.add(note.id);
   }
  }
@@ -149,7 +150,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
     ref.circles.some(c=>!point(c?.center)||!Number.isFinite(c.radius)||c.radius<=0||c.radius>1e6)))fail();
   }
  }
- for(const m of markers){if(typeof m.id!=='string'||!/^marker-[a-zA-Z0-9-]{1,60}$/.test(m.id)||!viewNames.has(m.view)||!['line','center'].includes(m.kind))fail();if(m.kind==='line'){if(!point(m.a)||!point(m.b))fail();}else if(!point(m.center)||!Number.isFinite(m.radius)||m.radius<=0||m.radius>1e6)fail();}
+ for(const m of markers){if(typeof m.id!=='string'||!/^marker-[a-zA-Z0-9-]{1,60}$/.test(m.id)||!viewNames.has(m.view)||!['line','center'].includes(m.kind)||!validReview(m))fail();if(m.kind==='line'){if(!point(m.a)||!point(m.b))fail();}else if(!point(m.center)||!Number.isFinite(m.radius)||m.radius<=0||m.radius>1e6)fail();}
  if(!o.positions||typeof o.positions!=='object'||Array.isArray(o.positions))fail();for(const [key,p] of Object.entries(o.positions))if(![...drawingProjectionNames,'iso','comment','holeTable',...ids,...commentIds].includes(key)||!point(p))fail();
  for(const d of s.dimensions){
   if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();
@@ -164,7 +165,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
     d.repeat!=null||dimensionValue(d)<1e-6||Math.hypot(d.b[0]-d.a[0],d.b[1]-d.a[1])<1e-6)fail();
   }else if(!viewNames.has(d.view)||d.modelA!==undefined||d.modelB!==undefined)fail();
   if(d.pdfPlacement!==undefined&&!validDimensionPlacement(d.pdfPlacement))fail();
-  if(d.review!==undefined&&typeof d.review!=='boolean')fail();
+  if(!validReview(d)||d.unplaced!==undefined&&(typeof d.unplaced!=='boolean'||d.unplaced&&!d.review))fail();
   if(d.pinned!==undefined&&typeof d.pinned!=='boolean')fail();
   if(d.hidden!==undefined&&typeof d.hidden!=='boolean')fail();
   if(d.displayValue!==undefined&&(!canOverrideDrawingDimensionValue(d)||!validDrawingDimensionDisplayValue(d.displayValue)))fail();

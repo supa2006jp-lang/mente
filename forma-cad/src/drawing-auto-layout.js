@@ -25,7 +25,7 @@ export function drawingViewFrames(input,options={},scale=1){
 }
 // Keep annotation offsets in paper mm when the common model scale changes.
 // The measured points, radii, pitches and numeric dimension values stay intact.
-export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,previousFrames=frames){return dimensions.map(d=>{const f=frames[d.view];if(!f||d.pinned)return structuredClone(d);const at=[...d.at],old=fromScale*(previousFrames[d.view]?.factor??f.factor),next=toScale*f.factor;
+export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,previousFrames=frames){return dimensions.map(d=>{const f=frames[d.view];if(!f||d.pinned||d.unplaced)return structuredClone(d);const at=[...d.at],old=fromScale*(previousFrames[d.view]?.factor??f.factor),next=toScale*f.factor;
  if(d.kind==='horizontal'){const boundary=at[1]<f.by?f.by:f.by+f.height,gap=(at[1]-boundary)*old;at[1]=boundary+gap/next;}
  else if(d.kind==='vertical'){const boundary=at[0]<f.bx?f.bx:f.bx+f.width,gap=(at[0]-boundary)*old;at[0]=boundary+gap/next;}
  else if(['radius','diameter'].includes(d.kind)){const delta=at.map((v,i)=>v-d.center[i]),length=Math.hypot(...delta)||1,gap=Math.max(5,length*old-d.radius*old),distance=d.radius+gap/next;for(let i=0;i<2;i++)at[i]=d.center[i]+delta[i]/length*distance;}
@@ -45,8 +45,8 @@ export function decoratedDrawingViews(frames,scale,dimensions,options){const box
  const inherited=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions,!!options.pageViews);
  for(const d of [...dimensions,...inherited]){const v=layout[d.view],p=dimensionPlacement(d,{layout});if(!v||!p)continue;include(d.view,p.box,.7);for(const b of [...p.main,...p.extensions])include(d.view,b,2);if(d.kind==='angle'){const c=point(v,d.vertex),at=point(v,d.at),r=Math.max(4,Math.hypot(at[0]-c[0],at[1]-c[1]));include(d.view,{x:c[0]-r,y:c[1]-r,width:r*2,height:r*2},1);}else if(['radius','diameter'].includes(d.kind)){const c=point(v,d.center),at=point(v,d.at),length=Math.hypot(at[0]-c[0],at[1]-c[1])||1,r=d.radius*v.scale,u=[(at[0]-c[0])/length,(at[1]-c[1])/length];points(d.view,[c,at,[c[0]+u[0]*r,c[1]+u[1]*r],[c[0]-u[0]*r,c[1]-u[1]*r]],2);}}
  for(const m of options.markers||[]){const v=layout[m.view];if(!v||[m.center??m.a,m.b].filter(Boolean).some(p=>drawingPointOmitted(v,p)))continue;if(m.kind==='center'){const c=point(v,m.center),r=m.radius*v.scale+3;include(m.view,{x:c[0]-r,y:c[1]-r,width:r*2,height:r*2});}else points(m.view,[point(v,m.a),point(v,m.b)],4);}
- for(const s of options.sections||[]){const v=layout[s.view];if(!v)continue;include(s.view,{x:-3,y:-8,width:v.width+14,height:v.height+17});}
- for(const d of options.details||[]){const v=layout[d.view];if(!v)continue;const c=point(v,d.center),r=d.radius*v.scale;include(d.view,{x:c[0]-r,y:c[1]-r,width:2*r+13,height:2*r});}
+ for(const s of options.sections||[]){const v=layout[s.view];if(s.review||!v)continue;include(s.view,{x:-3,y:-8,width:v.width+14,height:v.height+17});}
+ for(const d of options.details||[]){const v=layout[d.view];if(d.review||!v)continue;const c=point(v,d.center),r=d.radius*v.scale;include(d.view,{x:c[0]-r,y:c[1]-r,width:2*r+13,height:2*r});}
  for(const note of options.leaders||[]){
   const annotation=drawingLeaderLayout(note,layout[note.view]);
   if(annotation)include(note.view,annotation.bounds);

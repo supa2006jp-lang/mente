@@ -63,7 +63,7 @@ export function followSectionEdit(previous,current,before,after,{dimensions,deta
  const transform=p=>p.map((v,i)=>i===mirror?-v:v);
  const affected=new Set([before.id]);
  const nextDetails=details.map(d=>{
-  if(!affected.has(d.view))return d;
+  if(d.review||!affected.has(d.view))return d;
   affected.add(d.id);return {...d,center:transform(d.center)};
  });
  const oldData=withDetails(previous,details),newData=withDetails(current,nextDetails);
@@ -75,7 +75,7 @@ export function followSectionEdit(previous,current,before,after,{dimensions,deta
   references[name]={box,circles:circles(old).filter(c=>insideView(old,c.center)).map(c=>({center:transform(c.center),radius:c.radius}))};
  }
  const nextDimensions=dimensions.map(original=>{
-  if(!affected.has(original.view))return original;
+  if(original.unplaced||!affected.has(original.view))return original;
   const d=projectAnnotation(original,transform),edge=edges.get(d.view);
   delete d.review;
   if(edge&&d.a&&d.b&&!d.vertex&&!d.manualEndpoints?.length){
@@ -94,16 +94,16 @@ export function followSectionEdit(previous,current,before,after,{dimensions,deta
   return reconcileDrawingDimensions(newData,[d],references)[0];
  });
  const nextMarkers=markers.map(m=>{
-  if(!affected.has(m.view))return m;
+  if(m.review||!affected.has(m.view))return m;
   const next=projectAnnotation(m,transform),edge=edges.get(m.view);
   if(next.a&&edge){next.a=edge.point(next.a)??next.a;next.b=edge.point(next.b)??next.b;}
   return next;
  });
  const nextLeaders=leaders.map(note=>{
-  if(!affected.has(note.view))return note;
+  if(note.review||!affected.has(note.view))return note;
   const next=projectAnnotation(note,transform),anchor=edges.get(note.view)?.point(next.anchor);
   return anchor?{...next,anchor,at:offset(next.at,next.anchor,anchor)}:next;
  });
- const nextPoints=dimensionPoints.map(item=>affected.has(item.view)?{...item,point:transform(item.point)}:item);
+ const nextPoints=dimensionPoints.map(item=>!item.review&&affected.has(item.view)?{...item,point:transform(item.point)}:item);
  return {dimensions:nextDimensions,details:nextDetails,markers:nextMarkers,leaders:nextLeaders,dimensionPoints:nextPoints};
 }

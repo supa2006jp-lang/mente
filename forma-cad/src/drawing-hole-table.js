@@ -44,7 +44,7 @@ export function drawingHoleTableSVG(table,box){
  return '<g data-hole-table="true"><g stroke="#24455b" stroke-width=".2" fill="none">'+grid+'</g>'+labels+'</g>';
 }
 export function drawingHoleMarkers(table,view){
- if(!view||!table||table.review)return [];
+ if(!view||!table||table.review||table.originReview)return [];
  const marks=[];
  if(!drawingPointOmitted(view,table.origin))marks.push({label:'O',point:drawingPaperPoint(view,table.origin),origin:true});
  table.holes.forEach((hole,index)=>{
@@ -105,7 +105,7 @@ function resolveHoles(circles,view){
 export function resolveDrawingHoleTable(table,views){
  if(!table)return table;
  const {review,...rest}=table;
- const holes=review?table.holes.map(h=>({...h,review:true})):table.holes;
+ const holes=review||table.originReview?table.holes.map(h=>({...h,review:true})):table.holes;
  return {...rest,holes:resolveHoles(holes,views[table.view])};
 }
 export function drawingTableHoles(view){

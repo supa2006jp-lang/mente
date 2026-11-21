@@ -132,8 +132,8 @@ function unchangedAngle(d,view){
   return Math.abs(x*v-y*u)<=epsilon*Math.hypot(x,y);
  }));
 }
-function followIsometricDimension(d,view){
- const find=model=>view.dimensionVertices?.find(vertex=>model.every((value,axis)=>near(value,vertex.model[axis])));
+export function followIsometricDimension(d,view){
+ const find=model=>view?.dimensionVertices?.find(vertex=>model.every((value,axis)=>near(value,vertex.model[axis])));
  const first=find(d.modelA),second=find(d.modelB);
  if(!first||!second||samePoint(first.point,second.point))return null;
  const a=first.point,b=second.point;

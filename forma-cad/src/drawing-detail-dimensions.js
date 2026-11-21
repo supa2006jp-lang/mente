@@ -75,10 +75,22 @@ export function pruneDetailDimensionPlacements(details,sources){
  if(!details.some(detail=>detail.dimensionPlacements))return details;
  const byView=dimensionsByView(sources);
  return details.map(detail=>{
-  if(!detail.dimensionPlacements)return detail;
+  if(detail.review||!detail.dimensionPlacements)return detail;
   const keys=new Set((byView.get(detail.view)??[]).map(referenceKey));
   const entries=Object.entries(detail.dimensionPlacements);
   const retained=entries.filter(([key])=>keys.has(key));
   return retained.length===entries.length?detail:{...detail,dimensionPlacements:Object.fromEntries(retained)};
  });
+}
+
+export function reprojectDetailDimensionPlacements(detail,before,after,view,project){
+ if(!detail.dimensionPlacements)return undefined;
+ const result={};
+ before.forEach((dimension,index)=>{
+  if(dimension.view!==detail.view||dimension.review||after[index].view!==view||after[index].review)return;
+  const placement=detail.dimensionPlacements[referenceKey(dimension)];
+  if(placement)result[referenceKey(after[index])]=Object.fromEntries(
+   Object.entries(placement).map(([key,value])=>[key,{...value,at:project(value.at)}]));
+ });
+ return Object.keys(result).length?result:undefined;
 }

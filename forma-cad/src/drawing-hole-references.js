@@ -43,10 +43,10 @@ export const holeReferenceLimit=256;
 export function holeReferenceInventory(candidates){
  return candidates.length<=holeReferenceLimit?candidates.map(holeAnchor):undefined;
 }
-export function reconcileHoleTable(table,candidates,viewBox,{targetsChanged=false}={}){
+export function reconcileHoleTable(table,candidates,viewBox,{targetsChanged=false,exactOnly=false}={}){
  const {review:legacyReview,references:oldReferences,...rest}=table;
  let rows=table.holes;
- if(!oldReferences&&rows.every(row=>row.number===undefined)){
+ if(!exactOnly&&!oldReferences&&rows.every(row=>row.number===undefined)){
   const seen=new Set();
   rows=rows.filter(row=>{
    const bore=candidates.find(h=>h.machining?.counterbore&&sameRim(row,h));
@@ -64,6 +64,8 @@ export function reconcileHoleTable(table,candidates,viewBox,{targetsChanged=fals
  for(const row of rows)if(row.sourceId)matchUnique(row,candidates.filter(h=>h.sourceId===row.sourceId));
  if(!targetsChanged){
   for(const row of rows)if(!row.sourceId&&!row.review)matchUnique(row,candidates.filter(h=>sameRim(row,h)));
+ }
+ if(!targetsChanged&&!exactOnly){
   const unmatched=rows.filter(row=>!row.sourceId&&!matches.has(row));
   const free=candidates.filter(h=>!claimed.has(h)&&!oldReferences?.some(old=>sameRim(old,h)));
   const limit=.2*Math.hypot(viewBox?.[2]??0,viewBox?.[3]??0);

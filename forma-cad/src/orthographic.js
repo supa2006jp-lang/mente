@@ -68,7 +68,7 @@ export function orthographicProjection(bodies,ids,sections=[],requested=[...defa
   const rims=drawingHoleRims(compound);
   for(const name of roundViews)views[name].holeMachining=projectDrawingHoles(rims,drawingProjections[name]);
  }
- const sectionErrors={};for(const section of sections){try{views[section.id]=sectionProjection(compound,bounds,section,silhouettes);}catch(e){sectionErrors[section.id]=typeof e==='number'?'断面の計算に失敗しました':e.message;}}
+ const sectionErrors={};for(const section of sections){if(section.review)continue;try{views[section.id]=sectionProjection(compound,bounds,section,silhouettes);}catch(e){sectionErrors[section.id]=typeof e==='number'?'断面の計算に失敗しました':e.message;}}
  return {bounds,views,bodyCount:ids.length,sectionErrors};
  }finally{compound.delete();}
 }

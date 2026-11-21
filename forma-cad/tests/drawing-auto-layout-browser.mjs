@@ -232,7 +232,7 @@ try{
  assert.match((await download(drawing('svg'))).toString(),/font-size="4\.5"[^>]*>40<\/text>/);
  await drawing('front-reset').click();
  await drawing('front-reset').waitFor({state:'hidden'});
- assert.deepEqual(await values(),[]);
+ assert.deepEqual(await values(),['40']);
  await drawing('undo').click();
  await page.waitForFunction(()=>document.querySelector('#drawing-preview [data-dimension] text')?.textContent==='40');
  await drawing('arrange').click();

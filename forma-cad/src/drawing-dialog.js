@@ -33,6 +33,7 @@ import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDupli
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
+import {followDrawingFrontChange,planDrawingFrontChange,remapDrawingViewSettings} from './drawing-front-references.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from './drawing-dimension-references.js';
 import {drawingDimensionPointFits,maxDrawingDimensionPoints,snapDrawingDimensionPoint} from './drawing-dimension-points.js';
 import {groupDrawingDimensions} from './drawing-dimension-groups.js';
@@ -118,6 +119,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<div id="drawing-item-colors" class="drawing-color-controls" hidden role="group" aria-label="選択した寸法の色">'+
    colorInputs('item')+'<button id="drawing-item-colors-reset" type="button">図面の色に戻す</button></div>'+
   '<button id="drawing-dimension-relink" hidden>参照点を選び直す</button>'+
+  '<button id="drawing-annotation-relink" type="button" hidden>位置を選び直す</button>'+
   '<button id="drawing-dimension-replace-a" type="button" hidden>１点目を付け替え</button>'+
   '<button id="drawing-dimension-replace-b" type="button" hidden>２点目を付け替え</button>');
  $('drawing-precision-label').insertAdjacentHTML('afterend',
@@ -125,6 +127,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<small id="drawing-dimension-measured-value" hidden></small>'+
   '<button id="drawing-dimension-value-reset" type="button" hidden>実測値に戻す</button>');
  const dimensionValueInput=$('drawing-dimension-value');
+ $('drawing-extra-delete').insertAdjacentHTML('beforebegin','<button id="drawing-extra-relink" type="button" hidden>位置を選び直す</button>');
  $('drawing-generate').insertAdjacentHTML('afterend','<button id="drawing-front-face" title="CADで平面を1つ選択して三面図を開くと、その面が正面になります">選択した面を正面に</button><button id="drawing-front-reset" hidden>標準の向きに戻す</button><small id="drawing-front-status"></small>');
  const viewportBar=document.createElement('div');viewportBar.className='drawing-controls drawing-viewport-controls';viewportBar.innerHTML='<span>画面表示</span><button id="drawing-zoom-out" aria-label="図面を縮小">−</button><output id="drawing-zoom-percent" aria-live="polite">100%</output><button id="drawing-zoom-in" aria-label="図面を拡大">＋</button><button id="drawing-zoom-fit">用紙全体</button><button id="drawing-expand" aria-pressed="false">作業領域を最大化</button><small>ホイール：拡大・縮小 ／ ホイール押し込み・Space＋ドラッグ：移動</small>';viewportHost.before(viewportBar);
  const scaleRows=document.createElement('details');scaleRows.id='drawing-view-scales';
@@ -161,7 +164,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  viewportBar.append(overflowList);
  const reviewList=document.createElement('div');reviewList.id='drawing-review-list';
  reviewList.className='drawing-controls';reviewList.hidden=true;
- reviewList.setAttribute('role','group');reviewList.setAttribute('aria-label','参照先を確認する寸法');
+ reviewList.setAttribute('role','group');reviewList.setAttribute('aria-label','参照先を確認する項目');
  viewportBar.append(reviewList);
  const conflictList=document.createElement('details');
  conflictList.id='drawing-conflicts';conflictList.hidden=true;
@@ -293,7 +296,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   ...Object.fromEntries(Object.entries(backgrounds).filter(([,color])=>color!=='#ffffff')),
  });
  function requestedViews(o){
-  const sources=o.details.map(detail=>detail.view).filter(view=>drawingProjectionNames.includes(view));
+  const sources=o.details.filter(detail=>!detail.review).map(detail=>detail.view).filter(view=>drawingProjectionNames.includes(view));
   if(o.holeTable)sources.push(o.holeTable.view);
   return [...new Set([...o.viewSelection,...sources,...(drawingViewVisible('iso',o)?['iso']:[])])];
  }
@@ -811,8 +814,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    input.value=drawingDimensionColor(key,d,dimensionColors);input.disabled=busy;
   }
   const relink=$('drawing-dimension-relink');
-  relink.hidden=!d?.review;relink.disabled=busy||!active;
-  relink.title=active?'現在の図形で寸法の参照点を指定します':'先に対象のビューを表示してください';
+  const relinkView=!!d?.unplaced&&d.view!=='iso'?dimensionViews(d.kind).length:!!sheet?.layout[d?.view];
+  relink.hidden=!d?.review;relink.disabled=busy||!relinkView;
+  relink.title=relinkView?'現在の図形で寸法の参照点を指定します':'先に対象のビューを表示してください';
+  $('drawing-annotation-relink').hidden=!selectedReviewAnnotation();
+  $('drawing-annotation-relink').disabled=busy||!names().length;
   for(const end of ['a','b']){
    const button=$('drawing-dimension-replace-'+end);
    button.hidden=!d||!!d.review||!isLinearDimensionKind(d.kind);
@@ -1010,10 +1016,15 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  };
  $('drawing-dimension-relink').onclick=()=>{
   const index=selection?.index,d=dimensions[index];
-  if(!d?.review||!sheet?.layout[d.view]||busy)return;
+  if(!d?.review||!sheet||busy)return;
   dimensionKindInput.value=d.kind;
-  startDimension(d.kind,{view:d.view,replace:index});
+  const view=d.unplaced&&d.view!=='iso'?undefined:d.view;
+  startDimension(d.kind,{...(view?{view}:{}),replace:index});
   viewportHost.scrollIntoView({block:'nearest'});
+ };
+ $('drawing-annotation-relink').onclick=()=>{
+  const selected=selectedReviewAnnotation();
+  if(selected)beginReviewAction(selected.kind,selected.item);
  };
  for(const end of ['a','b'])$('drawing-dimension-replace-'+end).onclick=()=>{
   const index=selection?.type==='dimension'?selection.index:undefined,d=dimensions[index];
@@ -1066,9 +1077,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-break-help').textContent=breakRange?'省略範囲 '+breakRange.map(n=>Number((100*n).toFixed(1))+'%').join(' ～ '):'図の省略線をドラッグして範囲を調整';
   const choosingHoles=action?.kind==='holes'&&!!action.candidates&&action.rowIndex===undefined;
   const holeStart=$('drawing-hole-start');
-  holeStart.textContent=holeTable?'この表に穴を追加':'穴位置表を作成';
-  holeStart.title=holeTable?'同じ基準点と穴番号を保ち、表に載せる穴を追加します':'図で基準点をクリックし、表に載せる円を選びます';
-  holeStart.disabled=!ready||!viewSelection.length||!!holeTable&&(!sheet?.layout[holeTable.view]||!holeCapacity());
+  holeStart.textContent=holeTable?.originReview?'穴位置表の基準点を選び直す':holeTable?'この表に穴を追加':'穴位置表を作成';
+  holeStart.title=holeTable&&!holeTable.originReview?'同じ基準点と穴番号を保ち、表に載せる穴を追加します':'図で基準点をクリックし、表に載せる円を選びます';
+  holeStart.disabled=!ready||!viewSelection.length||!!holeTable&&!holeTable.originReview&&(!sheet?.layout[holeTable.view]||!holeCapacity());
   $('drawing-hole-all').hidden=$('drawing-hole-add').hidden=!choosingHoles;
   $('drawing-hole-all').disabled=!ready||!choosingHoles||action.candidates.length>holeCapacity();
   $('drawing-hole-add').textContent=action?.append?'選んだ穴を追加':'穴位置表を確定';
@@ -1083,8 +1094,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    rowSelect.dataset.rows=rowKey;
    if([...rowSelect.options].some(o=>o.value===selectedRow))rowSelect.value=selectedRow;
   }
-  $('drawing-hole-review').hidden=!pending.length;
-  $('drawing-hole-relink').disabled=!ready||!sheet?.layout[holeTable?.view]||!!action;
+  $('drawing-hole-review').hidden=!pending.length||!!holeTable?.originReview;
+  $('drawing-hole-relink').disabled=!ready||!sheet?.layout[holeTable?.view]||!!action||!!holeTable?.originReview;
   $('drawing-hole-remove-row').disabled=!ready||!!action;
   $('drawing-projection-lock').checked=projectionLockActive();
   $('drawing-projection-lock').disabled=!ready||editingPage>=0;
@@ -1149,7 +1160,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const text=$('drawing-leader-input').value.trim();
   if(!text){$('drawing-leader-input').focus();throw Error('注記本文を入力してください');}
   const at=local(action.view,paperPoint(e));
-  leaders.push({id:'leader-'+crypto.randomUUID(),view:action.view,anchor:action.anchor,at,text});
+  leaders=placeAnnotation(leaders,'leader',{view:action.view,anchor:action.anchor,at,text});
   cancelPick();
  }
  function beginBreakDrag(e,edge){
@@ -1205,6 +1216,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(drawingPointOmitted(v,point))throw Error('省略範囲の外で基準点を指定してください');
    const candidates=tableCandidates(view).filter(hole=>drawingDimensionVisible(hole,v));
    if(!candidates.length)throw Error('この図に選べる円がありません');
+   if(state.resetOrigin){
+    const {originReview,...table}=holeTable;
+    holeTable=reconcileHoleTable({...table,view,origin:point},candidates,viewData(view).viewBox,{targetsChanged:true});
+    cancelPick();status('穴位置表の基準点を設定しました');return;
+   }
    Object.assign(state,{view,origin:point,candidates,selected:new Set()});
   }else{
    const v=sheet.layout[state.view],p=paperPoint(e),matrix=viewportHost.querySelector('svg').getScreenCTM();
@@ -1309,22 +1325,61 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const keep=new Set([...drawingProjectionNames,'iso',...sections.map(s=>s.id),...details.map(d=>d.id)]);
   for(const name of Object.keys(hiddenViews))if(!keep.has(name))delete hiddenViews[name];
  }
- function renderReviewList(){
-  reviewList.replaceChildren();
+ function selectedReviewAnnotation(){
+  const items={leader:leaders,marker:markers,dimensionPoint:dimensionPoints}[selection?.type];
+  const item=items?.find(value=>value.id===selection.id&&value.review);
+  return item?{item,kind:selection.type==='marker'?item.kind:selection.type}:null;
+ }
+ function referenceReviewItems(){
+  const entries=[];
   dimensions.forEach((d,index)=>{
-   if(!d.review)return;
-   const button=document.createElement('button');button.type='button';button.textContent=viewLabel(d.view)+' 寸法 '+(index+1);
-   button.onclick=()=>{
-    if(busy)return;
-    selection={type:'dimension',index};editor();
-    workspace.reveal($('drawing-editor'));
-    $('drawing-editor-title').focus({preventScroll:true});
-   };
-   reviewList.append(button);
+   if(d.review)entries.push({kind:'dimension',index,view:d.view,label:viewLabel(d.view)+' 寸法 '+(index+1)});
   });
-  reviewList.hidden=!reviewList.childElementCount;
-  if(!reviewList.hidden){
-   const label=document.createElement('strong');label.textContent='参照先を要確認 '+reviewList.childElementCount+' 件';reviewList.prepend(label);
+  for(const [kind,items,label] of [
+   ['section',sections,item=>viewLabel(item.id)],['detail',details,item=>viewLabel(item.id)],
+   ['leader',leaders,item=>'注記 '+item.text.split('\n')[0].slice(0,32)],
+   ['marker',markers,item=>item.kind==='center'?'中心マーク':'中心線'],
+   ['dimensionPoint',dimensionPoints,()=> '手動の寸法点'],
+  ]){
+   for(const item of items)if(item.review)entries.push({kind,id:item.id,view:item.view,label:viewLabel(item.view)+' '+label(item)});
+  }
+  if(holeTable?.originReview)entries.push({kind:'holeTable',view:holeTable.view,label:'穴位置表の基準点'});
+  else holeTable?.holes.forEach((hole,index)=>{
+   if(hole.review)entries.push({kind:'hole',index,view:holeTable.view,label:'穴位置表 H'+(hole.number??index+1)});
+  });
+  return entries;
+ }
+ function focusReferenceReview(entry){
+  if(busy||!sheet)return;
+  if(editingPage>=0)editPDFPage(-1);
+  picking=null;action=null;selection=null;
+  const {kind,id,index}=entry;
+  if(kind==='holeTable'){
+   beginAction('holes',{resetOrigin:true});return;
+  }
+  if(kind==='hole'){
+   workspace.reveal($('drawing-hole-review'));
+   $('drawing-hole-row').value=String(index);
+   $('drawing-hole-relink').click();return;
+  }
+  if(kind==='section'||kind==='detail'){
+   extraTarget=id;extraControls();workspace.reveal($('drawing-extra-editor'));
+   $('drawing-extra-relink').focus({preventScroll:true});return;
+  }
+  selection=kind==='dimension'?{type:kind,index}:{type:kind,id};
+  editor();workspace.reveal($('drawing-editor'));$('drawing-editor-title').focus({preventScroll:true});
+ }
+ function renderReviewList(){
+  const entries=referenceReviewItems();
+  reviewList.hidden=!entries.length;reviewList.replaceChildren();
+  if(!entries.length)return;
+  const label=document.createElement('strong');label.textContent='参照先を要確認 '+entries.length+' 件';
+  reviewList.append(label);
+  for(const entry of entries){
+   const button=document.createElement('button');button.type='button';button.textContent=entry.label;
+   button.dataset.referenceReview=entry.kind;button.dataset.referenceId=String(entry.id??entry.index??'');
+   button.onclick=()=>focusReferenceReview(entry);
+   reviewList.append(button);
   }
  }
  function focusDrawingConflict(index,box){
@@ -1512,12 +1567,16 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const result=await worker.request({features,spec:{type:'orthographic',targets,sections,views,frontFrame,silhouettes:!!drawingBackgroundColor(backgrounds)}},300000);
    if(token!==revision)return;
    data=result;
-   if(holeTable){
+   if(holeTable&&!holeTable.originReview){
     const geometry=data.views[holeTable.view];
     holeTable=reconcileHoleTable(holeTable,tableCandidates(holeTable.view),geometry?.viewBox,{targetsChanged});
    }
    if(refresh){
-    if(targetsChanged){markers=[];leaders=[];dimensionPoints=[];}
+    if(targetsChanged){
+     markers=markers.filter(item=>item.review);
+     leaders=leaders.filter(item=>item.review);
+     dimensionPoints=dimensionPoints.filter(item=>item.review);
+    }
     dimensions=reconcileDrawingDimensions(withDetails(data,details),dimensions,dimensionReferences,{targetsChanged});
     const needsReview=dimensions.filter(d=>d.review).length;
     const wasReplaying=replaying;replaying=wasReplaying||!recordEdit;
@@ -1531,29 +1590,43 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   finally{if(token===revision){worker.reset();$('drawing-generate').disabled=false;busy=false;controls();}}
  }
  async function changeFrontFrame(next){
-  if(!data||busy||sameDrawingFront(frontFrame,next))return;
-  if((dimensions.length||dimensionPoints.length||sections.length||details.length||markers.length||holeTable||leaders.length)&&
-   !window.confirm('向きを変更すると寸法・寸法点・断面図・詳細図・中心線・穴位置表・注記が解除されます。元に戻すと復元できます。変更しますか？'))return;
+  if(!data||busy||drag||sameDrawingFront(frontFrame,next))return;
+  persist();
+  const previous=saved,oldData=data;
+  const state={dimensions,dimensionPoints,sections,details,leaders,markers,holeTable,viewSelection};
+  const plan=planDrawingFrontChange(frontFrame,next,state);
+  const nextTable=holeTable&&!holeTable.originReview?{...holeTable,view:plan.moves.get(holeTable.view)?.view??holeTable.view}:holeTable;
+  const views=requestedViews({...options(),viewSelection:plan.viewSelection,details:plan.details,holeTable:nextTable});
+  if(dimensions.some(d=>d.view==='iso'&&!d.review)&&!views.includes('iso'))views.push('iso');
   const token=++revision;
   busy=true;controls();
   $('drawing-generate').disabled=$('drawing-svg').disabled=$('drawing-pdf').disabled=true;
-  status('正面と各ビューを計算しています…');
-  let result,error;
+  status('正面を変更し、寸法と注記の参照先を確認しています…');
   try{
-   result=await worker.request({features,spec:{type:'orthographic',targets,views:requestedViews({...options(),details:[]}),frontFrame:next,silhouettes:!!drawingBackgroundColor(backgrounds)}},300000);
-  }catch(e){error=e;}
-  if(token!==revision||!dialog.open)return;
-  worker.reset();busy=false;$('drawing-generate').disabled=false;
-  if(!result){render(false);status(error?.message||'向きを変更できませんでした');return;}
-  frontFrame=next;data=result;
-  dimensions=[];dimensionPoints=[];sections=[];details=[];markers=[];leaders=[];holeTable=undefined;
-  pruneHiddenViews();
-  positions=Object.fromEntries(Object.entries(positions).filter(([id])=>id==='comment'||comments.some(note=>note.id===id)));
-  viewScales=Object.fromEntries(Object.entries(viewScales).filter(([name])=>drawingProjectionNames.includes(name)||name==='iso'));
-  picking=null;action=null;selection=null;
-  if(!applyAutomaticLayout()){
-   layoutKind='projection';
-   render();
+   const result=await worker.request({features,spec:{type:'orthographic',targets,views,sections:plan.sections,
+    frontFrame:next,silhouettes:!!drawingBackgroundColor(backgrounds)}},300000);
+   if(token!==revision||!dialog.open)return;
+   ({dimensions,dimensionPoints,sections,details,markers,leaders,holeTable}=followDrawingFrontChange(state,plan,result,
+    view=>drawingHoleCandidates(result.views[view],view,features,targets,next)));
+   frontFrame=next;data={...result,sectionErrors:{}};dimensionReferences={};
+   const remap=settings=>remapDrawingViewSettings(settings,plan.moves);
+   hiddenViews=remap(hiddenViews);viewScales=remap(viewScales);positions=remap(positions);
+   pdfPositions=remap(pdfPositions);pdfViewScales=remap(pdfViewScales);
+   pageAssignments={...pageAssignments,views:remap(pageAssignments.views)};
+   setViewSelection(plan.viewSelection);
+   picking=null;action=null;selection=null;inspectedHole=null;selectedPlacements.clear();
+   busy=false;
+   if(!applyAutomaticLayout()){positions={};layoutKind='projection';render();}
+   if(!sheet)throw Error($('drawing-status').textContent);
+   const pending=referenceReviewItems().length;
+   if(!overflow)status('正面方向を変更しました'+(pending?'。参照先を要確認 '+pending+' 件':''));
+  }catch(error){
+   if(token!==revision||!dialog.open)return;
+   busy=false;
+   data=oldData;restore(previous);render(false);
+   status(error.message||'向きを変更できませんでした');
+  }finally{
+   if(token===revision){worker.reset();busy=false;$('drawing-generate').disabled=false;controls();}
   }
  }
  $('drawing-front-face').onclick=()=>{if(frontFace)changeFrontFrame(drawingFrontFrame(frontFace.frame.n));};
@@ -1578,6 +1651,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  };
  $('drawing-hole-start').onclick=()=>{
   if(!holeTable){beginAction('holes');return;}
+  if(holeTable.originReview){focusReferenceReview({kind:'holeTable'});return;}
   const {view,origin}=holeTable,layout=sheet?.layout[view];
   if(!layout||busy||!holeCapacity())return;
   const candidates=unlistedDrawingHoles(holeTable,tableCandidates(view)).filter(hole=>drawingDimensionVisible(hole,layout));
@@ -1606,7 +1680,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   holeTable=undefined;delete positions.holeTable;render();
  };
  $('drawing-hole-relink').onclick=()=>{
-  if(!holeTable||busy||action)return;
+  if(!holeTable||holeTable.originReview||busy||action)return;
   const index=Number($('drawing-hole-row').value),view=holeTable.view,layout=sheet?.layout[view];
   if(!holeTable.holes[index]?.review||!layout)return;
   const candidates=tableCandidates(view).filter(h=>drawingDimensionVisible(h,layout));
@@ -1747,6 +1821,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-layout-mode').onchange=cancelPick;$('drawing-auto-layout').onclick=()=>{if(!busy)applyAutomaticLayout();};$('drawing-arrange').onclick=()=>{layoutKind='projection';projectionLocked=!linkedProjections;positions={};cancelPick();};$('drawing-fit').onclick=()=>{layoutKind='projection';projectionLocked=!linkedProjections;positions={};picking=null;for(const scale of scales){setScale(scale);render(false);if(sheet&&!overflow)break;}persist();};
  $('drawing-svg').onclick=async()=>{
   if(!sheet||overflow||Object.keys(data.sectionErrors||{}).length)return;
+  const pending=referenceReviewItems().filter(entry=>entry.kind==='dimension'?dimensions[entry.index].unplaced:entry.kind!=='hole');
+  if(pending.length&&!window.confirm('参照先を要確認の項目が '+pending.length+' 件あります。現在の図面をSVGで保存しますか？'))return;
   const snapshot=sheet;
   const fonts=[...new Set(snapshot.notes.map(note=>note.font))];
   if(!fonts.some(Boolean)){download(snapshot.svg,snapshot.fileStem+'.svg','image/svg+xml');return;}
@@ -1766,7 +1842,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   return blockPDFPreview()||(!pdfLayout&&overflow);
  }
  function preparePDF(pages=makePDFPages()){
-  return {pages,issues:drawingPDFIssues(pages,{checkBounds:true,labelView:pdfViewLabel})};
+  const issues=drawingPDFIssues(pages,{checkBounds:true,labelView:pdfViewLabel});
+  for(const review of referenceReviewItems()){
+   if(review.kind==='dimension'&&!dimensions[review.index].unplaced)continue;
+   if(review.kind==='hole'&&issues.some(issue=>issue.hole==='H'+(holeTable.holes[review.index].number??review.index+1)))continue;
+   const pageIndex=Math.max(0,pages.findIndex(page=>page.layout[review.view]));
+   issues.push({kind:'reference',pageIndex,label:review.label+'（参照先を要確認）',review});
+  }
+  return {pages,issues};
  }
  function movePDFPageItem(item,index,pages){
   const assignment=pdfLayout==='manual'?currentPageAssignments():drawingPDFPageAssignments(pages);
@@ -1836,6 +1919,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  function focusPDFIssue(issue){
   if(!sheet||busy)return;
+  if(issue.review){focusReferenceReview(issue.review);return;}
   if(editPageCount>1&&Number.isInteger(issue.pageIndex))editPDFPage(issue.pageIndex);
   if(issue.kind==='view-overlap')focusDrawingViewOverlap(issue);
   else if(issue.dimension!==undefined){
@@ -1904,8 +1988,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
 
  function clearViewAnnotations(id){leaders=leaders.filter(note=>note.view!==id);dimensions=dimensions.filter(d=>d.view!==id);dimensionPoints=dimensionPoints.filter(point=>point.view!==id);markers=markers.filter(m=>m.view!==id);for(const d of details.filter(d=>d.view===id)){clearViewAnnotations(d.id);delete positions[d.id];delete viewScales[d.id];}details=details.filter(d=>d.view!==id);pruneHiddenViews();}
  function extraControls(){
-  const list=[...sections.map((s,i)=>({id:s.id,label:'断面 '+String.fromCharCode(65+i)+'–'+String.fromCharCode(65+i)})),
-   ...details.map((d,i)=>({id:d.id,label:'詳細 D'+(i+1)}))];
+  const list=[...sections.map((s,i)=>({id:s.id,label:'断面 '+String.fromCharCode(65+i)+'–'+String.fromCharCode(65+i)+(s.review?'（要確認）':'')})),
+   ...details.map((d,i)=>({id:d.id,label:'詳細 D'+(i+1)+(d.review?'（要確認）':'')}))];
   if(!list.some(e=>e.id===extraTarget))extraTarget=list[0]?.id||'';
   $('drawing-extra-editor').hidden=!list.length;
   $('drawing-extra-target').replaceChildren(...list.map(item=>new Option(item.label,item.id)));
@@ -1916,14 +2000,23 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-detail-factor-label').hidden=!detail;
   if(section&&document.activeElement!==sectionPosition)sectionPosition.value=Number(section.coordinate.toFixed(4));
   if(detail&&document.activeElement!==detailFactor)detailFactor.value=detail.factor;
-  $('drawing-section-reverse').disabled=$('drawing-extra-delete').disabled=sectionPosition.disabled=detailFactor.disabled=busy;
+  const pending=!!(section??detail)?.review;
+  $('drawing-extra-relink').hidden=!pending;
+  $('drawing-extra-relink').disabled=busy;
+  $('drawing-extra-delete').disabled=busy;
+  $('drawing-section-reverse').disabled=sectionPosition.disabled=detailFactor.disabled=busy||pending;
  }
  $('drawing-extra-target').onchange=()=>{extraTarget=$('drawing-extra-target').value;extraControls();};
+ $('drawing-extra-relink').onclick=()=>{
+  const section=sections.find(s=>s.id===extraTarget&&s.review);
+  const detail=details.find(d=>d.id===extraTarget&&d.review);
+  if(section||detail)beginReviewAction(section?'section':'detail',section??detail);
+ };
  $('drawing-extra-delete').onclick=()=>{if(busy)return;clearViewAnnotations(extraTarget);sections=sections.filter(s=>s.id!==extraTarget);details=details.filter(d=>d.id!==extraTarget);pruneHiddenViews();delete positions[extraTarget];delete viewScales[extraTarget];if(data.views[extraTarget])delete data.views[extraTarget];if(data.sectionErrors)delete data.sectionErrors[extraTarget];cancelPick();};
  async function editSection(section,changes){
   if(!data||busy||!section)return;
   const oldData=data,next={...section,...changes};
-  if(next.coordinate===section.coordinate&&next.reverse===section.reverse)return;
+  if(!section.review&&next.coordinate===section.coordinate&&next.reverse===section.reverse)return;
   const token=++revision;
   busy=true;picking=null;action=null;selection=null;controls();
   $('drawing-svg').disabled=$('drawing-generate').disabled=true;
@@ -1935,9 +2028,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(!result.views[next.id])throw Error(result.sectionErrors?.[next.id]||'断面を計算できません');
    const updated={...oldData,views:{...oldData.views,[next.id]:result.views[next.id]},sectionErrors:{...oldData.sectionErrors}};
    delete updated.sectionErrors[next.id];
-   const followed=followSectionEdit(oldData,updated,section,next,{dimensions,details,markers,leaders,dimensionPoints});
-   ({dimensions,details,markers,leaders,dimensionPoints}=followed);
-   Object.assign(section,next);data=updated;render();
+   if(!section.review){
+    ({dimensions,details,markers,leaders,dimensionPoints}=followSectionEdit(oldData,updated,section,next,{dimensions,details,markers,leaders,dimensionPoints}));
+   }
+   sections=sections.map(item=>item.id===section.id?next:item);data=updated;render();
   }catch(error){
    if(token!==revision||!dialog.open)return;
    $('drawing-section-position').value=section.coordinate;
@@ -1981,7 +2075,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    render(false);status(error);
   }
  };
- const beginAction=kind=>{if(!data||busy)return;picking=null;selection=null;action={kind};render();status({
+ const beginAction=(kind,parameters={})=>{if(!data||busy)return;picking=null;selection=null;action={kind,...parameters};render();status({
   center:'円・円弧をクリックすると中心マークを追加します',line:'中心線を通す点を２点選択してください',
   section:'正投影図に切断線を置いてください。円の中心・端点に吸着します',
   detail:'拡大したい部分の中心をクリックし、次に範囲の半径を指定してください',
@@ -1989,6 +2083,21 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   leader:'図の中で矢印が指す箇所をクリックしてください',
   dimensionPoint:'図をクリックして寸法点を追加します。Altを押すと吸着を解除できます'
  }[kind]);};
+ function beginReviewAction(kind,item){
+  if(!item.review||busy)return;
+  if(editingPage>=0)editPDFPage(-1);
+  if(!names().length){status('参照先を選べる図を表示してください');return;}
+  if(kind==='section')$('drawing-section-orientation').value=item.orientation;
+  if(kind==='leader')$('drawing-leader-input').value=item.text;
+  beginAction(kind,{replace:item});
+  viewportHost.scrollIntoView({block:'nearest'});
+ }
+ function placeAnnotation(items,prefix,fields){
+  const previous=action?.replace;
+  if(!previous)return [...items,{id:prefix+'-'+crypto.randomUUID(),...fields}];
+  const replacement={id:previous.id,...fields};
+  return items.map(item=>item.id===previous.id?replacement:item);
+ }
  $('drawing-center-add').onclick=()=>beginAction('center');$('drawing-center-line').onclick=()=>beginAction('line');$('drawing-section-add').onclick=()=>beginAction('section');
  $('drawing-detail-add').onclick=()=>{
   const input=$('drawing-detail-factor');
@@ -1996,7 +2105,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   beginAction('detail');
  };
  $('drawing-dimension-point-add').onclick=()=>action?.kind==='dimensionPoint'?cancelPick():beginAction('dimensionPoint');
- $('drawing-centers-all').onclick=()=>{for(const view of names()){for(const c of circles(viewData(view))){if(!insideView(viewData(view),c.center)||markers.some(m=>m.kind==='center'&&m.view===view&&Math.hypot(m.center[0]-c.center[0],m.center[1]-c.center[1])<1e-5))continue;if(markers.length>=200)break;markers.push({id:'marker-'+crypto.randomUUID(),kind:'center',view,center:c.center,radius:c.radius});}}cancelPick();};
+ $('drawing-centers-all').onclick=()=>{for(const view of names()){for(const c of circles(viewData(view))){if(!insideView(viewData(view),c.center)||markers.some(m=>!m.review&&m.kind==='center'&&m.view===view&&Math.hypot(m.center[0]-c.center[0],m.center[1]-c.center[1])<1e-5))continue;if(markers.length>=200)break;markers.push({id:'marker-'+crypto.randomUUID(),kind:'center',view,center:c.center,radius:c.radius});}}cancelPick();};
  function hitView(e,onlyBase=false,includeDetails=false){const p=paperPoint(e),keys=onlyBase?drawingProjectionNames:names().filter(n=>includeDetails||!n.startsWith('detail-'));return keys.find(name=>{const v=sheet.layout[name];return v&&p[0]>=v.x-2&&p[0]<=v.x+v.width+2&&p[1]>=v.y-2&&p[1]<=v.y+v.height+2;});}
  function snapCut(view,axis,value,disable=false){if(disable)return value;let best=1.5/sheet.layout[view].scale,result=value;for(const p of viewPoints(viewData(view))){if(drawingPointOmitted(sheet.layout[view],p))continue;if(Math.abs(p[axis]-value)<best){best=Math.abs(p[axis]-value);result=p[axis];}}return result;}
  function manualPointAt(e){
@@ -2021,7 +2130,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const existing=e.target.closest('[data-dimension-point]');
   const hit=existing?null:manualPointAt(e);
   const selectedPoint=existing?dimensionPoints.find(item=>item.id===existing.dataset.dimensionPoint):
-   hit&&dimensionPoints.find(item=>item.view===hit.name&&Math.hypot(item.point[0]-hit.point[0],item.point[1]-hit.point[1])<1e-5);
+   hit&&dimensionPoints.find(item=>!item.review&&item.view===hit.name&&Math.hypot(item.point[0]-hit.point[0],item.point[1]-hit.point[1])<1e-5);
+  if(action.replace){
+   const point=selectedPoint?.point??hit?.point,view=selectedPoint?.view??hit?.name;
+   if(!point)throw Error('寸法点を置く図の内側をクリックしてください');
+   dimensionPoints=placeAnnotation(dimensionPoints,'dimension-point',{point,view});
+   cancelPick();return;
+  }
   if(selectedPoint){
    action.guide=selectedPoint;selection={type:'dimensionPoint',id:selectedPoint.id};
    render(false);workspace.reveal($('drawing-editor'));
@@ -2034,27 +2149,61 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   selection=null;render();
   status('縦横のガイドに沿って次の点を置けます。Altを押すと吸着を解除できます');
  }
- function actionClick(e){try{const state=action;if(state.kind==='dimensionPoint'){placeDimensionPoint(e);return;}if(state.kind==='leader'){clickLeader(e);return;}if(state.kind==='holes'){clickHoleTable(e);return;}if(state.kind==='center'){if(markers.length>=200)throw Error('中心表示は200個までです');const hit=nearest(e,'arc');if(!hit)throw Error('円・円弧をクリックしてください');if(!markers.some(m=>m.kind==='center'&&m.view===hit.name&&Math.hypot(m.center[0]-hit.arc.center[0],m.center[1]-hit.arc.center[1])<1e-5))markers.push({id:'marker-'+crypto.randomUUID(),kind:'center',view:hit.name,center:hit.arc.center,radius:hit.arc.radius});cancelPick();return;}
- if(state.kind==='line'){if(markers.length>=200)throw Error('中心表示は200個までです');const hit=nearest(e,'point');if(!hit)throw Error('輪郭の端点・円の中心・手動で置いた点をクリックしてください');if(!state.a){state.a=hit.point;state.view=hit.name;render();status('同じ図の２点目を選択してください');return;}if(hit.name!==state.view)throw Error('同じ図の点を選んでください');if(Math.hypot(hit.point[0]-state.a[0],hit.point[1]-state.a[1])<1e-6)throw Error('別の点を選んでください');markers.push({id:'marker-'+crypto.randomUUID(),kind:'line',view:state.view,a:state.a,b:hit.point});cancelPick();return;}
- if(state.kind==='section'){if(sections.length>=8)throw Error('断面図は８個までです');const view=hitView(e,true);if(!view)throw Error('正投影図の内側をクリックしてください');const p=local(view,paperPoint(e));if(drawingPointOmitted(sheet.layout[view],p))throw Error('省略範囲の外に切断線を置いてください');const orientation=$('drawing-section-orientation').value,axis=orientation==='vertical'?0:1,id='section-'+crypto.randomUUID();sections.push({id,view,orientation,coordinate:snapCut(view,axis,p[axis],e.altKey),reverse:false});extraTarget=id;action=null;generate();return;}
- if(state.kind==='detail'){
-  if(details.length>=8)throw Error('詳細図は８個までです');
-  const factor=$('drawing-detail-factor').valueAsNumber;
-  if(!validDrawingDetailFactor(factor))throw Error(detailFactorError);
-  if(!state.center){
-   const view=hitView(e);
-   if(!view)throw Error('拡大元の図の内側をクリックしてください');
-   const center=local(view,paperPoint(e));
-   if(drawingPointOmitted(sheet.layout[view],center))throw Error('省略範囲の外で中心を選んでください');
-   state.center=center;state.view=view;
-   status('範囲の外周をクリックしてください');return;
-  }
-  const p=local(state.view,paperPoint(e)),radius=Math.hypot(p[0]-state.center[0],p[1]-state.center[1]);
-  if(radius*sheet.layout[state.view].scale<1)throw Error('範囲を少し大きくしてください');
-  const id='detail-'+crypto.randomUUID();
-  details.push({id,view:state.view,center:state.center,radius,factor});extraTarget=id;cancelPick();
- }}
- catch(err){status(err.message);}}
+ function actionClick(e){
+  try{
+   const state=action;
+   if(state.kind==='dimensionPoint'){placeDimensionPoint(e);return;}
+   if(state.kind==='leader'){clickLeader(e);return;}
+   if(state.kind==='holes'){clickHoleTable(e);return;}
+   if(state.kind==='center'){
+    if(!state.replace&&markers.length>=200)throw Error('中心表示は200個までです');
+    const hit=nearest(e,'arc');if(!hit)throw Error('円・円弧をクリックしてください');
+    const duplicate=markers.some(m=>!m.review&&m.kind==='center'&&m.view===hit.name&&Math.hypot(m.center[0]-hit.arc.center[0],m.center[1]-hit.arc.center[1])<1e-5);
+    if(duplicate&&state.replace)throw Error('すでに中心マークがあります。別の円を選んでください');
+    if(!duplicate)markers=placeAnnotation(markers,'marker',{kind:'center',view:hit.name,center:hit.arc.center,radius:hit.arc.radius});
+    cancelPick();return;
+   }
+   if(state.kind==='line'){
+    if(!state.replace&&markers.length>=200)throw Error('中心表示は200個までです');
+    const hit=nearest(e,'point');
+    if(!hit)throw Error('輪郭の端点・円の中心・手動で置いた点をクリックしてください');
+    if(!state.a){
+     state.a=hit.point;state.view=hit.name;render();status('同じ図の２点目を選択してください');return;
+    }
+    if(hit.name!==state.view)throw Error('同じ図の点を選んでください');
+    if(Math.hypot(hit.point[0]-state.a[0],hit.point[1]-state.a[1])<1e-6)throw Error('別の点を選んでください');
+    markers=placeAnnotation(markers,'marker',{kind:'line',view:state.view,a:state.a,b:hit.point});
+    cancelPick();return;
+   }
+   if(state.kind==='section'){
+    if(!state.replace&&sections.length>=8)throw Error('断面図は８個までです');
+    const view=hitView(e,true);if(!view)throw Error('正投影図の内側をクリックしてください');
+    const p=local(view,paperPoint(e));if(drawingPointOmitted(sheet.layout[view],p))throw Error('省略範囲の外に切断線を置いてください');
+    const orientation=$('drawing-section-orientation').value,axis=orientation==='vertical'?0:1;
+    const next={view,orientation,coordinate:snapCut(view,axis,p[axis],e.altKey),reverse:state.replace?.reverse??false};
+    if(state.replace){editSection(state.replace,{...next,review:undefined});return;}
+    const id='section-'+crypto.randomUUID();
+    sections.push({id,...next});extraTarget=id;action=null;generate();return;
+   }
+   if(state.kind==='detail'){
+    if(!state.replace&&details.length>=8)throw Error('詳細図は８個までです');
+    const factor=state.replace?.factor??$('drawing-detail-factor').valueAsNumber;
+    if(!validDrawingDetailFactor(factor))throw Error(detailFactorError);
+    if(!state.center){
+     const view=hitView(e);
+     if(!view)throw Error('拡大元の図の内側をクリックしてください');
+     const center=local(view,paperPoint(e));
+     if(drawingPointOmitted(sheet.layout[view],center))throw Error('省略範囲の外で中心を選んでください');
+     state.center=center;state.view=view;
+     status('範囲の外周をクリックしてください');return;
+    }
+    const p=local(state.view,paperPoint(e)),radius=Math.hypot(p[0]-state.center[0],p[1]-state.center[1]);
+    if(radius*sheet.layout[state.view].scale<1)throw Error('範囲を少し大きくしてください');
+    details=placeAnnotation(details,'detail',{view:state.view,center:state.center,radius,factor});
+    extraTarget=state.replace?.id??details.at(-1).id;cancelPick();
+   }
+  }catch(error){status(error.message);}
+ }
  function actionPreview(e){const svg=$('drawing-preview').querySelector('svg');svg.querySelector('[data-action-preview]')?.remove();if(!action)return;let attrs;
  if(action.kind==='dimensionPoint'){
   if(e.target.closest('[data-dimension-point]'))return;
@@ -2113,7 +2262,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    }
    for(const item of dimensionPoints){
     const {id,point}=item;
-    if(item.view!==name||!drawingDimensionPointFits(view,point)||drawingPointOmitted(v,point))continue;
+    if(item.review||item.view!==name||!drawingDimensionPointFits(view,point)||drawingPointOmitted(v,point))continue;
     drawPointMarker(svg,name,point,{
      fill:'#c46a15',stroke:'#fff','stroke-width':1,'vector-effect':'non-scaling-stroke',
      'data-snap-view':name,'data-snap-point':JSON.stringify(point),'data-dimension-point':id
@@ -2245,7 +2394,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
      continue;
     }
     if(picking||action?.kind==='line')for(const item of dimensionPoints){
-     if(item.view===name&&drawingDimensionPointFits(view,item.point))test(item.point,{manual:item.id});
+     if(!item.review&&item.view===name&&drawingDimensionPointFits(view,item.point))test(item.point,{manual:item.id});
     }
     const points=geometry.points??=viewPoints(view);
     for(const point of points)test(point,{});
@@ -2360,8 +2509,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const placed=keepDrawingDimensionClear(d,sheet,hitsLinework,snap.at);
   if(!placed)throw Error(noClearDimensionPosition);
   const index=replace??dimensions.length;
-  dimensions[index]=placed;
-  storeDimensionPlacement(index,placed);
+  const replacement=old?.hidden?{...placed,hidden:true}:placed;
+  dimensions[index]=replacement;
+  storeDimensionPlacement(index,replacement);
   if(replace!==undefined)selection={type:'dimension',index:replace};
   cancelPick();
   if(placed.at!==snap.at)status('図形の線を隠さない近くの位置に寸法を配置しました');
@@ -2859,7 +3009,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const nextTargets=$('drawing-target').value==='selected'?selected:visible;
   const targetsChanged=!!saved&&!sameTargets(saved.targets,nextTargets);
   const refresh=!!saved&&(saved.signature!==source||targetsChanged);
-  if(refresh){undo=[];redo=[];markers=[];}
+  if(refresh){undo=[];redo=[];markers=markers.filter(item=>item.review);}
   $('drawing-layout-mode').checked=true;workspace.open();dialog.showModal();reloadDrawingMaterials();viewport.reset();
   return generate({refresh,targetsChanged});
  }

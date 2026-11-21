@@ -11,6 +11,18 @@ export const drawingProjections={
 export const drawingProjectionNames=Object.keys(drawingProjections);
 export const drawingIsometricProjection={normal:[1,-1,1],horizontal:[1,1,0]};
 export const projectDrawingIsometric=([x,y,z])=>[(x+y)/Math.SQRT2,(x-y-2*z)/Math.sqrt(6)];
+
+export function drawingSectionPlane(section){
+ const projection=drawingProjections[section.view];
+ const normal=section.orientation==='vertical'?projection.horizontal:projection.vertical;
+ const axis=normal.findIndex(value=>value!==0);
+ const coordinate=section.coordinate*normal[axis],keep=normal[axis]*(section.reverse?-1:1);
+ const direction=[0,0,0];direction[axis]=-keep;
+ const horizontal=axis===0?[0,-keep,0]:axis===1?[keep,0,0]:[1,0,0];
+ const [x,y,z]=horizontal,[nx,ny,nz]=direction;
+ const vertical=[nz*y-ny*z,nx*z-nz*x,ny*x-nx*y];
+ return {axis,coordinate,keep,direction,horizontal,vertical};
+}
 export function drawingIsometricOutline([min,max]){
  const points=[];
  for(const x of [min[0],max[0]])for(const y of [min[1],max[1]])for(const z of [min[2],max[2]]){
