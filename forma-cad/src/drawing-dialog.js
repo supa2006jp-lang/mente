@@ -67,7 +67,7 @@ function rememberDrawingColors(changes){
 }
 const colorInputs=(scope)=>colorFields.map(([,id,label])=>'<label>'+label+
  '<input type="color" id="drawing-'+scope+'-'+id+'-color"></label>').join('');
-export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=()=>null,download,exportPDF,onChange=()=>{}}){
+export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=()=>null,download,exportPDF,exportPrintSet,canExportPrintSet=()=>false,onChange=()=>{}}){
  const pdfPreview=installDrawingPDFPreview({download:exportDrawingPDF,onIssue:focusPDFIssue,onEdit:editPDFPage,
   onMove:movePDFPageItem,onPageOrder:changePDFPageOrder,onFit:fitPDFPreviewPage,viewLabel:pdfViewLabel});
  const worker=new KernelClient(),dialog=document.createElement('dialog');dialog.id='drawing-dialog';dialog.innerHTML=`<div class="drawing-heading"><h2>三面図</h2><button type="button" id="drawing-close" aria-label="閉じる">×</button></div>
@@ -102,6 +102,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<small id="drawing-comment-font-status" role="status"></small></div>');
  dialog.querySelector('.drawing-view-options').insertAdjacentHTML('afterend','<details id="drawing-hidden-views"><summary>ビュー別の隠れ線</summary><div class="drawing-controls"></div></details>');
  $('drawing-pdf').insertAdjacentHTML('beforebegin','<button id="drawing-pdf-preview-open" type="button">PDFをプレビュー</button>');
+ $('drawing-pdf').insertAdjacentHTML('afterend','<button id="drawing-print-set" type="button" hidden>PDF＋3MFをまとめて出力</button>');
  $('drawing-pdf').insertAdjacentHTML('beforebegin','<label class="drawing-pdf-layout">印刷配色<select id="drawing-print-palette">'+drawingPrintPalettes.map(([id,label])=>'<option value="'+id+'">'+label+'</option>').join('')+'</select></label><label class="drawing-pdf-layout">PDFのページ構成<select id="drawing-pdf-layout"><option value="">1ページ</option><option value="multi">全体図と補助図を分ける</option><option value="manual">ページを指定</option></select></label>');
  $('drawing-pdf').insertAdjacentHTML('beforebegin','<label id="drawing-pdf-placement-label" hidden>PDFの配置<select id="drawing-pdf-placement"><option value="keep">編集した配置と縮尺を保持</option><option value="auto">ページごとに自動配置</option></select></label>');
  $('drawing-view-priority').closest('.drawing-controls').insertAdjacentHTML('afterend',
@@ -1066,6 +1067,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-print-palette').value=printPalette;$('drawing-print-palette').disabled=!ready;
   $('drawing-pdf').disabled=blockPDFExport();
   $('drawing-pdf-preview-open').disabled=blockPDFPreview();
+  $('drawing-print-set').hidden=!exportPrintSet||!canExportPrintSet();
+  $('drawing-print-set').disabled=blockPDFPreview();
   $('drawing-break-axis').value=breakAxis;
   $('drawing-break-axis').disabled=!ready;
   $('drawing-break-percent').value=breakPercent;
@@ -1935,7 +1938,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    inspectHole(row);viewport.focus(sheet.holeBox);
   }
  }
- async function exportDrawingPDF(pages,palette){
+ async function drawingPDFData(pages,palette){
   await Promise.all([...new Set(pages.flatMap(page=>(page.notes??[page.note]).filter(Boolean).map(note=>note.font)))].map(loadDrawingCommentFont));
   const {jsPDF}=await import('jspdf');await import('svg2pdf.js');
   const orientation=page=>page.width>=page.height?'landscape':'portrait';
@@ -1946,8 +1949,32 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    prepareJapanesePDF(svg);
    await pdf.svg(svg,{x:0,y:0,width:page.width,height:page.height});
   }
-  download(pdf.output('arraybuffer'),first.fileStem+'.pdf','application/pdf');
+  return pdf.output('arraybuffer');
  }
+ async function exportDrawingPDF(pages,palette){
+  download(await drawingPDFData(pages,palette),pages[0].fileStem+'.pdf','application/pdf');
+ }
+ function drawingPDFRows(pages){
+  return pages.map((page,index)=>{
+   const dimensionCount=page.dimensions.filter(d=>page.layout[d.view]&&drawingDimensionVisible(d,page.layout[d.view])).length;
+   const items=[...Object.keys(page.layout).map(viewLabel),
+    ...(dimensionCount?['寸法 '+dimensionCount+' 件']:[]),
+    ...((page.leaderLabels?.length??0)?['注記 '+page.leaderLabels.length+' 件']:[]),
+    ...(page.notes.length?['コメント '+page.notes.length+' 件']:[]),...(page.holeBox?['穴位置表']:[])];
+   return {label:(index+1)+' ページ',detail:items.join('、')||'空白ページ'};
+  });
+ }
+ function reviewPrintSet(){
+  if(!exportPrintSet||!canExportPrintSet()||blockPDFPreview())return;
+  try{
+   const {pages,issues}=preparePDF(),palette=printPalette,documentFeatures=getFeatures();
+   const snapshot=saved,projection=data;
+   exportPrintSet({targets:targets.slice(),rows:drawingPDFRows(pages),issues,
+    name:$('drawing-name').value.trim(),isCurrent:()=>dialog.open&&saved===snapshot&&projection===data&&getFeatures()===documentFeatures&&!busy,
+    createPDF:()=>drawingPDFData(pages,palette),openPDFReview:()=>pdfPreview.open(pages,palette,issues),status});
+  }catch(error){status('出力セットを準備できませんでした。'+error.message);}
+ }
+ $('drawing-print-set').onclick=reviewPrintSet;
  $('drawing-pdf-preview-open').onclick=async()=>{
   if(blockPDFPreview())return;
   try{
@@ -1971,14 +1998,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   try{
    const {pages,issues}=preparePDF();
    const run=()=>savePreparedPDF(pages,issues);
-   const rows=pages.map((page,index)=>{
-    const dimensionCount=page.dimensions.filter(d=>page.layout[d.view]&&drawingDimensionVisible(d,page.layout[d.view])).length;
-    const items=[...Object.keys(page.layout).map(viewLabel),
-     ...(dimensionCount?['寸法 '+dimensionCount+' 件']:[]),
-     ...((page.leaderLabels?.length??0)?['注記 '+page.leaderLabels.length+' 件']:[]),
-     ...(page.notes.length?['コメント '+page.notes.length+' 件']:[]),...(page.holeBox?['穴位置表']:[])];
-    return {label:(index+1)+' ページ',detail:items.join('、')||'空白ページ'};
-   });
+   const rows=drawingPDFRows(pages);
    if(exportPDF)exportPDF({label:'全 '+pages.length+' ページ',rows,
     detail:issues.length?'出力前チェックで '+issues.length+' 件を確認できます。':'',
     action:issues.length?'出力前チェックを開く':'PDFを保存する',run});
@@ -3021,5 +3041,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   picking=null;action=null;selection=null;extraTarget='';suppressClick=false;$('drawing-layout-mode').checked=false;if(d)render(false);controls();$('drawing-preview').style.cursor='';$('drawing-preview').querySelector('[data-action-preview]')?.remove();
  }
  function cancel(){pdfPreview.close();if(!dialog.open&&!drag&&!picking&&!action&&!selection)return;clearTransient();++revision;busy=false;worker.reset();$('drawing-generate').disabled=false;if(dialog.open)dialog.close();}
- return {cancel,escape:()=>dialog.open&&inlineScales.close(true),openForPDF:openDrawing,getState:()=>saved?structuredClone(saved):null,loadState:value=>{const parsed=readDrawingState(value);if(dialog.open)dialog.close();saved=parsed;undo=[];redo=[];selection=null;data=null;sheet=null;overviewSheet=null;restore(saved);}};
+ return {cancel,escape:()=>dialog.open&&inlineScales.close(true),openForPDF:openDrawing,
+  async openForPrintSet(){if(await openDrawing())reviewPrintSet();},
+  getState:()=>saved?structuredClone(saved):null,loadState:value=>{const parsed=readDrawingState(value);if(dialog.open)dialog.close();saved=parsed;undo=[];redo=[];selection=null;data=null;sheet=null;overviewSheet=null;restore(saved);}};
 }

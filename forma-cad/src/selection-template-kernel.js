@@ -3,25 +3,67 @@ import {portableSketch,translateTemplateSketch,sketchTemplateVertices,validateSe
 import {vertexBounds} from './template-placement.js';
 import {verifiedCadMesh} from './verified-cad-mesh.js';
 import {serializeCadShape} from './cad-serialization.js';
+import {captureSelectionHistory,placeSelectionHistory,selectionTemplateFeatureCount} from './selection-history.js';
+import {MODEL_PRECISION,volumeAllowance} from './model-precision.js';
 
 export function exportSelectionTemplate(features,spec,bodiesFor,onProgress){
  const targets=spec.targets||[],sketches=(spec.sketches||[]).map(portableSketch);
  if(!targets.length&&!sketches.length)throw Error('保存するスケッチまたはソリッドを選択してください');
  if(targets.length+sketches.length>100||new Set(targets.map(t=>t.id)).size!==targets.length)throw Error('選択部品は100要素までです');
+ const history=spec.includeHistory?captureSelectionHistory(features,targets.map(target=>target.id),spec.namedDimensions):undefined;
  const bodies=targets.length?bodiesFor(features):new Map(),bounds=[];
  try{
   for(const target of targets){const shape=bodies.get(target.id);if(!shape)throw Error('保存するソリッドが見つかりません');bounds.push(vertexBounds(shape.mesh().vertices));}
   for(const sketch of sketches)bounds.push(vertexBounds(sketchTemplateVertices(sketch)));
   const min=[0,1,2].map(i=>Math.min(...bounds.map(b=>b.min[i]))),max=[0,1,2].map(i=>Math.max(...bounds.map(b=>b.max[i]))),origin=[(min[0]+max[0])/2,(min[1]+max[1])/2,min[2]],delta=origin.map(x=>-x),solids=[];
   for(const [i,target]of targets.entries()){onProgress?.({stage:'選択したソリッドを保存しています',current:i+1,total:targets.length});const shape=bodies.get(target.id).clone().translate(delta);try{solids.push({name:target.name||'ソリッド',brep:serializeCadShape(shape)});}finally{shape.delete();}}
-  return validateSelectionTemplate({format:'forma-selection-template',version:1,units:'mm',name:spec.name,origin,sketches:sketches.map(f=>translateTemplateSketch(f,delta)),solids});
+  const data=validateSelectionTemplate({format:'forma-selection-template',version:1,units:'mm',name:spec.name,origin,sketches:sketches.map(f=>translateTemplateSketch(f,delta)),solids,history});
+  if(selectionTemplateFeatureCount(data)>150)throw Error('配置の工程を含めると最大150工程を超えます');
+  return data;
  }finally{bodies.forEach(s=>s.delete());}
 }
-export function importSelectionTemplate(spec,onProgress){
+
+function confirmPlacedShape(saved,output,position){
+ let reference,actual,referenceBox,actualBox;
+ try{
+  if(!output?.brep)throw Error('貼り付ける部品のソリッドが見つかりません');
+  reference=R.deserializeShape(saved.brep).asShape3D().translate(position);
+  actual=R.deserializeShape(output.brep).asShape3D();
+  referenceBox=reference.boundingBox;actualBox=actual.boundingBox;
+  const volume=R.measureVolume(reference),actualVolume=R.measureVolume(actual);
+  const area=R.measureArea(reference),actualArea=R.measureArea(actual);
+  const matches=referenceBox.bounds.every((point,i)=>point.every((value,axis)=>Math.abs(value-actualBox.bounds[i][axis])<=1e-5));
+  if(!matches||![volume,actualVolume,area,actualArea].every(value=>Number.isFinite(value)&&value>0)||
+   Math.abs(actualVolume-volume)>volumeAllowance(volume)||Math.abs(actualArea-area)>Math.max(MODEL_PRECISION.contact,area*1e-8)){
+   throw Error('再計算した部品の形状が保存時と一致しません。元の部品を確認してください。');
+  }
+ }finally{referenceBox?.delete();actualBox?.delete();reference?.delete();actual?.delete();}
+}
+
+function importWithHistory(data,spec,position,sketches,run,onProgress){
+ const plan=placeSelectionHistory(data.history,spec.id,spec.namedDimensions,data.name);
+ // Calculate in the part's original reference frame, with no host bodies
+ // in scope. A final CAD move is replayed after edits to any original step.
+ const {features}=run(plan.features,{type:'replay',before:plan.features,start:0,forceFull:true,refreshStart:true},onProgress);
+ const id=spec.id+'-placement',move=position.map((coordinate,i)=>coordinate-data.origin[i]);
+ const placement={type:'move',id,target:plan.targets[0],targets:plan.targets,moveMode:'移動',x:move[0],y:move[1],z:move[2],axis:'Z',angle:0};
+ const result=run(features,placement,onProgress),outputs=new Map(result.outputs.map(output=>[output.id,output]));
+ plan.targets.forEach((target,i)=>confirmPlacedShape(data.solids[i],outputs.get(target),position));
+ const historyGroup=data.name.slice(0,60);
+ features.push({kind:'cadop',id,name:'部品の配置',spec:placement,historyGroup,...result});
+ if(plan.discard.length)features.push({kind:'cadop',id:spec.id+'-internal',name:'部品の内部ボディを整理',historyGroup,outputs:[],remove:plan.discard});
+ return {features:[...features,...sketches],namedDimensions:plan.namedDimensions};
+}
+
+export function importSelectionTemplate(spec,onProgress,run){
  const data=validateSelectionTemplate(spec.data),position=spec.position||[0,0,0];
  if(typeof spec.id!=='string'||!spec.id||spec.id.length>60||position.length!==3||position.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('貼り付け位置が不正です');
  const features=[],groups=new Map();
  for(const [i,source]of data.sketches.entries()){const f=translateTemplateSketch(source,position);if(!groups.has(source.groupId))groups.set(source.groupId,spec.id+'-group-'+groups.size);features.push({...f,id:spec.id+'-sketch-'+i,groupId:groups.get(source.groupId),groupHidden:false});}
+ if(data.history&&!spec.previewOnly){
+  if(selectionTemplateFeatureCount(data)>150)throw Error('配置の工程を含めると最大150工程を超えます');
+  return importWithHistory(data,spec,position,features,run,onProgress);
+ }
  for(const [i,source]of data.solids.entries()){
   onProgress?.({stage:'保存したソリッドを読み込んでいます',current:i+1,total:data.solids.length});let shape,placed;
   try{

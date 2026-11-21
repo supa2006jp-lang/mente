@@ -5,21 +5,30 @@ import {validateSelectionTemplate,sketchTemplateVertices} from './selection-temp
 import {createSelectionLibraryStore} from './selection-library-store.js';
 import {templatePlacement,vertexBounds} from './template-placement.js';
 import {previewImageSource} from './project-preview.js';
+import {selectionTemplateFeatureCount} from './selection-history.js';
 
-export function installSelectionLibrary({scene,camera,canvas,host,kernel,getFeatures,getSelection,hasSelection,getOccupied,getGrid,getControls,canUse,onPrepare,onApply,fitPreview,createThumbnail,download,notify,store=createSelectionLibraryStore()}){
+const emptyDimensions=Object.freeze({});
+export function installSelectionLibrary({scene,camera,canvas,host,kernel,getFeatures,getSelection,hasSelection,getOccupied,getGrid,getControls,canUse,onPrepare,onApply,fitPreview,createThumbnail,download,notify,getNamedDimensions=()=>emptyDimensions,store=createSelectionLibraryStore()}){
  const openButton=document.createElement('button');openButton.id='selection-library-open';openButton.type='button';openButton.textContent='選択部品';openButton.title='選択したスケッチやソリッドを保存・呼び出し';document.getElementById('export').before(openButton);
  const saveButton=document.createElement('button');saveButton.id='selection-library-save-selected';saveButton.type='button';saveButton.textContent='選択を部品として保存';saveButton.hidden=true;saveButton.style.cssText='width:100%;margin-top:8px;pointer-events:auto;background:#e2f7fb;color:#17475a;border-color:#79b1c8';document.getElementById('measurement').append(saveButton);
- const dialog=document.createElement('dialog');dialog.id='selection-library-dialog';dialog.style.cssText='width:min(650px,90vw);max-height:85vh;overflow:auto;padding:20px';dialog.innerHTML='<div class="dialog-heading"><h2>選択部品の保存・呼び出し</h2><button type="button" data-close>×</button></div><p>スケッチとソリッドを種類別に保存し、別のモデルへ貼り付けます。同じ種類の複数要素は位置関係を保ちます。面を選択した場合は、そのソリッド全体を保存します。</p><div role="tablist" aria-label="部品の種類" style="display:flex;gap:8px;margin:12px 0"><button type="button" role="tab" data-kind="sketch" aria-selected="true">スケッチ</button><button type="button" role="tab" data-kind="solid" aria-selected="false">ソリッド</button></div><p data-summary></p><label>部品名<input data-name maxlength="100" value="選択部品"></label><div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button type="button" data-save>選択を一覧に保存</button><button type="button" data-export>選択をファイル保存</button></div><p style="font-size:12px">一覧はこのブラウザー内に保存されます。別の端末へ持ち運ぶ場合はファイル保存を使用してください。ソリッドの作成履歴や、元モデルへの参照は含めません。</p><hr><h3>保存した部品</h3><button type="button" data-file-open>部品ファイルを読み込む</button><p style="font-size:12px">旧形式の部品ファイル（.forma-part.json）も読み込めます。</p><input type="file" accept=".json" data-file hidden><p data-status role="status"></p><div data-list></div>';document.body.append(dialog);
+ const dialog=document.createElement('dialog');dialog.id='selection-library-dialog';dialog.style.cssText='width:min(650px,90vw);max-height:85vh;overflow:auto;padding:20px';dialog.innerHTML='<div class="dialog-heading"><h2>選択部品の保存・呼び出し</h2><button type="button" data-close>×</button></div><p>スケッチとソリッドを種類別に保存し、別のモデルへ貼り付けます。同じ種類の複数要素は位置関係を保ちます。面を選択した場合は、そのソリッド全体を保存します。</p><div role="tablist" aria-label="部品の種類" style="display:flex;gap:8px;margin:12px 0"><button type="button" role="tab" data-kind="sketch" aria-selected="true">スケッチ</button><button type="button" role="tab" data-kind="solid" aria-selected="false">ソリッド</button></div><p data-summary></p><label>部品名<input data-name maxlength="100" value="選択部品"></label><label data-history-label hidden><input type="checkbox" data-history> 編集履歴を含める</label><div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button type="button" data-save>選択を一覧に保存</button><button type="button" data-export>選択をファイル保存</button></div><p style="font-size:12px">一覧はこのブラウザー内に保存されます。別の端末へ持ち運ぶ場合はファイル保存を使用してください。ソリッドは「編集履歴を含める」を選ぶと、対応するスケッチや加工工程も一緒に保存できます。</p><hr><h3>保存した部品</h3><button type="button" data-file-open>部品ファイルを読み込む</button><p style="font-size:12px">旧形式の部品ファイル（.forma-part.json）も読み込めます。</p><input type="file" accept=".json" data-file hidden><p data-status role="status"></p><div data-list></div>';document.body.append(dialog);
  const q=key=>dialog.querySelector('[data-'+key+']');
  const panel=document.createElement('form');panel.id='selection-paste-panel';panel.className='workspace-panel';panel.hidden=true;panel.style.cssText='position:fixed;right:12px;left:auto;bottom:auto;top:300px;width:280px;max-height:65vh;overflow:auto;padding:16px;z-index:45;pointer-events:auto';panel.innerHTML='<h3>部品を貼り付け</h3><p data-info></p><p>水色は貼り付け予定の形状です。確定するまでモデルは変更しません。</p><div style="display:flex;gap:6px">'+['X','Y','Z'].map((axis,i)=>'<label style="flex:1;min-width:0">'+axis+' (mm)<input type="number" step="any" min="-10000" max="10000" required data-position="'+i+'" style="width:100%" value="0"></label>').join('')+'</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin:10px 0"><button type="button" data-original>元の位置</button><button type="button" data-origin>原点に配置</button><button type="button" data-free>空き位置</button><button type="button" data-pick>画面で配置</button><button type="button" data-fit>部品を全体表示</button></div><p data-hint style="font-size:12px">矢印をドラッグして配置を調整できます。グリッドに吸着します。</p><p data-error role="alert"></p><button type="button" data-cancel>キャンセル</button><button type="submit" data-apply class="accent">貼り付けを確定</button>';document.body.append(panel);
  const handle=document.createElement('button');handle.id='selection-paste-handle';handle.type='button';handle.textContent='↔\n＋貼付';handle.title='ドラッグで配置調整／クリックで貼り付けを確定';handle.hidden=true;handle.style.cssText='position:absolute;width:64px;min-width:64px;height:70px;white-space:pre;transform:translate(-50%,-50%);background:#0786a5;color:white;border:2px solid white;border-radius:12px;padding:7px 10px;z-index:46;box-shadow:0 2px 8px #0005;touch-action:none';host.append(handle);
  const pos=[...panel.querySelectorAll('[data-position]')],pq=key=>panel.querySelector('[data-'+key+']');let session=null,snapshot=null,busy=false,revision=0,rows=[],captured=null,kind='sketch',drag=null,suppress=false;
  const chosen=()=>kind==='sketch'?{sketches:snapshot?.selection.sketches||[],targets:[]}:{sketches:[],targets:snapshot?.selection.targets||[]};
  const category=data=>data.category||(data.sketches.length&&data.solids.length?'mixed':data.sketches.length?'sketch':'solid');
- function portion(data){return validateSelectionTemplate({...data,sketches:kind==='sketch'?data.sketches:[],solids:kind==='solid'?data.solids:[]});}
+ function portion(data){return validateSelectionTemplate({...data,sketches:kind==='sketch'?data.sketches:[],solids:kind==='solid'?data.solids:[],history:kind==='solid'?data.history:undefined});}
  function tab(value){kind=value;captured=null;for(const b of dialog.querySelectorAll('[data-kind]')){const active=b.dataset.kind===kind;b.setAttribute('aria-selected',String(active));b.setAttribute('aria-pressed',String(active));}q('summary').textContent='このタブで保存：'+summary(chosen());q('save').textContent=(kind==='sketch'?'スケッチ':'ソリッド')+'の一覧に保存';render();controls();}
- const summary=data=>'スケッチ '+data.sketches.length+' 個 ／ ソリッド '+(data.solids?.length??data.targets?.length??0)+' 個';
- function controls(){for(const button of dialog.querySelectorAll('button'))button.disabled=busy;q('save').disabled=q('export').disabled=busy||!snapshot||!chosen().sketches.length&&!chosen().targets.length;q('name').disabled=busy;}
+ const summary=data=>'スケッチ '+data.sketches.length+' 個 ／ ソリッド '+(data.solids?.length??data.targets?.length??0)+' 個'+
+  (data.history?' ／ 編集履歴 '+data.history.features.length+' 工程':'');
+ function controls(){
+  for(const button of dialog.querySelectorAll('button'))button.disabled=busy;
+  q('save').disabled=q('export').disabled=busy||!snapshot||!chosen().sketches.length&&!chosen().targets.length;
+  q('name').disabled=busy;
+  q('history-label').hidden=kind!=='solid'||!chosen().targets.length;
+  q('history').disabled=busy;
+ }
  function dispose(group){group?.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});group?.removeFromParent();}
  function finishDrag(){if(!drag)return;const d=drag;drag=null;getControls().enabled=d.controls;if(handle.hasPointerCapture(d.id))handle.releasePointerCapture(d.id);}
  function cancel(){++revision;finishDrag();if(session)dispose(session.preview);session=null;busy=false;panel.hidden=handle.hidden=true;delete host.dataset.selectionPaste;}
@@ -34,7 +43,7 @@ export function installSelectionLibrary({scene,camera,canvas,host,kernel,getFeat
  let thumbnailRevision=0;const failedThumbnails=new Set();
  function imageFor(article,data){const image=article.querySelector('img'),label=article.querySelector('[data-image-status]'),src=previewImageSource(data.preview);image.hidden=!src;image.style.display=src?'block':'none';label.hidden=!!src;label.style.display=src?'none':'block';if(src)image.src=src;else image.removeAttribute('src');}
  async function makeStoredThumbnail(row,data,article){
-  const result=await kernel.run([],{type:'selectionTemplateImport',id:'thumb-'+row.id,data,position:[0,0,0]}),preview=createThumbnail(data,{features:result.features});if(!previewImageSource(preview))throw Error('プレビュー画像を作成できませんでした');data.preview=preview;
+  const result=await kernel.run([],{type:'selectionTemplateImport',id:'thumb-'+row.id,data,position:[0,0,0],previewOnly:true}),preview=createThumbnail(data,{features:result.features});if(!previewImageSource(preview))throw Error('プレビュー画像を作成できませんでした');data.preview=preview;
   const current=rows.find(r=>r.id===row.id);if(!current)return;
   try{const saved=await store.updatePreview(row.id,preview);if(saved)Object.assign(current,saved);}catch{current.text=JSON.stringify({...JSON.parse(current.text),preview});if(dialog.open)q('status').textContent='画像を一覧へ保存できませんでした。今回は画像を表示します。部品データは保持しています。';}
   if(article.isConnected)imageFor(article,data);
@@ -55,18 +64,33 @@ export function installSelectionLibrary({scene,camera,canvas,host,kernel,getFeat
  async function capture(){
   if(!snapshot||getFeatures()!==snapshot.features)throw Error('選択元のモデルが変わりました。選択し直してください');
   const name=q('name').value.trim();if(!name||name.length>100)throw Error('部品名を入力してください');
-  if(!captured||captured.name!==name||category(captured)!==kind){q('status').textContent='選択した形状を保存しています…';const request=revision,data=await kernel.run(snapshot.features,{type:'selectionTemplateExport',name,...chosen()});if(request!==revision||!dialog.open||getFeatures()!==snapshot.features)throw Error('保存を中止しました');try{const preview=createThumbnail(data,{targets:chosen().targets});if(previewImageSource(preview))data.preview=preview;}catch{}captured=data;}return captured;
+  const includeHistory=kind==='solid'&&q('history').checked;
+  if(!captured||captured.name!==name||category(captured)!==kind||Boolean(captured.history)!==includeHistory){
+   q('status').textContent=includeHistory?'選択した部品の作成工程を集めています…':'選択した形状を保存しています…';
+   const request=revision,data=await kernel.run(snapshot.features,{type:'selectionTemplateExport',name,...chosen(),includeHistory,namedDimensions:snapshot.dimensions});
+   if(request!==revision||!dialog.open||getFeatures()!==snapshot.features)throw Error('保存を中止しました');
+   try{const preview=createThumbnail(data,{targets:chosen().targets});if(previewImageSource(preview))data.preview=preview;}catch{}
+   captured=data;
+  }
+  return captured;
  }
- async function open(){if(!canUse())return;cancel();snapshot={features:getFeatures(),selection:structuredClone(getSelection())};captured=null;onPrepare();q('name').value='選択部品';tab(snapshot.selection.sketches.length?'sketch':'solid');q('status').textContent='';dialog.showModal();controls();try{rows=await store.list();render();}catch(error){q('status').textContent=error.message;rows=[];render();}}
+ async function open(){if(!canUse())return;cancel();snapshot={features:getFeatures(),selection:structuredClone(getSelection()),dimensions:getNamedDimensions()};captured=null;onPrepare();q('name').value='選択部品';q('history').checked=false;tab(snapshot.selection.sketches.length?'sketch':'solid');q('status').textContent='';dialog.showModal();controls();try{rows=await store.list();render();}catch(error){q('status').textContent=error.message;rows=[];render();}}
  async function begin(input){
-  const data=validateSelectionTemplate(input),original=getFeatures(),request=revision,id=crypto.randomUUID();if(original.length+data.sketches.length+data.solids.length>150)throw Error('貼り付けると最大150工程を超えます');
-  q('status').textContent='貼り付けのプレビューを準備中…';const prepared=await kernel.run([],{type:'selectionTemplateImport',id,data,position:[0,0,0]});if(request!==revision||!dialog.open||getFeatures()!==original)return;
+  const data=validateSelectionTemplate(input),original=getFeatures(),request=revision,id=crypto.randomUUID();if(original.length+selectionTemplateFeatureCount(data)>150)throw Error('貼り付けると最大150工程を超えます');
+  q('status').textContent='貼り付けのプレビューを準備中…';const prepared=await kernel.run([],{type:'selectionTemplateImport',id,data,position:[0,0,0],previewOnly:true});if(request!==revision||!dialog.open||getFeatures()!==original)return;
   const preview=new THREE.Group(),parts=[];
   for(const f of prepared.features){if(f.kind==='sketch'){preview.add(sketchLine(makeSketchGeometry(f),{color:0x008ca5,depthTest:false,order:12}));parts.push(vertexBounds(sketchTemplateVertices(f)));}else for(const output of f.outputs){const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));geometry.setIndex(output.triangles);geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x43c3da,transparent:true,opacity:.6,depthWrite:false,side:THREE.DoubleSide}));mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry,25),new THREE.LineBasicMaterial({color:0x007a96})));preview.add(mesh);parts.push(vertexBounds(output.vertices));}}
   const bounds={min:[0,1,2].map(i=>Math.min(...parts.map(p=>p.min[i]))),max:[0,1,2].map(i=>Math.max(...parts.map(p=>p.max[i])))},offset=templatePlacement(bounds,getOccupied()),grid=getGrid();dialog.close();session={data,id,original,preview,bounds,position:offset,grid,picking:false};scene.add(preview);pq('info').textContent=data.name+' ／ '+summary(data);pq('pick').setAttribute('aria-pressed','false');panel.hidden=false;for(const el of panel.querySelectorAll('button,input'))el.disabled=false;mark(offset);fitPreview(new THREE.Box3(new THREE.Vector3(...bounds.min).add(new THREE.Vector3(...offset)),new THREE.Vector3(...bounds.max).add(new THREE.Vector3(...offset))));
  }
  async function apply(){if(!session||busy)return;const s=session,request=revision;let value;try{value=position();}catch(error){pq('error').textContent=error.message;return;}busy=true;for(const el of panel.querySelectorAll('button,input'))el.disabled=true;handle.disabled=true;pq('error').textContent='形状を貼り付けています…';
-  try{const result=await kernel.run([],{type:'selectionTemplateImport',id:s.id,data:s.data,position:value});if(request!==revision||session!==s||getFeatures()!==s.original)return;await onApply(result.features,s.original);cancel();notify('スケッチ '+s.data.sketches.length+' 個・ソリッド '+s.data.solids.length+' 個を貼り付けました');}
+  try{
+   const dimensions=getNamedDimensions();
+   const result=await kernel.run([],{type:'selectionTemplateImport',id:s.id,data:s.data,position:value,namedDimensions:dimensions});
+   if(request!==revision||session!==s||getFeatures()!==s.original||getNamedDimensions()!==dimensions&&s.data.history)return;
+   await onApply(result.features,s.original,result.namedDimensions);
+   cancel();
+   notify(s.data.history?'編集履歴付きでソリッド '+s.data.solids.length+' 個を貼り付けました':'スケッチ '+s.data.sketches.length+' 個・ソリッド '+s.data.solids.length+' 個を貼り付けました');
+  }
   catch(error){if(session===s)pq('error').textContent=error.message;}finally{if(session===s){busy=false;for(const el of panel.querySelectorAll('button,input'))el.disabled=false;}handle.disabled=false;}
  }
  function pointAt(event){if(!session)return null;const rect=canvas.getBoundingClientRect(),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2),camera);const n=new THREE.Vector3(...session.grid.normal),offset=drag?drag.offset:session.grid.offset||0;return ray.ray.intersectPlane(new THREE.Plane(n,-offset),new THREE.Vector3());}

@@ -584,7 +584,7 @@ function* computeOperation(features,spec,onProgress,context={}){
  if(spec.type==='printSupportRemovalSections')return inspectSupportRemovalSections(spec,onProgress);
  if(spec.type==='printSupportSliceReview')return inspectSupportSlicePaths(spec,onProgress);
  if(spec.type==='selectionTemplateExport')return exportSelectionTemplate(features,spec,kernelBodies,onProgress);
- if(spec.type==='selectionTemplateImport')return importSelectionTemplate(spec,onProgress);
+ if(spec.type==='selectionTemplateImport')return importSelectionTemplate(spec,onProgress,runOperation);
  if(spec.type==='repairProjectDisplay')return repairProjectDisplay(features,onProgress);
  if(spec.type==='geometryGapRepair'){const bodies=kernelBodies(features);let prepared;try{prepared=gapRepairSpec(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}return {...prepared,result:runOperation(features,prepared.spec,onProgress)};}
  if(spec.type==='geometryHealth'){const bodies=kernelBodies(features);try{return inspectGeometryHealth(bodies,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}

@@ -4,6 +4,7 @@ import {basisFor,worldPoint} from './frames.js';
 import {planeCoordinates,sketchPoints} from './regions.js';
 import {selectedSketchParts} from './sketch-selection.js';
 import {previewImageSource} from './project-preview.js';
+import {readSelectionHistory} from './selection-history.js';
 
 const fields=['construction','profile','mode','side','plane','width','height','diameter','depth','wall','x','y','z','angle','frame','points','closed','tangents','tangentLengths','arc'];
 export function portableSketch(source){
@@ -30,5 +31,6 @@ export function validateSelectionTemplate(value){
  if(!Array.isArray(value.origin)||value.origin.length!==3||value.origin.some(x=>!Number.isFinite(x)||Math.abs(x)>100000))throw Error('部品の配置基準が不正です');
  const sketches=value.sketches.map(portableSketch),solids=value.solids.map(s=>{if(typeof s?.name!=='string'||s.name.length>100||typeof s.brep!=='string'||!s.brep.length||s.brep.length>30000000)throw Error('部品のソリッドデータが不正です');return {name:s.name,brep:s.brep};});
  const ids=new Set();for(const f of sketches){if(typeof f.id!=='string'||!f.id||f.id.length>100||ids.has(f.id)||typeof f.groupId!=='string'||f.groupId.length>100)throw Error('スケッチの識別情報が不正です');ids.add(f.id);}
- return {format:value.format,version:1,units:'mm',category:sketches.length&&solids.length?'mixed':sketches.length?'sketch':'solid',name:value.name.trim(),origin:[...value.origin],sketches,solids,...(previewImageSource(value.preview)?{preview:structuredClone(value.preview)}:{})};
+ const history=value.history===undefined?undefined:readSelectionHistory(value.history,solids.length);
+ return {format:value.format,version:1,units:'mm',category:sketches.length&&solids.length?'mixed':sketches.length?'sketch':'solid',name:value.name.trim(),origin:[...value.origin],sketches,solids,...(history?{history}:{}),...(previewImageSource(value.preview)?{preview:structuredClone(value.preview)}:{})};
 }

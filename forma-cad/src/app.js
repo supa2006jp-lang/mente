@@ -50,6 +50,7 @@ import {edgeBodyRevolveOptions} from './edge-body-revolve.js';
 import {bindJoinBodyFields,syncJoinBodyFields} from './join-body-selection.js';
 import {printSupportExportCandidates,savedSupportExportGroups,savedSupportExportIds} from './print-support-export-choice.js';
 import {createExportDialog} from './export-dialog.js';
+import {drawingPrintSetControls,drawingPrintSetName,packDrawingPrintSet} from './drawing-print-set.js';
 import {createTSlotFrameDialog,frameOutputEntries,manualFrameOutputEntry} from './t-slot-frame-dialog.js';
 let tSlotFrameController=null;
 import {createExport3mfPreview} from './export-3mf-preview.js';
@@ -58,7 +59,7 @@ import {createCadWorkflow} from './cad-workflow.js';
 const outputDialog=createExportDialog({createPreview:createExport3mfPreview});
 import {createPrintSupportDialog} from './print-support-dialog.js';
 import {mergeSupportPackages,supportHistoryFeature} from './print-support-batch.js';
-import {savePrintSupport3mf} from './print-support-3mf.js';
+import {printSupport3mf,savePrintSupport3mf} from './print-support-3mf.js';
 import {printSupportFailureFromDocument} from './print-support-failure.js';
 let printSupportController=null,failureRecovery=null;
 let recoveredMachining=null;
@@ -1962,6 +1963,74 @@ function supportOutputEntry({original,ids=[],previews=[],run,label='本体とリ
   }
  };
 }
+function supportOutputConfigurations(original,visible){
+ const saved=savedSupportExportIds(original,meshes.keys());
+ const shownSupports=savedSupportExportIds(original,visible);
+ const batches=savedSupportExportGroups(original,meshes.keys());
+ const configurations=[];
+ if(shownSupports.length>1&&shownSupports.length<=100)
+  configurations.push({ids:shownSupports,label:'表示中のリブをまとめる（'+shownSupports.length+'件）'});
+ for(const batch of batches)if(batch.ids.length>1&&batch.ids.length<saved.length){
+  configurations.push({ids:batch.ids,label:'工程 '+(batch.index+1)+' の一括配置（'+batch.ids.length+'件）'});
+ }
+ for(const id of [...shownSupports,...saved.filter(id=>!shownSupports.includes(id))]){
+  const index=original.findIndex(feature=>feature.id===id);
+  configurations.push({ids:[id],label:'工程 '+(index+1)+' ／ '+bodyDisplayName(original[index].spec.target)+(shownSupports.includes(id)?'':'（非表示）')});
+ }
+ if(saved.length>1&&saved.length<=100&&saved.length!==shownSupports.length)
+  configurations.push({ids:saved,label:'非表示のリブも含めてまとめる（'+saved.length+'件）'});
+ return {saved,configurations};
+}
+let drawingPrintSetBusy=false;
+function openDrawingPrintSet(request){
+ if(outputDialog.active||drawingPrintSetBusy||!request.isCurrent())return;
+ const original=features,visible=bodyDisplay.visibleIds(),visibleKey=JSON.stringify(visible);
+ const {configurations}=supportOutputConfigurations(original,visible);
+ if(!configurations.length){request.status('作成済みの連結リブサポートを確認してください');return;}
+ const valid=()=>request.isCurrent()&&features===original&&JSON.stringify(bodyDisplay.visibleIds())===visibleKey;
+ const fallback=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'');
+ let fileName=drawingPrintSetName(request.name,fallback);
+ const blocked=request.issues.some(issue=>issue.kind==='layout');
+ const action=blocked?'PDFの配置を確認する':request.issues.length?'確認した内容でZIP保存':'ZIPでまとめて保存';
+ const drawingRows=[
+  ...request.targets.map(id=>({label:bodyDisplayName(id),detail:'PDFの対象ボディ'})),
+  ...request.rows.map(row=>({...row,label:'PDF '+row.label})),
+ ];
+ async function save(pkg){
+  if(!valid()||drawingPrintSetBusy)return;
+  if(blocked){
+   try{await request.openPDFReview();}catch(error){request.status(error.message);}
+   return;
+  }
+  drawingPrintSetBusy=true;
+  request.status('PDFと3MFを作成しています…');
+  try{
+   const drawing=await request.createPDF();
+   if(!valid())throw Error('図面やモデルが変更されました。出力セットを開き直してください');
+   const archive=packDrawingPrintSet(drawingPrintSetName(fileName,fallback),drawing,printSupport3mf(pkg));
+   download(archive.data,archive.fileName,'application/zip');
+   request.status('PDFと3MFを '+archive.fileName+' に保存しました');
+  }catch(error){request.status('出力セットを保存できませんでした。'+error.message);}
+  finally{drawingPrintSetBusy=false;}
+ }
+ const entries=configurations.map(({ids,label})=>{
+  const support=supportOutputEntry({original,ids,label});
+  const describe=rows=>[...rows.map(row=>({...row,detail:'3MF ／ '+(row.detail??'')})),...drawingRows];
+  const pdfTargets=new Set(request.targets);
+  const outside=[...new Set(ids.map(id=>original.find(f=>f.id===id).spec.target).filter(id=>!pdfTargets.has(id)))];
+  const detail=(blocked?'PDFのはみ出し・表題欄の重なりを調整してください。':'PDFと設定付き3MFを、同じ名前で1つのZIPに保存します。')+
+   (outside.length?' 3MFにのみ含まれる本体は「'+outside.map(bodyDisplayName).join('、')+'」です。':'');
+  return {label,rows:describe(support.rows),detail,action,run:save,
+   controls(owner){drawingPrintSetControls(owner,{fileName,onName:value=>{fileName=value;},issues:request.issues});},
+   async load(current){
+    const loaded=await support.load(current);
+    return current()?{...loaded,rows:describe(loaded.rows),detail,action}:{};
+   }};
+ });
+ const preferred=configurations.findIndex(({ids})=>ids.every(id=>request.targets.includes(original.find(f=>f.id===id).spec.target)));
+ outputDialog.open({title:'図面と印刷データの出力',initial:'printSet',initialTarget:Math.max(0,preferred),isCurrent:valid,
+  choices:[{id:'printSet',label:'出力セット（PDF＋3MF）',entries}]});
+}
 function openOutput(initial){
  if(!meshes.size||outputDialog.active||stlExportBusy||color3mfBusy)return;
  partWorkshop?.close();
@@ -1977,22 +2046,8 @@ function openOutput(initial){
  ];
  const bodyEntries=run=>groups.map(group=>({label:group.label,
   rows:group.ids.map(id=>({label:bodyDisplayName(id)})),run:()=>run(new Set(group.ids))}));
- const saved=savedSupportExportIds(original,meshes.keys());
- const shownSupports=savedSupportExportIds(original,visible);
- const batches=savedSupportExportGroups(original,meshes.keys());
- const configurations=[];
+ const {saved,configurations}=supportOutputConfigurations(original,visible);
  if(!visible.length&&!saved.length&&!frames.length){notify('出力できる表示中のボディがありません');return;}
- if(shownSupports.length>1&&shownSupports.length<=100)
-  configurations.push({ids:shownSupports,label:'表示中のリブをまとめる（'+shownSupports.length+'件）'});
- for(const batch of batches)if(batch.ids.length>1&&batch.ids.length<saved.length){
-  configurations.push({ids:batch.ids,label:'工程 '+(batch.index+1)+' の一括配置（'+batch.ids.length+'件）'});
- }
- for(const id of [...shownSupports,...saved.filter(id=>!shownSupports.includes(id))]){
-  const index=original.findIndex(feature=>feature.id===id);
-  configurations.push({ids:[id],label:'工程 '+(index+1)+' ／ '+bodyDisplayName(original[index].spec.target)+(shownSupports.includes(id)?'':'（非表示）')});
- }
- if(saved.length>1&&saved.length<=100&&saved.length!==shownSupports.length)
-  configurations.push({ids:saved,label:'非表示のリブも含めてまとめる（'+saved.length+'件）'});
  const visibleSnapshot=JSON.stringify(allVisible);
  const valid=()=>features===original&&JSON.stringify(bodyDisplay.visibleIds())===visibleSnapshot;
  const supportEntries=configurations.map(({ids,label})=>supportOutputEntry({original,ids,label,async run(pkg){
@@ -2023,6 +2078,8 @@ function openOutput(initial){
   {id:'support3mf',label:printSupport3mfLabel,entries:supportEntries},
   {id:'pdf',label:'PDF（図面）',entries:visible.length?[{label:'図面のページ',rows:[],
    detail:'図面でページ構成を確認してから保存できます。',action:'図面を開く',run:()=>drawingController.openForPDF()}]:[]},
+  {id:'printSet',label:'出力セット（PDF＋3MF）',entries:visible.length&&saved.length?[{label:'図面と作成済みリブ',rows:[],
+   detail:'図面のページと、3MFに含める本体・リブを確認できます。',action:'出力セットを確認する',run:()=>drawingController.openForPrintSet()}]:[]},
  ]});
 }
 $('export').onclick=()=>openOutput();
@@ -5366,6 +5423,7 @@ renderer.domElement.addEventListener('dblclick',e=>{
 },true);
 
 drawingController=installDrawing({onChange:()=>{modified=true;renderTree();},getFeatures:()=>features,getVisible:()=>bodyDisplay.visibleIds(),getSelected:()=>[...new Set([...selectedBodies,...selectedFaces.map(f=>f.bodyId),...selectedEdges.map(e=>e.bodyId)])],getFrontFace:()=>stage==='model'&&selectedFaces.length<=1&&selectedFace?.frame?.n&&meshes.get(selectedFace.bodyId)?.visible?selectedFace:null,download,
+ exportPrintSet:openDrawingPrintSet,canExportPrintSet:()=>savedSupportExportIds(features,meshes.keys()).length>0,
  exportPDF:entry=>outputDialog.open({initial:'pdf',choices:[{id:'pdf',label:'PDF（図面）',entries:[entry]}]})});
 
 // OS screen capture can interrupt pointer-up events without ending a CAD command.
@@ -5758,7 +5816,7 @@ async function editSplineTangent(end,angle,length){
  lastDrawPoint=null;previewSplineEdit();if(!sketch)await commitSplineEdit(before);splineEditor.update();
 }
 
-selectionLibrary=installSelectionLibrary({scene,camera,canvas:renderer.domElement,host,kernel:kernelClient,getFeatures:()=>features,
+selectionLibrary=installSelectionLibrary({scene,camera,canvas:renderer.domElement,host,kernel:kernelClient,getFeatures:()=>features,getNamedDimensions:()=>namedDimensions,
  createThumbnail:(data,{targets=[],features:thumbnailFeatures}={})=>captureSelectionThumbnail({renderer,data,features:thumbnailFeatures,meshes:targets.map(t=>meshes.get(t.id)).filter(Boolean)}),
  canUse:()=>!sketch&&!pendingExtrude&&!extrusionBusy&&!moveTool?.active&&!sketchMoveTool?.active&&stage!=='extrusion'&&!bodyDisplay?.exploded&&!document.querySelector('dialog[open]'),
  hasSelection:()=>selectedSketchSegments.size>0||selectionBodyIds().length>0||features.some(f=>f.id===selected&&f.kind==='sketch'),
@@ -5766,7 +5824,7 @@ selectionLibrary=installSelectionLibrary({scene,camera,canvas:renderer.domElemen
  getOccupied:()=>{const bounds=[...meshes.values()].map(mesh=>new THREE.Box3().setFromObject(mesh));for(const f of features.filter(f=>f.kind==='sketch'&&!f.groupHidden)){const vertices=sketchTemplateVertices(f),box=new THREE.Box3();for(let i=0;i<vertices.length;i+=3)box.expandByPoint(new THREE.Vector3(vertices[i],vertices[i+1],vertices[i+2]));bounds.push(box);}return bounds.filter(b=>!b.isEmpty()).map(b=>({min:b.min.toArray(),max:b.max.toArray()}));},
  getGrid:()=>{const b=basisFor({plane:gridPlane});return {normal:b.n.toArray(),u:b.u.toArray(),v:b.v.toArray(),offset:0,enabled:$('snap-enabled').checked,step:gridStep};},getControls:()=>controls,
  onPrepare:()=>{selectionPicker?.close();finishSketch(false);dropPreview();stage='model';syncFields();},
- onApply:(added,original)=>{if(features!==original)throw Error('モデルが変更されました。部品を読み込み直してください');const groups=new Map();let number=Math.max(0,...features.map(f=>f.groupNumber||0));const next=added.map(f=>{if(f.kind!=='sketch')return f;if(!groups.has(f.groupId))groups.set(f.groupId,++number);return {...f,groupNumber:groups.get(f.groupId)};});validateProject({format:'forma-cad',version:1,features:[...features,...next]});setProject([...features,...next]);clearSketchSelection();clearBodySelection();selected=null;stage='model';draftTouched=false;syncFields();},
+ onApply:(added,original,dimensions)=>{if(features!==original)throw Error('モデルが変更されました。部品を読み込み直してください');const groups=new Map();let number=Math.max(0,...features.map(f=>f.groupNumber||0));const next=added.map(f=>{if(f.kind!=='sketch')return f;if(!groups.has(f.groupId))groups.set(f.groupId,++number);return {...f,groupNumber:groups.get(f.groupId)};});validateProject({format:'forma-cad',version:1,features:[...features,...next]});setProject([...features,...next],{dimensions});clearSketchSelection();clearBodySelection();selected=null;stage='model';draftTouched=false;syncFields();},
  fitPreview:box=>{const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);if(center)controls.target.copy(center);controls.update();},download,notify
 });
 
