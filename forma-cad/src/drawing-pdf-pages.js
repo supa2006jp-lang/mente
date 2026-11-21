@@ -37,7 +37,7 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
    dimensionIndices.push(index);
    return true;
   });
-  const pageOptions={...options,pageViews:views,pageHoleTable:table,comments:notes};
+  const pageOptions={...options,pageViews:views,pageHoleTable:table,comments:notes,detailDimensionSources:dimensions};
   const specified=options.pdfPageScales?.[pages.length+1];
   const pageScale=specified??scale;
   const resized=views.filter(id=>options.pdfViewScales?.[id]!==undefined);

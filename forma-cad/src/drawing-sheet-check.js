@@ -3,7 +3,7 @@ import {dimensionPlacement,drawingDimensionConflicts} from './drawing-dimension-
 import {dimensionLabel} from './drawing-dimensions.js';
 import {drawingProjections} from './drawing-view-preferences.js';
 
-const sheetItems='[data-view],[data-dimension],[data-comment],[data-marker],[data-section],[data-detail],[data-hole-table],[data-hole-labels],[data-leader]';
+const sheetItems='[data-view],[data-dimension],[data-detail-dimension],[data-comment],[data-marker],[data-section],[data-detail],[data-hole-table],[data-hole-labels],[data-leader]';
 
 export function drawingSheetOverflow(svg,sheet){
  const issues=[];
@@ -29,9 +29,10 @@ function viewName(view){
 }
 
 function pageItemName(element,indices){
- const {view,dimension,comment,marker,section,detail,holeTable,holeLabels}=element.dataset;
+ const {view,dimension,detailDimension,comment,marker,section,detail,holeTable,holeLabels}=element.dataset;
  if(view)return viewName(view);
  if(dimension!==undefined)return '寸法 '+((indices?.[Number(dimension)]??Number(dimension))+1);
+ if(detailDimension)return '詳細図の寸法';
  if(comment)return 'コメント';
  if(marker)return '中心表示';
  if(section)return '切断線';

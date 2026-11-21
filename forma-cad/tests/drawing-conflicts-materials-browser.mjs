@@ -47,6 +47,7 @@ try{
  async function savePDF(){
   const download=page.waitForEvent('download');
   await field('pdf').click();
+  await page.locator('#export-confirm').click();
   const needsReview=await field('pdf-preview').isVisible();
   if(needsReview){
    assert.match(await field('pdf-preview-check-summary').textContent(),/出力前チェック/);
@@ -57,7 +58,7 @@ try{
   return bytes;
  }
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
- await page.locator('#canvas-host canvas').waitFor();
+ await page.waitForFunction(()=>typeof document.getElementById('file')?.onchange==='function');
  async function open(name,document){
   await page.locator('#file').setInputFiles({name,mimeType:'application/json',buffer:Buffer.from(JSON.stringify(document))});
   await page.locator('#project-preview-open').click();
@@ -107,11 +108,16 @@ try{
  await field('layout-mode').check();
  const textPoint=async()=>Promise.all(['x','y'].map(key=>label(0).getAttribute(key)));
  const original=await textPoint();
- async function dragLabel(dx,dy){
+ async function dragLabel(dx,dy,axis){
   await label(0).scrollIntoViewIfNeeded();
   const box=await label(0).boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;
   await page.mouse.move(x,y);await page.mouse.down();
-  await page.mouse.move(x+dx,y+dy,{steps:6});await page.mouse.up();
+  await page.mouse.move(x+dx,y+dy,{steps:6});
+  const guides=field('preview').locator('[data-dimension-drag-guide]');
+  if(axis!==undefined)assert.equal(await guides.getAttribute('data-dimension-drag-guide'),String(axis));
+  else assert.equal(await guides.count(),0);
+  await page.mouse.up();
+  assert.equal(await guides.count(),0);
  }
  await dragLabel(44,32);
  const oblique=await textPoint();
@@ -128,6 +134,23 @@ try{
  await page.keyboard.down('Shift');await dragLabel(44,20);await page.keyboard.up('Shift');
  const constrained=await textPoint();
  assert.equal(constrained[0],oblique[0]);assert(+constrained[1]>+oblique[1]);
+ await dragLabel(49,5,1);
+ const horizontal=await textPoint();
+ assert(+horizontal[0]>+constrained[0]);
+ assert(Math.abs(horizontal[1]-constrained[1])<1e-6);
+ await field('undo').click();
+ await field('zoom-in').click();
+ await dragLabel(5,39,0);
+ const vertical=await textPoint();
+ assert(Math.abs(vertical[0]-constrained[0])<1e-6);
+ assert(+vertical[1]>+constrained[1]);
+ await field('undo').click();
+ await field('zoom-fit').click();
+ await page.keyboard.down('Alt');await dragLabel(49,5);await page.keyboard.up('Alt');
+ const unsnapped=await textPoint();
+ assert(+unsnapped[0]>+constrained[0]&&+unsnapped[1]>+constrained[1]);
+ await field('undo').click();
+ assert.deepEqual(await textPoint(),constrained);
  await field('comment').fill('LOWER LEFT NOTE');await field('comment').press('Tab');
  const preview=field('preview').locator('svg'),note=preview.locator('[data-comment]');
  await preview.scrollIntoViewIfNeeded();
@@ -348,6 +371,56 @@ try{
  await field('page-assignments').locator('summary').click();
  assert.equal(await pageItem('top').inputValue(),'2');
  assert.equal(await pageItem('comment').inputValue(),'2');
+ await field('close').click();
+
+ const enlarged={...drawing,dimensions:[
+  {view:'top',kind:'horizontal',a:[21,-25],b:[29,-25],at:[25,8],displayValue:8.25},
+  {view:'top',kind:'vertical',a:[25,-29],b:[25,-21],at:[58,-25]},
+  drawing.dimensions[0],
+ ],options:{...drawing.options,frame:false,layout:'projection'}};
+ await open('enlargement.forma.json',{...project,drawing:enlarged});
+ await field('detail-factor').fill('2.75');
+ await field('detail-add').click();
+ const top=preview.locator('[data-view=top] > g[transform]');
+ const screenPoint=(x,y)=>top.evaluate((node,[x,y])=>{
+  const point=new DOMPoint(x,y).matrixTransform(node.getScreenCTM());
+  return [point.x,point.y];
+ },[x,y]);
+ await top.scrollIntoViewIfNeeded();
+ await page.mouse.click(...await screenPoint(25,-25));
+ await page.mouse.click(...await screenPoint(35,-25));
+ const detail=preview.locator('[data-view^=detail-]');
+ assert.equal(await detail.count(),1);
+ const detailScale=()=>detail.locator('g[transform]').first().getAttribute('transform')
+  .then(transform=>Number(transform.match(/scale\(([^)]+)\)/)[1]));
+ assert.equal(await detailScale(),2.75);
+ assert.deepEqual(await preview.locator('[data-detail-dimension] text').allTextContents(),['8.25','8']);
+ await field('detail-factor-edit').fill('3.125');
+ await field('detail-factor-edit').press('Enter');
+ assert.equal(await detailScale(),3.125);
+ await field('undo').click();
+ assert.equal(await detailScale(),2.75);
+ await field('redo').click();
+ assert.equal(await detailScale(),3.125);
+ await field('pdf-layout').selectOption('manual');
+ await field('pdf-placement').selectOption('auto');
+ await field('pdf-preview-open').click();
+ await printPage.selectOption('1');
+ assert.equal(await printPreview.locator('[data-view=top]').count(),0);
+ assert.deepEqual(await printPreview.locator('[data-detail-dimension] text').allTextContents(),['8.25','8']);
+ assert.equal(await printPreview.locator('[data-dimension-drag-guide]').count(),0);
+ const detailDownload=page.waitForEvent('download');
+ await field('pdf-preview-save').click();
+ assert((await fs.readFile(await(await detailDownload).path(),'latin1')).includes('/Count 2'));
+ await field('pdf-preview-close').click();
+ await field('close').click();
+ const projectDownload=page.waitForEvent('download');await page.locator('#save').click();
+ const detailFile=(await decodeProjectDocument(await fs.readFile(await(await projectDownload).path(),'utf8'))).document;
+ assert.equal(detailFile.drawing.options.details[0].factor,3.125);
+ assert.equal(detailFile.drawing.dimensions.length,3);
+ await open('saved-detail.forma.json',detailFile);
+ assert.equal(await detailScale(),3.125);
+ assert.deepEqual(await preview.locator('[data-detail-dimension] text').allTextContents(),['8.25','8']);
  assert.deepEqual(errors,[]);
- console.log('PASS alignment with undo, saved page assignments, comments and scales, PDF preview/export and dimension/material regressions');
+ console.log('PASS axis snapping, guide cleanup, free dragging, decimal detail magnification, inherited dimensions on PDF pages, save and reload, and drawing regressions');
 }finally{await browser?.close();server.close();}

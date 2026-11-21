@@ -29,8 +29,9 @@ function dimensionText(d,x,y,color){
  return '<rect x="'+(x-width/2)+'" y="'+(y-font*.75)+'" width="'+width+'" height="'+(font*1.45)+'" fill="white" stroke="none"/>'+
   '<text x="'+x+'" y="'+(y+font*.31)+'" text-anchor="middle" font-size="'+font+'" fill="'+color+'" stroke="none">'+escapeDrawingText(label)+'</text>';
 }
-function dimensionGroup(d,index,paths,colors,x,y){
- return '<g data-dimension="'+index+'"'+(d.review?' data-dimension-review="true" stroke-dasharray="2 1"':'')+
+function dimensionGroup(d,index,paths,colors,x,y,inherited){
+ const target=inherited?'data-detail-dimension="'+escapeDrawingText(d.view)+'" pointer-events="none"':'data-dimension="'+index+'"';
+ return '<g '+target+(d.review?' data-dimension-review="true" stroke-dasharray="2 1"':'')+
   ' stroke="'+colors.line+'" stroke-width=".18" fill="none">'+paths+dimensionText(d,x,y,colors.text)+'</g>';
 }
 export function dimensionValue(d){if(d.kind==='diameter')return d.radius*2;if(d.kind==='radius')return d.radius;if(d.kind==='angle'){const a=[d.a[0]-d.vertex[0],d.a[1]-d.vertex[1]],b=[d.b[0]-d.vertex[0],d.b[1]-d.vertex[1]];return Math.acos(Math.max(-1,Math.min(1,(a[0]*b[0]+a[1]*b[1])/(Math.hypot(...a)*Math.hypot(...b)))))*180/Math.PI;}const dx=d.b[0]-d.a[0],dy=d.b[1]-d.a[1];return d.kind==='horizontal'?Math.abs(dx):d.kind==='vertical'?Math.abs(dy):Math.hypot(dx,dy);}
@@ -86,7 +87,7 @@ export function drawingDimensionGeometry(d,view,scale=view.scale){
   extensions:[[a,extensionEnd(a,q)],[b,extensionEnd(b,r)]],
   arrows:[arrowPoints(q,u),arrowPoints(r,[-u[0],-u[1]])]};
 }
-export function dimensionSVG(d,view,scale,index,defaults){
+export function dimensionSVG(d,view,scale,index,defaults,{inherited=false}={}){
  const geometry=drawingDimensionGeometry(d,view,scale);
  if(!geometry)return '';
  const colors=d.review?{line:'#a85014',text:'#a85014'}:{
@@ -99,7 +100,7 @@ export function dimensionSVG(d,view,scale,index,defaults){
   paths+='<path d="M '+first.join(' ')+' A '+radius+' '+radius+' 0 0 '+(sweep>0?1:0)+' '+last.join(' ')+'"/>';
  }
  paths+=geometry.arrows.map(points=>'<path d="'+path(points)+' Z" fill="'+colors.line+'"/>').join('');
- return dimensionGroup(d,index,paths,colors,...geometry.at);
+ return dimensionGroup(d,index,paths,colors,...geometry.at,inherited);
 }
 // Endpoints of SVG line, arc and Bezier segments; these are model-space coordinates.
 export function pathEndpoints(paths){const points=[];for(const path of paths){const tokens=path.match(/[a-zA-Z]|[-+]?(?:\d*\.)?\d+(?:[eE][-+]?\d+)?/g)||[];let i=0,command='';while(i<tokens.length){if(/^[a-zA-Z]$/.test(tokens[i]))command=tokens[i++];const count={M:2,L:2,A:7,C:6,Q:4}[command];if(!count){if(command==='Z'||command==='z'){command='';continue;}break;}if(i+count>tokens.length)break;const values=tokens.slice(i,i+count).map(Number);if(values.some(v=>!Number.isFinite(v)))break;points.push(values.slice(-2));i+=count;}}return [...new Map(points.map(p=>[p.join(','),p])).values()];}

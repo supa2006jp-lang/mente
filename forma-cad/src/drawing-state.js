@@ -1,5 +1,5 @@
 import {canOverrideDrawingDimensionValue,dimensionValue,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
-import {drawingProjectionNames,validDrawingScale} from './drawing-view-preferences.js';
+import {drawingProjectionNames,validDrawingDetailFactor,validDrawingScale} from './drawing-view-preferences.js';
 import {autoDimensionKeys} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
 import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
@@ -77,7 +77,13 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  }
  const sections=o.sections||[],details=o.details||[],markers=o.markers||[];if(!Array.isArray(sections)||sections.length>8||!Array.isArray(details)||details.length>8||!Array.isArray(markers)||markers.length>200)fail();
  const viewNames=new Set(drawingProjectionNames),ids=new Set();for(const section of sections){if(!extraId(section.id)||!section.id.startsWith('section-')||ids.has(section.id)||!viewNames.has(section.view)||!['vertical','horizontal'].includes(section.orientation)||!Number.isFinite(section.coordinate)||Math.abs(section.coordinate)>1e6||typeof section.reverse!=='boolean')fail();ids.add(section.id);}
- for(const id of ids)viewNames.add(id);for(const detail of details){if(!extraId(detail.id)||!detail.id.startsWith('detail-')||ids.has(detail.id)||!viewNames.has(detail.view)||!point(detail.center)||!Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||![2,4,10].includes(detail.factor))fail();ids.add(detail.id);}for(const id of ids)viewNames.add(id);
+ for(const id of ids)viewNames.add(id);
+ for(const detail of details){
+  if(!extraId(detail.id)||!detail.id.startsWith('detail-')||ids.has(detail.id)||!viewNames.has(detail.view)||!point(detail.center)||
+   !Number.isFinite(detail.radius)||detail.radius<=0||detail.radius>1e6||!validDrawingDetailFactor(detail.factor))fail();
+  ids.add(detail.id);
+ }
+ for(const id of ids)viewNames.add(id);
  if(s.dimensionPoints!==undefined){
   if(!Array.isArray(s.dimensionPoints)||s.dimensionPoints.length>maxDrawingDimensionPoints)fail();
   const pointIds=new Set();

@@ -1,3 +1,12 @@
+export function snapDrawingDragAxis(delta,pixelsPerAxis,previousAxis){
+ const distance=delta.map((value,axis)=>Math.abs(value*pixelsPerAxis[axis]));
+ const travel=distance[0]>=distance[1]?0:1,axis=1-travel;
+ const margin=axis===previousAxis?12:8;
+ if(distance[axis]>margin||distance[axis]>distance[travel]/2)return {delta,axis:null};
+ const snapped=[...delta];snapped[axis]=0;
+ return {delta:snapped,axis};
+}
+
 export function snapDrawingPlacement(delta,box,sheet,{view,comment=false,movingViews=[]}={}){
  const bottom=comment&&sheet.titleBlock?sheet.height-5:sheet.contentBottom;
  const targets=[[5,sheet.width-5],[17,bottom]];

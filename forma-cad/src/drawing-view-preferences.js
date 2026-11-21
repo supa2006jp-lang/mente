@@ -65,6 +65,7 @@ export const drawingViewFactor=(name,options={})=>name==='front'&&options.viewPr
 export const drawingViewScale=(name,scale,options={},factor=1)=>options.viewScales?.[name]??scale*drawingViewFactor(name,options)*factor;
 export const minDrawingScale=.0001,maxDrawingScale=1000;
 export const validDrawingScale=value=>Number.isFinite(value)&&value>=minDrawingScale&&value<=maxDrawingScale;
+export const validDrawingDetailFactor=value=>value>=1&&validDrawingScale(value);
 export function parseDrawingScale(text){
  const parts=text.normalize('NFKC').trim().split(/\s*[:/]\s*/);
  if(parts.length>2||parts.some(part=>!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(part)))return null;

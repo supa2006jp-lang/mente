@@ -4,6 +4,7 @@ import {decoratedDrawingViews,drawingViewFrames} from './drawing-auto-layout.js'
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries,drawingCommentLayout,drawingCommentMargin} from './drawing-comments.js';
 import {dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
+import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
 import {drawingViewTitle,drawingViewTitleSVG} from './drawing-view-title.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
 import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG,resolveDrawingHoleTable} from './drawing-hole-table.js';
@@ -146,6 +147,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  if(!fixedPaper){height=Math.max(height,extraNames.length?extraY+rowHeight+(options.frame?42:20):0);width=Math.max(width,...extraNames.map(k=>layout[k].x+layout[k].width+20));}
  for(const [key,p] of Object.entries(positions))if(layout[key]){layout[key].x=p[0];layout[key].y=p[1];}
  if(!options.pageSize&&options.projectionLocked&&options.layout!=='compact')alignThirdAngleViews(layout,positions.front??projectionPositions.front);
+ const inheritedDimensions=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions);
  const tableSize=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:layout);
  const holeBox=tableSize?{...tableSize,x:positions.holeTable?.[0]??Math.max(rightEdge+12,width-tableSize.width-12),y:positions.holeTable?.[1]??24}:null;
  if(holeBox&&!fixedPaper){
@@ -169,7 +171,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  if(viewColor){
   for(const [name,{x,y,width,height}] of Object.entries(layout))viewBoxes[name]=[{x,y,width,height},viewTitles[name]];
   for(const [name,geometry] of leaderGeometry)if(geometry)viewBoxes[name].push(geometry.bounds);
-  for(const d of dimensions){
+  for(const d of [...dimensions,...inheritedDimensions]){
    const p=dimensionPlacement(d,{layout});
    if(p)viewBoxes[d.view].push(p.box,...p.main,...p.extensions,...p.arrowBoxes);
   }
@@ -209,6 +211,11 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor)).join(''):'';
  const thirdAngle=drawingProjectionNames.some(name=>layout[name])&&isThirdAngleLayout(layout)&&(!layout.front||drawingViewFactor('front',options)===1);
  const sheetTitle='FORMA CAD / '+(options.layout==='compact'?'AUTO LAYOUT':thirdAngle?'THIRD ANGLE':'VIEW LAYOUT');
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,sheetTitle,4.5)+text(width-15,12,scaleSummary.header,3.5,'text-anchor="end" data-sheet-scale="true"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensions.map((d,i)=>layout[d.view]?dimensionSVG(d,layout[d.view],layout[d.view].scale,i,options.dimensionColors):'').join('')+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
+ const renderDimension=(d,index,inherited=false)=>{
+  const view=layout[d.view];
+  return view?dimensionSVG(d,view,view.scale,index,options.dimensionColors,{inherited}):'';
+ };
+ const dimensionGraphics=inheritedDimensions.map(d=>renderDimension(d,-1,true)).join('')+dimensions.map((d,i)=>renderDimension(d,i)).join('');
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+text(15,12,sheetTitle,4.5)+text(width-15,12,scaleSummary.header,3.5,'text-anchor="end" data-sheet-scale="true"')+baseViews+extraViews+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+dimensionGraphics+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
  return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom:height-(options.frame?35:12)};
 }
