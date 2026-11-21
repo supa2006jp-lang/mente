@@ -5,16 +5,17 @@ import {normalizeShellOpenings} from './shell-normalize.js';
 import {shellRecessedSphere} from './shell-recessed-sphere.js';
 import {shellRoundedPrism} from './shell-rounded-prism.js';
 import {shellPrismaticProfile} from './shell-prismatic-profile.js';
+import {MODEL_PRECISION} from './model-precision.js';
 
 // The default rounded offset can return the unmodified solid where short
 // planar faces meet circular walls. Join the offset surfaces by intersection
 // on that failure, without rebuilding the original outline or changing depth.
-function intersectingOffsetShell(base,faces,thickness,rounded=false){
+function intersectingOffsetShell(base,faces,thickness,rounded,tolerance){
  const oc=R.getOC(),list=new oc.NCollection_List_TopoDS_Shape(),builder=new oc.BRepOffsetAPI_MakeThickSolid();
  try{
   for(const face of faces)list.Append(face.wrapped);
-  builder.MakeThickSolidByJoin(base.wrapped,list,-thickness,.001,oc.BRepOffset_Mode.BRepOffset_Skin,true,false,rounded?oc.GeomAbs_JoinType.GeomAbs_Arc:oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
-  return R.cast(builder.Shape()).asShape3D();
+  builder.MakeThickSolidByJoin(base.wrapped,list,-thickness,tolerance,oc.BRepOffset_Mode.BRepOffset_Skin,true,false,rounded?oc.GeomAbs_JoinType.GeomAbs_Arc:oc.GeomAbs_JoinType.GeomAbs_Intersection,false);
+  return builder.IsDone()?R.cast(builder.Shape()).asShape3D():null;
  }finally{builder.delete();list.delete();}
 }
 
@@ -27,17 +28,24 @@ export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemov
  // Preserve the inexpensive specialized recovery for old faceted lofts before
  // attempting general surface intersections on their many small side faces.
  if(faces.length===1&&circularLoftInfo)attempts.push(()=>shellCoaxialCircularLoft(base,faces[0],circularLoftInfo,p.thickness,p.direction));
- if(thickness>0)attempts.push(()=>shellPrismaticProfile(base,faces,thickness,original,onRemoved));
+ if(thickness>0){
+  attempts.push(()=>shellPrismaticProfile(base,faces,thickness,original,onRemoved));
+  // With both ends open the sections are equivalent. The other cap can
+  // supply cleaner native seams for the mesh of a newly separated bore wall.
+  if(faces.length===2)attempts.push(()=>shellPrismaticProfile(base,[faces[1],faces[0]],thickness,original,onRemoved));
+ }
  // Revolved swept bodies can have trimmed, overlapping offset surfaces. The
  // default rounded join does not intersect them globally; retain rounded joins
  // and enable that intersection before falling back to sharp surface joins.
- attempts.push(()=>intersectingOffsetShell(base,faces,thickness,true));
- attempts.push(()=>intersectingOffsetShell(base,faces,thickness));
+ // Use the modelling tolerance for intersection joins first. The larger
+ // offset tolerance can create short faces that the STL tessellator misses.
+ const intersections=[[true,.001],[false,MODEL_PRECISION.contact],[false,.001]];
+ for(const [rounded,tolerance] of intersections)attempts.push(()=>intersectingOffsetShell(base,faces,thickness,rounded,tolerance));
  let normalized=null,normalizationError=null,normalizationTried=false;
  const normalizedSource=()=>{if(!normalizationTried){normalizationTried=true;try{normalized=normalizeShellOpenings(base,p.faces,faces);}catch(error){normalizationError=error;}}if(!normalized)throw normalizationError;return normalized;};
  if(p.faces?.length){
   attempts.push(()=>{const source=normalizedSource();return source.shape.shell(thickness,face=>face.inList(source.faces));});
-  for(const rounded of [true,false])attempts.push(()=>{const source=normalizedSource();return intersectingOffsetShell(source.shape,source.faces,thickness,rounded);});
+  for(const [rounded,tolerance] of intersections)attempts.push(()=>{const source=normalizedSource();return intersectingOffsetShell(source.shape,source.faces,thickness,rounded,tolerance);});
  }
  if(thickness>0&&faces.length===1)attempts.push(()=>shellRoundedPrism(base,faces[0],thickness,original));
  if(thickness>0)attempts.push(()=>shellRecessedSphere(base,faces,thickness,p.includeOpeningRecess));
@@ -55,7 +63,7 @@ export function shellBody(base,p,circularLoftInfo=null,openingFaces=null,onRemov
      try{valid=check.IsValid();}finally{check.delete();}
      volume=R.measureVolume(shape);
     }catch{}
-    if(valid&&Number.isFinite(volume)&&volume>1e-8&&(p.direction==='外側'||original-volume>Math.max(1e-7,original*1e-8))){accepted=true;return shape;}
+    if(valid&&Number.isFinite(volume)&&volume>1e-8&&!shape.isSame(base)&&(p.direction==='外側'||original-volume>Math.max(1e-7,original*1e-8))){accepted=true;return shape;}
     reason=valid&&Number.isFinite(volume)&&volume>1e-8?'シェル計算で内側の空間を作れませんでした。壁厚や開口面を確認してください':'有効なシェルを作成できません。壁厚と選択面を確認してください';
    }finally{if(!accepted)shape.delete();}
   }
