@@ -8,3 +8,9 @@ export function cadSubshapes(shape,kind,{hash}={}){
  try{for(;explorer.More();explorer.Next()){const item=explorer.Current();try{const key=hash?hash(item):oc.ReplicadShapeHasher.HashCode(item,R.HASH_CODE_MAX),bucket=buckets.get(key)||[];if(bucket.some(saved=>saved.wrapped.IsSame(item)))continue;const wrapped=R.cast(item);result.push(wrapped);bucket.push(wrapped);buckets.set(key,bucket);}finally{item.delete();}}return result;}
  catch(error){result.forEach(part=>part.delete());throw error;}finally{explorer.delete();}
 }
+
+export function cadPlanarFaceIds(shape){
+ const faces=cadSubshapes(shape,'face');
+ try{return faces.filter(face=>face.geomType==='PLANE').map(face=>face.hashCode);}
+ finally{faces.forEach(face=>face.delete());}
+}

@@ -3,8 +3,9 @@
 // the extractor already supplies the render normals and triangle topology.
 import * as R from 'replicad';
 import {measurePhase} from './phase-timings.js';
+import {cadSubshapes} from './cad-topology.js';
 export function cadMesh(shape,options={tolerance:.08,angularTolerance:.15}){return measurePhase('display',()=>{
- const mesh=shape.mesh(options),faces=shape.faces,vertices=[],oc=R.getOC();
+ const mesh=shape.mesh(options),faces=cadSubshapes(shape,'face'),vertices=[],oc=R.getOC();
  try{
   for(const face of faces){
    const location=new oc.TopLoc_Location();let triangulation,transform;

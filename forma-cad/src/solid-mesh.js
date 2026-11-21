@@ -1,5 +1,6 @@
 import * as R from 'replicad';
 import {cadMesh} from './cad-mesh.js';
+import {cadSubshapes} from './cad-topology.js';
 
 // A valid BREP can still have missing or overlapping triangles after a boolean.
 // Compare against exact CAD areas and volumes using native mesh positions.
@@ -13,12 +14,15 @@ export function solidMeshComplete(shape,mesh=cadMesh(shape)){
   }
   areas.set(group.faceId,(areas.get(group.faceId)||0)+area);
  }
- const faces=shape.faces;let polyhedral=true;
+ const faces=cadSubshapes(shape,'face');let polyhedral=true;
  try{
   for(const face of faces){
    const area=areas.get(face.hashCode);if(!(area>0))return false;
-   const edges=face.edges;let straight;
-   try{straight=face.geomType==='PLANE'&&edges.every(edge=>edge.geomType==='LINE');}finally{for(const edge of edges)edge.delete();}
+   let straight=false;
+   if(face.geomType==='PLANE'){
+    const edges=cadSubshapes(face,'edge');
+    try{straight=edges.every(edge=>edge.geomType==='LINE');}finally{edges.forEach(edge=>edge.delete());}
+   }
    polyhedral&&=straight;
    // Curved boundaries have an intentional chord approximation in the mesh.
    if(straight){const expected=R.measureArea(face);if(Math.abs(area-expected)>Math.max(.001,expected*1e-5))return false;}

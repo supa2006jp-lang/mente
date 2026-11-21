@@ -1,10 +1,11 @@
 import * as R from 'replicad';
 import {MODEL_PRECISION} from './model-precision.js';
 import {solidMeshComplete} from './solid-mesh.js';
+import {cadSubshapes} from './cad-topology.js';
 
 function valid(shape){const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);try{return check.IsValid();}finally{check.delete();}}
-function count(shape,key){const parts=shape[key];try{return parts.length;}finally{parts.forEach(part=>part.delete());}}
-function metrics(shape){const box=shape.boundingBox;try{return {volume:R.measureVolume(shape),area:R.measureArea(shape),bounds:box.bounds.map(p=>[...p]),solids:count(shape,'solids'),faces:count(shape,'faces'),edges:count(shape,'edges')};}finally{box.delete();}}
+function count(shape,kind){const parts=cadSubshapes(shape,kind);try{return parts.length;}finally{parts.forEach(part=>part.delete());}}
+function metrics(shape){const box=shape.boundingBox;try{return {volume:R.measureVolume(shape),area:R.measureArea(shape),bounds:box.bounds.map(p=>[...p]),solids:count(shape,'solid'),faces:count(shape,'face'),edges:count(shape,'edge')};}finally{box.delete();}}
 // Keep an absolute ceiling as well as a relative limit. Large curved bodies
 // can pass a relative-only check despite a changed integration result.
 const close=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=Math.max(MODEL_PRECISION.minVolume,Math.min(1e-6,Math.abs(b)*MODEL_PRECISION.relativeVolume));
