@@ -58,6 +58,7 @@ try{
  }
 
  await open(drawing);
+ assert.equal(await field('dimension-kind').inputValue(),'aligned');
  assert.equal(await field('pdf-placement').inputValue(),'keep');
  const assignments=field('page-assignments');
  assert(await assignments.isVisible());
@@ -473,6 +474,8 @@ try{
  const isoDrawing={...drawing,dimensions:[],comment:'',options:{...drawing.options,viewSelection:[],isoMode:'full',
   positions:{iso:[65,65]},sections:[],pageAssignments:{pageCount:2,views:{iso:2},comments:{}}}};
  await open(isoDrawing,'iso');
+ assert(await field('dimension-add').isEnabled());
+ await field('dimension-kind').selectOption('horizontal');
  assert(await field('dimension-add').isDisabled());
  await field('dimension-kind').selectOption('aligned');
  assert.match(await field('dimension-hint').textContent(),/俯瞰図.*実寸/);
