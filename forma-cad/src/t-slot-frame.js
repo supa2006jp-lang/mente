@@ -89,6 +89,7 @@ export function plateOutline(part) {
 }
 export function framePartKey(part) {
   if (part.kind==='rail') return 'rail-'+part.length;
+  if (part.kind==='bolt'&&part.length===10) return 'bolt-10';
   if (part.kind==='splice'&&part.span!==undefined) return 'splice-2';
   if (part.kind==='corner'&&part.panelHole) return 'corner-panel';
   if (part.kind==='strap') return 'strap-'+part.span+(part.keyed?'-keyed':part.shared?'-shared':'');
@@ -96,11 +97,12 @@ export function framePartKey(part) {
 }
 export function framePartName(part) {
   if (part.kind==='rail') return 'T溝フレーム '+round(part.length)+' mm';
+  if (part.kind==='bolt') return part.length===10?'M8×10 ボルト':'M8×16 ボルト';
   if (part.kind==='splice') return part.span===undefined?'4穴直線連結プレート 90 mm':'2穴直線連結プレート '+plateDimensions(part).length+' mm';
   if (part.kind==='corner'&&part.panelHole) return '直角連結ブラケット（透明板用M8めねじ）';
   if (part.keyed) return '短尺材用キー付きプレート '+round(part.span+18)+' mm';
   if (part.kind==='strap') return part.shared?'3穴外付けプレート '+Number((part.span+18).toFixed(3))+' mm':'2穴外付けプレート';
-  return {corner:'直角連結ブラケット',bolt:'M8×16 ボルト',nut:'M8 T溝ナット（−0.10 mm調整版）'}[part.kind];
+  return {corner:'直角連結ブラケット',nut:'M8 T溝ナット（−0.10 mm調整版）'}[part.kind];
 }
 export function framePartBounds(part) {
   if (part.kind==='rail') return [[-14,-14,0],[14,14,part.length]];
@@ -109,7 +111,7 @@ export function framePartBounds(part) {
     const x=plate.length/2,y=plate.width/2,key=plateKey(part);
     return [[-x,-y,0],[x,y,key?key.levels.at(-1)[0]:plate.height]];
   }
-  return dimensions.bounds[part.kind];
+  return dimensions.bounds[framePartKey(part)]??dimensions.bounds[part.kind];
 }
 
 export function validateFrameBox(box,sizingVersion=FRAME_SIZING_VERSION) {
@@ -235,8 +237,8 @@ export function savedFrameAssembly(analysis) {
   return frameAssembly(analysis.tSlotBox,analysis.tSlotSizingVersion??1);
 }
 
-export function frameBill(assembly,extraBolts=0,extraNuts=0) {
-  if (![extraBolts,extraNuts].every(n=>Number.isSafeInteger(n)&&n>=0&&n<=10000))
+export function frameBill(assembly,extraBolts=0,extraNuts=0,extraShortBolts=0) {
+  if (![extraBolts,extraNuts,extraShortBolts].every(n=>Number.isSafeInteger(n)&&n>=0&&n<=10000))
     throw Error('追加数はそれぞれ0〜10000の整数で入力してください。');
   const bill=new Map();
   function count(part,n) {
@@ -246,6 +248,7 @@ export function frameBill(assembly,extraBolts=0,extraNuts=0) {
   }
   for(const part of assembly.parts) count(part,1);
   count({kind:'bolt'},assembly.fixings+extraBolts);
+  if(extraShortBolts)count({kind:'bolt',length:10},extraShortBolts);
   count({kind:'nut'},assembly.fixings+extraNuts);
   return [...bill.values()];
 }

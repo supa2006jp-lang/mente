@@ -228,7 +228,11 @@ test('a closed mesh-only guide works alongside older mesh bodies and an open box
   }finally{solid.delete();}
 });
 test('all hardware and independent extras are counted once on disjoint 180 mm plates',()=>{
-  const bill=frameBill(frameAssembly(guide([160,160,160])),3,5),plates=framePrintPlates(bill);
+  const assembly=frameAssembly(guide([160,160,160]));
+  assert.ok(!frameBill(assembly).some(p=>p.key==='bolt-10'));
+  for(const n of [-1,.5,10001,NaN])assert.throws(()=>frameBill(assembly,3,5,n),/整数/);
+  assert.equal(frameBill(assembly,0,0,10000).find(p=>p.key==='bolt-10').count,10000);
+  const bill=frameBill(assembly,3,5,4),plates=framePrintPlates(bill);
   assert.ok(plates.length>1);
   const totals=new Map(),cache=new Map();
   for(const plate of plates){
@@ -246,12 +250,35 @@ test('all hardware and independent extras are counted once on disjoint 180 mm pl
     }
   }
   assert.deepEqual(Object.fromEntries(totals),Object.fromEntries(bill.map(p=>[p.key,p.count])));
-  assert.equal(totals.get('bolt'),43);assert.equal(totals.get('nut'),45);
+  assert.equal(totals.get('bolt'),43);assert.equal(totals.get('bolt-10'),4);assert.equal(totals.get('nut'),45);
   assert.equal(framePrintPlates([{kind:'nut',key:'nut',count:1}]).length,1);
   const variants=[...bill,...frameBill(frameAssembly(guide([20,50,40])))];
   for(const part of new Map(variants.map(p=>[p.key,p])).values()){
     const report=inspectStlMesh(stock.mesh(part),{includeComponents:true,maxSegments:0});
     assert.ok(report.ok&&report.removedDegenerate===0&&report.components.length===1,part.key);
+  }
+});
+test('M8×10 has a 10 mm under-head length, tapered tip and a mating right-hand 1.25 mm pitch',()=>{
+  const part={kind:'bolt',length:10},mesh=stock.mesh(part),v=mesh.vertices;
+  let seat=-Infinity,tip=-Infinity;
+  for(let i=0;i<v.length;i+=3){
+    if(Math.hypot(v[i],v[i+1])>4.1)seat=Math.max(seat,v[i+2]);
+    tip=Math.max(tip,v[i+2]);
+  }
+  assert.ok(Math.abs(seat-5.6)<1e-5&&Math.abs(tip-seat-10)<1e-5);
+  assert.ok(Math.abs(tip-framePartBounds(part)[1][2])<1e-5);
+  const sample=radialSampler(mesh,0,0),pitch=1.25;
+  assert.ok(sample(tip-.03)<3.3);
+  const z=Array.from({length:24},(_,i)=>2.11+i*pitch/24),male=z.map(h=>sample(h+6));
+  assert.ok(Math.abs(Math.max(...male)-3.94)<.01&&Math.abs(Math.min(...male)-3.238)<.01);
+  for(const [i,h] of z.entries()){
+    assert.ok(Math.abs(sample(h+6+pitch)-male[i])<.01);
+    assert.ok(Math.abs(sample(h+6+pitch/4,Math.PI/2)-male[i])<.01);
+  }
+  for(const bore of [radialSampler(stock.mesh({kind:'nut'}),0,0),radialSampler(stock.mesh({kind:'corner',panelHole:true}),14,14)]){
+    const female=z.map(h=>bore(h));
+    const clearance=male.map((_,i)=>Math.min(...female.map((r,j)=>r-male[(j+i)%male.length])));
+    assert.ok(Math.max(...clearance)>.1&&Math.min(...clearance)<-.1,'threads must both fit and engage');
   }
 });
 test('0.6 mm filament estimates follow independent Bambu Studio slices of full plates',()=>{
@@ -277,6 +304,9 @@ test('one startup per plate, legacy fittings, short rails and nozzle-specific 3M
   const nut={kind:'nut',key:'nut',count:4},rail={kind:'rail',key:'rail-160',length:160,count:1};
   const gramFor=parts=>estimateFrameFilament(framePrintPlates(parts)).total.grams;
   assert.ok(Math.abs(gramFor([nut])-5.57)<.01);
+  const short={kind:'bolt',key:'bolt-10',length:10,count:4};
+  assert.ok(Math.abs(gramFor([short])-5.17)<.01);
+  assert.ok(Math.abs(gramFor([{...rail,key:'rail-28',length:28},{...short,count:3},{...nut,count:1},{kind:'bolt',key:'bolt',count:1}])-18.69)<.1);
   assert.ok(Math.abs(gramFor([rail])-63.32)<.01);
   assert.ok(Math.abs(gramFor([{kind:'corner',key:'corner',count:1}])-13.12)<.01);
   assert.ok(Math.abs(gramFor([{kind:'splice',key:'splice',count:1}])-13.00)<.01);
@@ -285,11 +315,11 @@ test('one startup per plate, legacy fittings, short rails and nozzle-specific 3M
   assert.equal(tooShortEstimate.total,null);assert.equal(tooShortEstimate.plates[0],null);
   assert.ok(tooShortEstimate.plates[1].grams>0);
   assert.deepEqual(estimateFrameFilament([]),{plates:[],total:{grams:0,meters:0}});
-  for(const [parts,brim] of [[[nut],'no_brim'],[[rail],'outer_only'],[[nut,rail],'outer_only']]){
+  for(const [parts,brim] of [[[nut],'no_brim'],[[rail],'outer_only'],[[nut,rail],'outer_only'],[[rail,short],'outer_only']]){
     const [plate]=framePrintPlates(parts),cache=new Map();
     const profile=nozzle=>JSON.parse(strFromU8(unzipSync(framePlate3mf(plate,stock,cache,nozzle))['Metadata/project_settings.config']));
     const old=profile(),fine=profile(.6);
-    assert.deepEqual(old.nozzle_diameter,['0.4']);assert.equal(old.layer_height,parts.includes(nut)?'0.16':'0.2');
+    assert.deepEqual(old.nozzle_diameter,['0.4']);assert.equal(old.layer_height,parts.length===1&&parts[0]===rail?'0.2':'0.16');
     assert.deepEqual(fine.nozzle_diameter,['0.6']);assert.equal(fine.printer_settings_id,'Bambu Lab A1 mini 0.6 nozzle');
     assert.equal(fine.print_settings_id,'0.18mm Fine @BBL A1M 0.6 nozzle');
     assert.equal(fine.layer_height,'0.18');assert.equal(fine.initial_layer_print_height,'0.3');

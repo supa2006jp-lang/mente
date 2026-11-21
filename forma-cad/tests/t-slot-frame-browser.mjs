@@ -58,23 +58,29 @@ try{
   await page.locator('#export').click();
   assert.equal(await page.locator('#export-format').inputValue(),'frame3mf');
   const bolts=page.locator('#t-slot-extra-bolts'),nuts=page.locator('#t-slot-extra-nuts');
+  const shortBolts=page.getByLabel('ボルト（首下10 mm）',{exact:true});
   const total=page.locator('#t-slot-filament-total'),currentPlate=page.locator('#t-slot-filament-plate');
   const nozzle=page.locator('#t-slot-print-nozzle'),plateSelect=page.locator('#t-slot-print-plate');
   const weight=async output=>Number((await output.textContent()).match(/([\d,.]+) g/)[1].replaceAll(',',''));
   assert.equal(await nozzle.inputValue(),'0.4');assert.match(await total.textContent(),/ g（[\d,.]+ m）/);
   const baseGrams=await weight(total);
+  assert.equal(await shortBolts.inputValue(),'0');assert.doesNotMatch(await page.locator('#export-contents').textContent(),/M8×10/);
   await bolts.fill('-1');assert.equal(await page.locator('#export-confirm').isDisabled(),true);
   assert.equal(await total.isVisible(),false);
   await bolts.fill('3');const withBolts=await weight(total);assert.ok(withBolts>baseGrams);
   await nuts.fill('5');assert.ok(await weight(total)>withBolts);
+  const withoutShort=await weight(total);assert.ok(Math.abs(withoutShort-1172.24)<.5);
+  await shortBolts.fill('1.5');assert.equal(await page.locator('#export-confirm').isDisabled(),true);
+  await shortBolts.fill('4');assert.ok(Math.abs(await weight(total)-withoutShort-5.1)<.11);
+  await shortBolts.fill('0');assert.equal(await weight(total),withoutShort);
+  await shortBolts.fill('4');
   await page.waitForFunction(()=>!document.querySelector('#export-confirm').disabled);
   const bill=await page.locator('#export-contents').textContent();
-  assert.match(bill,/M8×16 ボルト × 43/);assert.match(bill,/ナット（−0.10 mm調整版） × 45/);
+  assert.match(bill,/M8×16 ボルト × 43/);assert.match(bill,/M8×10 ボルト × 4/);assert.match(bill,/ナット（−0.10 mm調整版） × 45/);
   assert.match(bill,/2穴直線連結プレート 45 mm × 4/);assert.match(bill,/透明板用M8めねじ） × 16/);
   assert.match(bill,/117\.25 mm × 4/);assert.match(bill,/122\.5 mm × 8/);assert.match(bill,/143\.625 mm × 4/);
   const plates=await page.locator('#t-slot-print-plate option').count();assert.ok(plates>1);
   assert.equal(await page.locator('#t-slot-total-label').textContent(),'全'+plates+'枚の合計');
-  assert.ok(Math.abs(await weight(total)-1172.24)<.5);
   const firstAmount=await currentPlate.textContent(),allAmount=await total.textContent();
   await plateSelect.selectOption(String(plates-1));
   assert.notEqual(await currentPlate.textContent(),firstAmount);assert.equal(await total.textContent(),allAmount);
@@ -83,13 +89,22 @@ try{
   await nozzle.selectOption('0.6');assert.equal(await total.textContent(),allAmount);
   const archive=await download('#export-confirm');assert.match(archive.name,/\.zip$/);
   const files=Object.values(unzipSync(archive.buffer));assert.equal(files.length,plates);
-  const printedRails=new Map(),fittingCounts={corner:0,splice:0};
+  const printedRails=new Map(),fittingCounts={corner:0,splice:0},boltCounts={10:0,16:0};
   const count=files.reduce((total,data)=>{
     const entries=unzipSync(data),xml=strFromU8(entries['3D/3dmodel.model']);
     const settings=JSON.parse(strFromU8(entries['Metadata/project_settings.config']));
     assert.deepEqual(settings.nozzle_diameter,['0.6']);assert.equal(settings.layer_height,'0.18');
     assert.doesNotMatch(xml,/test-cube|寸法確認用の基準/);
-    const railIds=new Map(),fittingIds=new Map();
+    const railIds=new Map(),fittingIds=new Map(),boltIds=new Map();
+    for(const object of xml.matchAll(/<object id="(\d+)" type="model" name="M8×(10|16) ボルト">([\s\S]*?)<\/object>/g)){
+      const length=Number(object[2]);
+      let seat=-Infinity,tip=-Infinity;
+      for(const [,x,y,z] of object[3].matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"\/>/g)){
+        if(Math.hypot(Number(x),Number(y))>4.1)seat=Math.max(seat,Number(z));
+        tip=Math.max(tip,Number(z));
+      }
+      assert.ok(Math.abs(tip-seat-length)<1e-4);boltIds.set(object[1],length);
+    }
     for(const object of xml.matchAll(/<object id="(\d+)" type="model" name="T溝フレーム ([\d.]+) mm">([\s\S]*?)<\/object>/g)){
       const heights=Array.from(object[3].matchAll(/<vertex [^>]*z="([^"]+)"/g),v=>Number(v[1]));
       const length=Math.max(...heights)-Math.min(...heights);
@@ -110,11 +125,13 @@ try{
     for(const item of xml.matchAll(/<item objectid="(\d+)"/g)){
       const length=railIds.get(item[1]);if(length!==undefined)printedRails.set(length,(printedRails.get(length)||0)+1);
       const kind=fittingIds.get(item[1]);if(kind)fittingCounts[kind]++;
+      const bolt=boltIds.get(item[1]);if(bolt)boltCounts[bolt]++;
     }
     return total+(xml.match(/<item /g)||[]).length;
   },0);
   assert.deepEqual(printedRails,new Map([[117.25,4],[122.5,8],[143.625,4]]));
   assert.deepEqual(fittingCounts,{corner:16,splice:4});
-  assert.equal(count,124);assert.equal(await page.locator('#body-count').textContent(),'3');
+  assert.deepEqual(boltCounts,{10:4,16:43});
+  assert.equal(count,128);assert.equal(await page.locator('#body-count').textContent(),'3');
   assert.deepEqual(errors,[]);console.log('PASS create, undo, reopen, independent extras and export of '+count+' parts on '+plates+' plates');
 }finally{await browser?.close();if(server.listening)await new Promise(r=>server.close(r));}

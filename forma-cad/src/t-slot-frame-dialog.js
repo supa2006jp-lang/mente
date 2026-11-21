@@ -90,7 +90,7 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify},printSet
   const assemblies=frames.map(f=>savedFrameAssembly(f.analysis));
   const assembly={parts:assemblies.flatMap(a=>a.parts),fixings:assemblies.reduce((sum,a)=>sum+a.fixings,0)};
   const panelMounts=assembly.parts.some(p=>p.panelHole);
-  let bolts,nuts,select,canvas,layout,plates,estimate,totalLabel,totalAmount,plateAmount,thinRailNote;
+  let bolts,shortBolts,nuts,select,canvas,layout,plates,estimate,totalLabel,totalAmount,plateAmount,thinRailNote;
   function redraw(){
     const index=select.selectedIndex;
     if(!plates?.[index])return;
@@ -100,10 +100,12 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify},printSet
   return {
     label,rows:[],action:'プレートを保存',
     controls(panel,refresh){
-      panel.innerHTML='<div class="t-slot-quantities"><label>追加ボルト（個）<input type="number" id="t-slot-extra-bolts" min="0" max="10000" step="1" value="0" required></label>'+
-        '<label>追加ナット（個）<input type="number" id="t-slot-extra-nuts" min="0" max="10000" step="1" value="0" required></label></div>'+
-        '<p>フレームの取付に使うボルト・ナットは各'+assembly.fixings+'個含まれます。'+
-        (panelMounts?'透明板を留める場合は、固定箇所の数を「追加ボルト」に入力してください。':'')+'</p>'+
+      panel.innerHTML='<fieldset class="t-slot-extras"><legend>追加するM8部品</legend><div class="t-slot-quantities">'+
+        '<label>ボルト（首下16 mm）<input type="number" id="t-slot-extra-bolts" min="0" max="10000" step="1" value="0" required></label>'+
+        '<label>ボルト（首下10 mm）<input type="number" id="t-slot-extra-bolts-10" min="0" max="10000" step="1" value="0" required></label>'+
+        '<label>T溝ナット<input type="number" id="t-slot-extra-nuts" min="0" max="10000" step="1" value="0" required></label></div></fieldset>'+
+        '<p>フレームの取付用に、首下16 mmのボルト'+assembly.fixings+'本とT溝ナット'+assembly.fixings+'個を含みます。'+
+        (panelMounts?'透明板用のボルトは、板厚に合う長さで必要な本数を追加してください。':'')+'</p>'+
         '<div class="t-slot-layout" hidden><div class="t-slot-plate"><div class="t-slot-print-fields">'+
         '<label>3MFのノズル径<select id="t-slot-print-nozzle"><option value="0.4">0.4 mm</option><option value="0.6">0.6 mm</option></select></label>'+
         '<label>印刷プレート<select id="t-slot-print-plate"></select></label></div><canvas width="240" height="240" aria-label="180 mm四方のプレート上で各部品が占める範囲"></canvas></div>'+
@@ -111,19 +113,20 @@ function frameOutputEntry(frames,label,{download,name,isCurrent,notify},printSet
         '<dl aria-live="polite"><dt id="t-slot-total-label"></dt><dd id="t-slot-filament-total"></dd><dt>表示中のプレート</dt><dd id="t-slot-filament-plate"></dd></dl>'+
         '<p>PETG（径1.75 mm）・積層0.18 mm・壁4周・インフィル30%。フレームのあるプレートは5 mmのブリムを含みます。</p>'+
         '<p id="t-slot-thin-rail" hidden>長さ0.15 mm未満のフレームは、この設定の初層でスライスできません。</p></section></div>';
-      [bolts,nuts]=panel.querySelectorAll('input');
+      bolts=panel.querySelector('#t-slot-extra-bolts');shortBolts=panel.querySelector('#t-slot-extra-bolts-10');
+      nuts=panel.querySelector('#t-slot-extra-nuts');
       const nozzle=panel.querySelector('#t-slot-print-nozzle');
       nozzle.value=String(printSettings.nozzle);nozzle.onchange=()=>{printSettings.nozzle=Number(nozzle.value);};
       select=panel.querySelector('#t-slot-print-plate');
       canvas=panel.querySelector('canvas');layout=panel.querySelector('.t-slot-layout');
       totalLabel=panel.querySelector('#t-slot-total-label');totalAmount=panel.querySelector('#t-slot-filament-total');
       plateAmount=panel.querySelector('#t-slot-filament-plate');thinRailNote=panel.querySelector('#t-slot-thin-rail');
-      bolts.oninput=nuts.oninput=refresh;select.onchange=redraw;
+      bolts.oninput=shortBolts.oninput=nuts.oninput=refresh;select.onchange=redraw;
     },
     async load(){
       layout.hidden=true;
       const index=Math.max(0,select.selectedIndex);
-      const bill=frameBill(assembly,bolts.valueAsNumber,nuts.valueAsNumber);
+      const bill=frameBill(assembly,bolts.valueAsNumber,nuts.valueAsNumber,shortBolts.valueAsNumber);
       plates=framePrintPlates(bill);
       estimate=estimateFrameFilament(plates);
       select.replaceChildren(...plates.map((p,i)=>new Option((i+1)+' / '+plates.length+' 枚目（'+p.placements.length+'部品）',i)));

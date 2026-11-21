@@ -5,6 +5,7 @@ import {framePartKey} from './t-slot-frame.js';
 // fittings are without brim and with the 5 mm outer brim used on rail plates.
 const singlePartMm={
   bolt:[533.59,563.65],
+  'bolt-10':[441.10,471.17],
   nut:[473.43,512.82],
   corner:[4293.88,4371.50],
   'corner-panel':[4426.99,4504.60],
