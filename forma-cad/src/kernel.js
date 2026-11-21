@@ -18,6 +18,7 @@ import {assemblyLinks,assemblyTargets,copiedAssemblyLinks} from './assembly-stat
 import {assemblyReference,assemblyPlan} from './assembly-mate.js';
 import {inspectAssemblyClearances,inspectAssemblyContact} from './assembly-contact.js';
 import {printSupportSteps,validatePrintSupport} from './print-support.js';
+import {supportOverlapVolume} from './print-support-boolean.js';
 import {listSupportHoleOpenings} from './print-support-hole-protection.js';
 import {finishCadSteps} from './cad-steps.js';
 import {gapRepairSpec} from './geometry-gap-repair.js';
@@ -332,10 +333,7 @@ function checkSupportsOverlap(shape,bounds,bodies,previousSupports){
   if(!other)continue;
   const otherBounds=supportBounds(other);
   if([0,1,2].some(i=>Math.min(bounds[1][i],otherBounds[1][i])-Math.max(bounds[0][i],otherBounds[0][i])<=1e-6))continue;
-  const common=shape.intersect(other);
-  try{
-   if(R.measureVolume(common)>.0001)throw Error('作成済みのサポートと重なります。薄壁の向きや間隔を変えてください');
-  }finally{common.delete();}
+  if(supportOverlapVolume(shape,other)>.0001)throw Error('作成済みのサポートと重なります。薄壁の向きや間隔を変えてください');
  }
 }
 function extrusionTool(f,bodies,contactInfo,features=[],onProgress){

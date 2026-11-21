@@ -11,9 +11,24 @@ import {inspectCadStl} from '../src/stl-cad-inspection.js';
 import {createPrintSupportCache} from '../src/print-support-cache.js';
 import {fuseSupportSolids} from '../src/print-support-solid-groups.js';
 import {supportHistoryFeature} from '../src/print-support-batch.js';
+import {supportOverlapVolume} from '../src/print-support-boolean.js';
 
 before(async()=>{
  R.setOC(await init({wasmBinary:await readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
+});
+
+test('support overlap measures solid volume without changing the input meshes',()=>{
+ const body=R.makeBox([0,0,0],[6,5,4]);
+ const through=R.makeCylinder(1.5,8,[3,2.5,-2]);
+ const touching=R.makeBox([6,0,0],[8,5,4]),separate=R.makeBox([9,0,0],[11,5,4]);
+ const solids=[body,through,touching,separate];
+ try{
+  const meshes=solids.map(shape=>cadMesh(shape));
+  assert(Math.abs(supportOverlapVolume(body,through)-Math.PI*1.5**2*4)<1e-8);
+  assert.equal(supportOverlapVolume(body,touching),0);
+  assert.equal(supportOverlapVolume(body,separate),0);
+  assert.deepEqual(solids.map(shape=>cadMesh(shape)),meshes);
+ }finally{solids.forEach(shape=>shape.delete());}
 });
 
 test('thin rib and bridge faces retain CAD precision when fused away from the origin',()=>{

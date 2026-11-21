@@ -1,7 +1,7 @@
 import * as R from 'replicad';
 import {skinClearanceError} from './print-support-skin-clearance.js';
+import {supportOverlapVolume as overlap} from './print-support-boolean.js';
 const bounds=shape=>{const b=shape.boundingBox;try{return b.bounds;}finally{b.delete();}};
-const overlap=(a,b)=>{const common=a.intersect(b);try{return R.measureVolume(common);}finally{common.delete();}};
 
 // Bridge only between the outermost fins: the roof must not cantilever beyond
 // them. Intersect with the original inset prism to preserve its outline/holes.

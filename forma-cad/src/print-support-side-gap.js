@@ -1,5 +1,6 @@
 import * as R from 'replicad';
 import {supportHorizontalCap} from './print-support-coverage.js';
+import {supportOverlapVolume} from './print-support-boolean.js';
 
 const tolerance=1e-6;
 function bounds(shape){
@@ -128,12 +129,9 @@ export function createSupportSideGap(bodies,scope,gap){
     if(!wall||wall.axis!==axis||!intersects(tool.box,prismBounds))continue;
     const fromLow=wall.sign>0;
     if(fromLow?(wall.wall>=lo+thickness||wall.limit<=lo):(wall.wall<=hi-thickness||wall.limit>=hi))continue;
-    const overlap=prism.intersect(tool.shape);
-    try{
-     if(Math.abs(R.measureVolume(overlap))<=tolerance)continue;
-     if(fromLow)result.low=Math.max(result.low??lo,wall.limit);
-     else result.high=Math.min(result.high??hi,wall.limit);
-    }finally{overlap.delete();}
+    if(Math.abs(supportOverlapVolume(prism,tool.shape))<=tolerance)continue;
+    if(fromLow)result.low=Math.max(result.low??lo,wall.limit);
+    else result.high=Math.min(result.high??hi,wall.limit);
    }
    return result;
   },
@@ -168,11 +166,7 @@ export function createSupportSideGap(bodies,scope,gap){
   },
   cuts(shape){
    const box=bounds(shape);
-   return tools.some(tool=>{
-    if(!intersects(tool.box,box))return false;
-    const common=shape.intersect(tool.shape);
-    try{return Math.abs(R.measureVolume(common))>tolerance;}finally{common.delete();}
-   });
+   return tools.some(tool=>intersects(tool.box,box)&&Math.abs(supportOverlapVolume(shape,tool.shape))>tolerance);
   },
   dispose,
  };

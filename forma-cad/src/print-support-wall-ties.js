@@ -2,7 +2,7 @@ import * as R from 'replicad';
 import {supportTieInterval} from './print-support-strength.js';
 import {supportAdjustmentError} from './print-support-adjustments.js';
 import {supportBoxesTouch,supportShapeBounds as bounds} from './print-support-solid-groups.js';
-const overlap=(a,b)=>{const s=a.intersect(b);try{return R.measureVolume(s);}finally{s.delete();}};
+import {supportOverlapVolume as overlap} from './print-support-boolean.js';
 
 function tieBounds(axis,from,to,row,width,bottom,top){
  const lo=[0,0,bottom],hi=[0,0,top];

@@ -1,4 +1,5 @@
-import {supportLocalPreview,supportNonDestructiveBoolean} from './print-support-local-preview.js';
+import {supportLocalPreview} from './print-support-local-preview.js';
+import {supportNonDestructiveBoolean} from './print-support-boolean.js';
 import {contactRoleSettings} from './print-support-contact-settings.js';
 import {bottomContactInsetMask,upperContactRimInterior} from './print-support-contact-inset.js';
 import * as R from 'replicad';
@@ -9,6 +10,7 @@ import {cachedSupportGeometry} from './print-support-cache.js';
 import {finishCadSteps} from './cad-steps.js';
 const volume=s=>Math.abs(R.measureVolume(s)),bounds=s=>{const b=s.boundingBox;try{return b.bounds;}finally{b.delete();}},parts=s=>{const p=s.solids;try{return p.length;}finally{p.forEach(s=>s.delete());}};
 const displayMesh=shape=>shape.mesh({tolerance:.08,angularTolerance:.15});
+const contactCommon=(shape,tool)=>supportNonDestructiveBoolean('common',shape,tool,{simplify:true});
 function validContactResult(shape,count){
  if(parts(shape)!==count)return false;
  const check=new (R.getOC().BRepCheck_Analyzer)(shape.wrapped,true,false);
@@ -85,10 +87,10 @@ function makeGrooveMask(shape,spans,{role,axis,z,top,b,settings,rimWidth,cache,s
    interior=rim.shape;preserved=rim.preserved;
    if(interior){
     // The grooves already lie within the contact layer.
-    trimmed=shape.intersect(compound);
-    cut=trimmed.intersect(interior);
+    trimmed=contactCommon(shape,compound);
+    cut=contactCommon(trimmed,interior);
    }
-  }else cut=shape.intersect(compound);
+  }else cut=contactCommon(shape,compound);
   if(!cut||volume(cut)<=.0001)return {shape:null,offset,preserved};
   const result=cut;cut=null;
   return {shape:result,offset,preserved};
@@ -170,7 +172,7 @@ export function* supportContactSteps(original,regions,p,onProgress,{ribRecords=[
    let cut=source.clone();
    try{
     for(const mask of tools){
-     const next=allowPartial?supportNonDestructiveBoolean('cut',cut,mask):cut.cut(mask);
+     const next=supportNonDestructiveBoolean('cut',cut,mask,{simplify:!allowPartial});
      cut.delete();cut=next;
     }
     const answer=cut;cut=null;return answer;

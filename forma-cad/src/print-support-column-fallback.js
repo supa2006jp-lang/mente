@@ -1,11 +1,9 @@
 import * as R from 'replicad';
 import {supportBoxesTouch} from './print-support-solid-groups.js';
+import {supportOverlapVolume} from './print-support-boolean.js';
 
 const tolerance=1e-6;
-const areaOverlap=(a,b)=>{
- const common=a.intersect(b);
- try{return Math.abs(R.measureVolume(common));}finally{common.delete();}
-};
+const areaOverlap=(a,b)=>Math.abs(supportOverlapVolume(a,b));
 
 function samples(low,high,pitch){
  const count=Math.min(9,Math.max(1,Math.ceil((high-low)/pitch)));

@@ -2,8 +2,9 @@ import {splitSupportBottomSkin} from './print-support-bottom-seams.js';
 import * as R from 'replicad';
 import {skinClearanceError} from './print-support-skin-clearance.js';
 import {supportBoxesTouch,supportShapeBounds} from './print-support-solid-groups.js';
+import {supportOverlapVolume} from './print-support-boolean.js';
 const tuple=v=>{try{return v.toTuple();}finally{v.delete();}};
-const overlap=(a,b)=>{const shape=a.intersect(b);try{return Math.abs(R.measureVolume(shape));}finally{shape.delete();}};
+const overlap=(a,b)=>Math.abs(supportOverlapVolume(a,b));
 // Resolve landings after removing the model: bed Z alone would put this skin
 // inside the lower plate for a support starting on another part of the model.
 export function makeSupportBottomSkins(records,prism,bodies,p,onProgress,protectionTools=[]){

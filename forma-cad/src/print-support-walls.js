@@ -23,6 +23,7 @@ import {supportFallbackColumns} from './print-support-column-fallback.js';
 import {widerSupportRib} from './print-support-local-rib.js';
 import {fillSupportGaps} from './print-support-gap-fill.js';
 import {fuseSupportSolidSteps,supportBoxesTouch} from './print-support-solid-groups.js';
+import {supportOverlapVolume} from './print-support-boolean.js';
 import {smallSupportBoreFloor,supportHoleBounds,supportThreadRunoutPlan,tinyRibAtSupportHole} from './print-support-bores.js';
 import {supportHoleCylinder,supportHoleProtectionTools} from './print-support-hole-protection.js';
 import {createPrintSupportCache} from './print-support-cache.js';
@@ -283,12 +284,11 @@ function* prepareWallCeiling(face,p,{b,z,bodies,bodyBounds,model,modelBounds,ski
     if(protectWidth){wall=sideGap.trimRib(wall,axis,hold);if(!wall||R.measureVolume(wall)<.001)continue;}
     if(p.connectFeet&&!p.wallBottomSkin&&!rib){const fa=[...a],fb=[...b];[fa[axis],fb[axis]]=foot;fa[2]=p.bedZ;fb[2]=p.bedZ+p.footThickness;const footBox=hold(R.makeBox(fa,fb)),base=hold(prism.intersect(footBox));if(R.measureVolume(base)>.001)wall=hold(wall.fuse(base));}
     const wallBox=bounds(wall),nearby=[...bodies].filter(([id])=>supportBoxesTouch(wallBox,bodyBounds.get(id)));
-    if(p.baseMode==='bed'){let blocked=false;for(const [,model] of nearby){const common=hold(wall.intersect(model));if(R.measureVolume(common)>.0001){blocked=true;break;}}if(blocked){blockedRibs++;continue;}}
-    else{
+    if(p.baseMode==='bed'&&nearby.some(([,model])=>supportOverlapVolume(wall,model)>.0001)){blockedRibs++;continue;}
+    if(p.baseMode!=='bed'){
      const bases=[];
      for(const [id,model]of nearby){
-      const common=hold(wall.intersect(model));
-      if(R.measureVolume(common)>.0001){
+      if(supportOverlapVolume(wall,model)>.0001){
        if(skipSmallExterior||zoneTools.length)bases.push(id);else faceBases.add(id);
        wall=hold(wall.cut(model));
       }
@@ -1083,9 +1083,7 @@ export function* makeWallSupportSteps(bodies,p,onProgress,{bodyKey}={}){
    const supportBox=bounds(shape);
    for(const model of bodies.values()){
     if(!supportBoxesTouch(supportBox,bounds(model)))continue;
-    const common=shape.intersect(model);
-    try{if(R.measureVolume(common)>.0001)throw Error('薄壁が本体に入り込むため作成を中止しました');}
-    finally{common.delete();}
+    if(supportOverlapVolume(shape,model)>.0001)throw Error('薄壁が本体に入り込むため作成を中止しました');
    }
   }
   const solids=shape?.solids||[];
