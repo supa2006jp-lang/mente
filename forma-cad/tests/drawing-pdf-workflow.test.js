@@ -78,6 +78,24 @@ test('paper and view captions use the actual scale on each page',()=>{
  assert.doesNotMatch(top.svg,/TOP \/ SCALE/);
 });
 
+test('the layout label shares the right-aligned scale header and can be hidden on every sheet',()=>{
+ const config={...options,layout:'compact',pdfLayout:'manual',pageAssignments:{pageCount:2,views:{front:2},comments:{}}};
+ const overview=drawingSheet(part,1,true,[],'',config);
+ const title='<tspan data-sheet-title="true">FORMA CAD / AUTO LAYOUT</tspan>';
+ const scale='<tspan data-sheet-scale="true">SCALE 1:1 / mm</tspan>';
+ const heading='<text data-sheet-header="true" x="282" y="12" font-size="3.5" text-anchor="end" xml:space="preserve">';
+ assert.ok(overview.svg.includes(heading+title+'    '+scale+'</text>'));
+ assert.ok(drawingPDFPages(part,1,true,[],'',config,overview).every(page=>page.svg.includes(title)));
+
+ const hidden={...config,showLayoutLabel:false};
+ const sheet=drawingSheet(part,1,true,[],'',hidden);
+ for(const page of [sheet,...drawingPDFPages(part,1,true,[],'',hidden,sheet)]){
+  assert.ok(page.svg.includes(heading+scale+'</text>'));
+  assert.doesNotMatch(page.svg,/FORMA CAD/);
+ }
+ assert.deepEqual(sheet.layout,overview.layout);
+});
+
 test('the PDF checklist maps a filtered page back to original visible dimension indices',()=>{
  const top={...frontDimension,view:'top'};
  const hidden={...frontDimension,review:true,hidden:true};
@@ -164,10 +182,11 @@ test('automatic isometric dimensions use full spans between visible model vertic
 
 test('PDF placement and compact exterior dimensions round-trip in drawing state',()=>{
  const state={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],
-  options:{...options,pdfPlacement:'auto',uniqueOverallDimensions:true}};
+  options:{...options,pdfPlacement:'auto',uniqueOverallDimensions:true,showLayoutLabel:false}};
  assert.deepEqual(readDrawingState(state),state);
  assert.throws(()=>readDrawingState({...state,options:{...state.options,pdfPlacement:'other'}}));
  assert.throws(()=>readDrawingState({...state,options:{...state.options,uniqueOverallDimensions:'true'}}));
+ assert.throws(()=>readDrawingState({...state,options:{...state.options,showLayoutLabel:'false'}}));
 });
 
 test('custom scale input accepts ratios and decimals within the saved drawing range',()=>{

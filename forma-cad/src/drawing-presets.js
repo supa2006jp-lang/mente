@@ -9,7 +9,7 @@ export function validateDrawingPreset(value){
  const validSize=size=>Number.isFinite(size)&&size>=1.5&&size<=10;
  const optional={dimensionFontSize:validSize,commentSize:validSize,commentFont:id=>id===''||hasDrawingCommentFont(id),
   commentColor:validDimensionColor,paperBackground:validDimensionColor,viewBackground:validDimensionColor,printPalette:validDrawingPrintPalette,
-  uniqueOverallDimensions:value=>typeof value==='boolean'};
+  uniqueOverallDimensions:value=>typeof value==='boolean',showLayoutLabel:value=>typeof value==='boolean'};
  for(const [key,valid] of Object.entries(optional)){
   if(value[key]===undefined)continue;
   if(!valid(value[key]))throw Error('図面の書式が不正です：'+key);

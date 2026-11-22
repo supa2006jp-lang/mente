@@ -73,7 +73,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   onMove:movePDFPageItem,onPageOrder:changePDFPageOrder,onFit:fitPDFPreviewPage,viewLabel:pdfViewLabel});
  const worker=new KernelClient(),dialog=document.createElement('dialog');dialog.id='drawing-dialog';dialog.innerHTML=`<div class="drawing-heading"><h2>三面図</h2><button type="button" id="drawing-close" aria-label="閉じる">×</button></div>
  <div class="drawing-controls"><label>対象<select id="drawing-target"><option value="visible">表示中の全ボディ</option><option value="selected">選択したボディ</option></select></label><label>縮尺<select id="drawing-scale">${scales.map(s=>'<option value="'+s+'"'+(s===1?' selected':'')+'>'+(s>=1?s+':1':'1:'+1/s)+'</option>').join('')}</select></label><label><input type="checkbox" id="drawing-hidden" checked>隠れ線（共通）</label><button id="drawing-generate">三面図を再計算</button></div>
- <div class="drawing-controls drawing-paper-controls"><label>用紙<select id="drawing-paper-size"><option value="auto">自動サイズ</option><option value="A4" selected>A4</option><option value="A3">A3</option></select></label><label>向き<select id="drawing-orientation"><option value="landscape">横</option><option value="portrait">縦</option></select></label><label><input id="drawing-frame" type="checkbox" checked>図枠</label><button id="drawing-fit">用紙に収める</button><button id="drawing-auto-layout" title="用紙内で図を大きく配置し、残った余白で図の間隔を広げます">大きく自動配置</button><button id="drawing-arrange">配置をリセット</button><label><input id="drawing-projection-lock" type="checkbox">第三角法の配置をロック</label><label title="TOPとFRONTは左右、FRONTとRIGHTは上下の移動が連動します"><input id="drawing-link-projections" type="checkbox">TOP・FRONT・RIGHTを連動</label><label title="TOP・FRONT・RIGHTのどれかを拡縮すると、3面が同じ縮尺になります"><input id="drawing-link-scales" type="checkbox">縮尺も連動</label><label><input id="drawing-layout-mode" type="checkbox" checked title="寸法は斜めにもドラッグできます。Shiftを押すと寸法線に沿ったずれを抑えます。">配置をドラッグ</label></div>
+ <div class="drawing-controls drawing-paper-controls"><label>用紙<select id="drawing-paper-size"><option value="auto">自動サイズ</option><option value="A4" selected>A4</option><option value="A3">A3</option></select></label><label>向き<select id="drawing-orientation"><option value="landscape">横</option><option value="portrait">縦</option></select></label><label><input id="drawing-frame" type="checkbox" checked>図枠</label>
+ <label><input id="drawing-layout-label" type="checkbox" checked>FORMA CAD 表記</label>
+ <button id="drawing-fit">用紙に収める</button><button id="drawing-auto-layout" title="用紙内で図を大きく配置し、残った余白で図の間隔を広げます">大きく自動配置</button><button id="drawing-arrange">配置をリセット</button><label><input id="drawing-projection-lock" type="checkbox">第三角法の配置をロック</label><label title="TOPとFRONTは左右、FRONTとRIGHTは上下の移動が連動します"><input id="drawing-link-projections" type="checkbox">TOP・FRONT・RIGHTを連動</label><label title="TOP・FRONT・RIGHTのどれかを拡縮すると、3面が同じ縮尺になります"><input id="drawing-link-scales" type="checkbox">縮尺も連動</label><label><input id="drawing-layout-mode" type="checkbox" checked title="寸法は斜めにもドラッグできます。Shiftを押すと寸法線に沿ったずれを抑えます。">配置をドラッグ</label></div>
  <div class="drawing-controls drawing-view-options" role="group" aria-label="図面に載せるビュー"><strong>載せるビュー</strong>${drawingProjectionNames.map(view=>{const {label,title}=drawingProjections[view];return '<label><input type="checkbox" value="'+view+'">'+label+' <span>'+title+'</span></label>';}).join('')}<label><input id="drawing-view-iso" type="checkbox" value="iso" checked>ISO <span>俯瞰図</span></label></div>
  <div class="drawing-controls"><label>図の優先<select id="drawing-view-priority"><option value="balanced">共通縮尺</option><option value="front">正面図を優先（1.4倍）</option></select></label><label>俯瞰図<select id="drawing-iso-mode"><option value="full">通常</option><option value="small">小さく（半分）</option><option value="hidden">非表示</option></select></label><small>異なる縮尺は各図に表示します。</small></div>
  <div class="drawing-controls"><label>部品名<input id="drawing-name" maxlength="80"></label><label>改訂番号<input id="drawing-revision" maxlength="20" size="8" placeholder="例 02"></label><label>材質<input id="drawing-material" maxlength="80" placeholder="手入力"></label><select id="drawing-material-preset" aria-label="材質の候補"><option value="" disabled>候補から選択</option>${standardDrawingMaterials.map(([group,items])=>'<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>').join('')}<optgroup id="drawing-material-saved" label="登録した材質" hidden></optgroup></select><span class="drawing-material-actions"><button type="button" id="drawing-material-save" aria-label="入力した材質を候補に登録">登録</button><button type="button" id="drawing-material-remove" aria-label="登録した材質を候補から削除" hidden>削除</button></span><label>作成日<input id="drawing-date" type="date"></label><small id="drawing-material-status" role="status"></small></div>
@@ -266,6 +268,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   return views;
  }
  const status=t=>{if(!drag?.moved)$('drawing-status').textContent=t;},options=()=>({viewSelection,viewPriority:$('drawing-view-priority').value,isoMode:$('drawing-iso-mode').value,layout:layoutKind,paper:$('drawing-paper-size').value,orientation:$('drawing-orientation').value,frame:$('drawing-frame').checked,name:$('drawing-name').value,...($('drawing-revision').value?{revision:$('drawing-revision').value}:{}),material:$('drawing-material').value,date:$('drawing-date').value,commentSize,positions,sections,details,markers,
+  ...($('drawing-layout-label').checked?{}:{showLayoutLabel:false}),
   ...(layoutKind==='projection'?{projectionLocked}:{}),
   ...(linkedProjections?{linkedProjections}:{}),
   ...(linkedProjectionScales?{linkedProjectionScales}:{}),
@@ -325,7 +328,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(token===revision){worker.reset();busy=false;$('drawing-generate').disabled=false;controls();}
   }
  }
- const presets=installDrawingPresets($('drawing-layout-help'),{read:()=>({...options(),...backgrounds,dimensionFontSize,commentSize,commentFont,commentColor,dimensionColors,printPalette,uniqueOverallDimensions,hidden:$('drawing-hidden').checked}),apply:applyPreset,canUse:()=>!!data&&!busy});
+ const presets=installDrawingPresets($('drawing-layout-help'),{read:()=>({...options(),...backgrounds,dimensionFontSize,commentSize,commentFont,commentColor,dimensionColors,printPalette,uniqueOverallDimensions,showLayoutLabel:$('drawing-layout-label').checked,hidden:$('drawing-hidden').checked}),apply:applyPreset,canUse:()=>!!data&&!busy});
  async function applyPreset(values){
   if(!data||busy)throw Error('図面の計算が終わってから呼び出してください');
   const old=options(),scale=Number($('drawing-scale').value),next={...old,...values,autoIsoScale:undefined};
@@ -344,6 +347,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    for(const key of Object.keys(backgroundControls))if(values[key]!==undefined)backgrounds[key]=values[key].toLowerCase();
    printPalette=values.printPalette??printPalette;
    $('drawing-frame').checked=values.frame;$('drawing-hidden').checked=values.hidden;
+   if(values.showLayoutLabel!==undefined)$('drawing-layout-label').checked=values.showLayoutLabel;
    positions=result.positions;dimensions=result.dimensions;autoIsoScale=result.autoIsoScale;layoutKind='compact';setScale(result.scale);picking=null;action=null;selection=null;render();
    const colors=Object.fromEntries(['commentColor','paperBackground','viewBackground','printPalette']
     .filter(key=>values[key]!==undefined).map(key=>[key,values[key]]));
@@ -1055,6 +1059,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   syncPreviewBackground();syncCommentTargets();syncViewScales();syncPageAssignments();syncPageEditor();syncPageScales();
   syncScaleInput(scaleText,Number($('drawing-scale').value));
   syncDrawingMaterials();
+  $('drawing-layout-label').disabled=!ready;
   for(const button of conflictList.querySelectorAll('button')){
    button.disabled=busy||button.hasAttribute('data-conflict-locked');
   }
@@ -1818,6 +1823,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-close').onclick=()=>dialog.close();
  dialog.addEventListener('close',()=>{viewport.cancel();clearTransient();persist();revision++;busy=false;worker.reset();$('drawing-generate').disabled=false;});
  $('drawing-scale').onchange=()=>changeCommonScale(Number($('drawing-scale').value));
+ $('drawing-layout-label').onchange=()=>render();
  for(const id of ['drawing-hidden','drawing-paper-size','drawing-orientation','drawing-frame','drawing-date'])$(id).onchange=()=>{if(layoutKind==='compact'&&['drawing-paper-size','drawing-orientation','drawing-frame'].includes(id))applyAutomaticLayout();else cancelPick();};for(const id of ['drawing-name','drawing-revision','drawing-material']){$(id).oninput=()=>{picking=null;render(false);};$(id).onchange=()=>persist();}
  async function changeDrawingViews(next,reflow=false){
   const previous=options();
@@ -3015,6 +3021,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   finishPaperDrag(type==='pointerup');
  });
  function restore(s){
+  $('drawing-layout-label').checked=s?.options.showLayoutLabel??true;
   pdfPositions=structuredClone(s?.options.pdfPositions??{});
   pdfPageScales=structuredClone(s?.options.pdfPageScales??{});
   pdfViewScales=structuredClone(s?.options.pdfViewScales??{});

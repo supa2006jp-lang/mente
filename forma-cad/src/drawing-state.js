@@ -21,6 +21,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  const s=structuredClone(value);if(!validDrawingScale(s.scale)||typeof s.hidden!=='boolean'||typeof s.comment!=='string'||s.comment.length>2000||!Array.isArray(s.targets)||s.targets.some(id=>typeof id!=='string')||!['visible','selected'].includes(s.targetMode))fail();
  const o=s.options;if(!o||!['auto','A4','A3'].includes(o.paper)||!['landscape','portrait'].includes(o.orientation)||typeof o.frame!=='boolean')fail();if(o.viewPriority!==undefined&&!['balanced','front'].includes(o.viewPriority)||o.isoMode!==undefined&&!['full','small','hidden'].includes(o.isoMode))fail();if(o.layout!==undefined&&!['projection','compact'].includes(o.layout))fail();for(const key of ['name','material','date'])if(typeof o[key]!=='string'||o[key].length>100)fail();
  if(o.revision!==undefined&&(typeof o.revision!=='string'||o.revision.length>20))fail();
+ if(o.showLayoutLabel!==undefined&&typeof o.showLayoutLabel!=='boolean')fail();
  if(o.projectionLocked!==undefined&&typeof o.projectionLocked!=='boolean')fail();
  if(o.linkedProjections!==undefined&&typeof o.linkedProjections!=='boolean')fail();
  if(o.linkedProjectionScales!==undefined&&typeof o.linkedProjectionScales!=='boolean')fail();
