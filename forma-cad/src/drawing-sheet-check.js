@@ -1,4 +1,4 @@
-import {drawingCommentPlacementIssue} from './drawing-comments.js';
+import {drawingBoxPlacementIssue} from './drawing-paper-bounds.js';
 import {dimensionPlacement,drawingDimensionConflicts} from './drawing-dimension-layout.js';
 import {dimensionLabel} from './drawing-dimensions.js';
 import {drawingProjections} from './drawing-view-preferences.js';
@@ -9,15 +9,9 @@ export function drawingSheetOverflow(svg,sheet){
  const issues=[];
  for(const [itemIndex,element] of svg.querySelectorAll(drawingSheetItems).entries()){
   const view=sheet.layout[element.dataset.view];
-  let box;
-  if(view){
-   const title=sheet.viewTitles[element.dataset.view];
-   const x=Math.min(view.x,title.x),y=Math.min(view.y,title.y);
-   box={x,y,width:Math.max(view.x+view.width,title.x+title.width)-x,
-    height:Math.max(view.y+view.height,title.y+title.height)-y};
-  }else box=element.getBBox();
-  const reason=element.dataset.comment?drawingCommentPlacementIssue(box,sheet):
-   box.x<4.99||box.y<16.99||box.x+box.width>sheet.width-4.99||box.y+box.height>sheet.contentBottom+.01?'paper':null;
+  const bounds=view??element.getBBox();
+  const {x,y,width,height}=bounds,box={x,y,width,height};
+  const reason=drawingBoxPlacementIssue(box,sheet);
   if(reason)issues.push({element,itemIndex,box,reason});
  }
  return issues;

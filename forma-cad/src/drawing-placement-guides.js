@@ -1,3 +1,5 @@
+import {drawingFrameInset} from './drawing-paper-bounds.js';
+
 export function snapDrawingDragAxis(delta,pixelsPerAxis,previousAxis){
  const distance=delta.map((value,axis)=>Math.abs(value*pixelsPerAxis[axis]));
  const travel=distance[0]>=distance[1]?0:1,axis=1-travel;
@@ -7,17 +9,17 @@ export function snapDrawingDragAxis(delta,pixelsPerAxis,previousAxis){
  return {delta:snapped,axis};
 }
 
-export function snapDrawingPlacement(delta,box,sheet,{view,comment=false,movingViews=[]}={}){
- const bottom=comment&&sheet.titleBlock?sheet.height-5:sheet.contentBottom;
- const targets=[[5,sheet.width-5],[17,bottom]];
+export function snapDrawingPlacement(delta,box,sheet,{view,movingViews=[]}={}){
+ const inset=drawingFrameInset;
+ const bottom=sheet.titleBlock?sheet.height-inset:sheet.contentBottom;
+ const targets=[[inset,sheet.width-inset],[inset,bottom]];
  const stationary=name=>name!==view&&!movingViews.includes(name);
  const neighbors=Object.entries(sheet.layout).filter(([name])=>stationary(name)).map(([,other])=>other);
- if(comment&&sheet.titleBlock)neighbors.push(sheet.titleBlock);
+ if(sheet.titleBlock)neighbors.push(sheet.titleBlock);
  for(const {x,y,width,height} of neighbors){
   targets[0].push(x,x+width);
   targets[1].push(y,y+height);
  }
- for(const [name,title] of Object.entries(sheet.viewTitles||{}))if(stationary(name))targets[1].push(title.y);
  const guides=[];
  const moved=delta.map((offset,axis)=>{
   const start=axis?box.y:box.x,span=axis?box.height:box.width;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
 import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
-import {drawingPDFIssues,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
+import {drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
 import {dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
@@ -94,6 +94,36 @@ test('the layout label shares the right-aligned scale header and can be hidden o
   assert.doesNotMatch(page.svg,/FORMA CAD/);
  }
  assert.deepEqual(sheet.layout,overview.layout);
+});
+
+test('placement uses the frame and the actual title block instead of reserving entire top and bottom strips',()=>{
+ const {front,top,right}=part.views,data={...part,views:{front,top,right}};
+ const config={...options,sections:[],layout:'compact',viewScales:{right:.8},viewBackground:'#ffff80',
+  positions:{front:[15,5],top:[35,164],right:[170,85]}};
+ const sheet=drawingSheet(data,1,true,[],'',config);
+ const labels=[{dataset:{dimension:'0'},getBBox:()=>({x:22,y:198,width:25,height:5})}];
+ const elements=Object.keys(sheet.layout).map(view=>({dataset:{view}})).concat(labels);
+ const svg={querySelectorAll:()=>elements};
+ assert.deepEqual(drawingSheetOverflow(svg,sheet),[]);
+ assert.ok(sheet.viewTitles.front.y>sheet.layout.front.y+sheet.layout.front.height);
+ assert.match(sheet.svg,/FRONT \/ SCALE 1:1/);
+ assert.match(sheet.svg,/縮尺は各図に記載/);
+ assert.match(sheet.svg,/<rect data-view-background="front" x="13" y="5"/);
+
+ const blocked=drawingSheet(data,1,true,[],'',{...config,positions:{...config.positions,front:[15,4],top:[35,166],right:[160,181]}});
+ const issues=drawingSheetOverflow(svg,blocked).map(({element,reason})=>[element.dataset.view,reason]);
+ assert.deepEqual(issues,[['top','paper'],['front','paper'],['right','titleBlock']]);
+});
+
+test('automatic placement can use the upper space at the chosen scale even when captions would not fit above',()=>{
+ const data={bodyCount:1,bounds:[[0,0,0],[40,8,164]],views:{front:rect(40,164),top:rect(40,8)}};
+ const config={...options,sections:[],viewSelection:['front','top'],viewScales:{top:.5},projectionLocked:false};
+ const result=optimizeDrawingLayout(data,{options:config,fixedScale:true,scale:1});
+ assert.equal(result?.scale,1);
+ const sheet=drawingSheet(data,result.scale,true,[],'',{...config,layout:'compact',positions:result.positions});
+ assert.ok(sheet.layout.front.y<17);
+ assert.deepEqual(drawingSheetOverflow({querySelectorAll:()=>Object.keys(sheet.layout).map(view=>({dataset:{view}}))},sheet),[]);
+ assert.match(sheet.svg,/FRONT \/ SCALE 1:1/);
 });
 
 test('the PDF checklist maps a filtered page back to original visible dimension indices',()=>{

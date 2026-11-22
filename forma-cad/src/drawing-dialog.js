@@ -3,10 +3,11 @@ import {assignDrawingPDFPageItem,drawingPDFHasMultiplePages,drawingPDFPageAssign
  fitDrawingPDFPage,maxDrawingPDFPages,remapDrawingPDFPages} from './drawing-pdf-pages.js';
 import {installDrawingPDFPreview} from './drawing-pdf-preview.js';
 import {drawingOverflowOutline,drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps,markDrawingViewOverlap} from './drawing-sheet-check.js';
+import {drawingBoxPlacementIssue} from './drawing-paper-bounds.js';
 import {pruneDetailDimensionPlacements} from './drawing-detail-dimensions.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
-import {defaultDrawingCommentColor,drawingCommentFamily,drawingCommentPlacementIssue,hasDrawingCommentFont,loadDrawingCommentFont,minCommentWidth,maxCommentWidth,validCommentWidth} from './drawing-comments.js';
+import {defaultDrawingCommentColor,drawingCommentFamily,hasDrawingCommentFont,loadDrawingCommentFont,minCommentWidth,maxCommentWidth,validCommentWidth} from './drawing-comments.js';
 import {TEXT_FONTS} from './text-fonts.js';
 import {canOverrideDrawingDimensionValue,defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionSVG,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
 import {drawingDimensionBetween,drawingDimensionEndpoint,isLinearDimensionKind,replaceDrawingDimensionEndpoint} from './drawing-linear-dimensions.js';
@@ -527,7 +528,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function placementItems(){
   if(!sheet)return [];
   const items=Object.entries(sheet.layout).map(([id,view])=>{
-   const boxes=[{x:view.x,y:view.y,width:view.width,height:view.height},sheet.viewTitles[id]];
+   const boxes=[view];
    for(const d of dimensions)if(d.view===id){
     const p=dimensionPlacement(d,sheet);
     if(p)boxes.push(p.box,...p.main,...p.extensions,...p.arrowBoxes);
@@ -539,7 +540,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const element=viewportHost.querySelector('[data-comment="'+(note.id==='comment'?'true':note.id)+'"]');
    const box=element?.getBBox();
    if(box)items.push({id:note.id,label:note.id==='comment'?'共通コメント':'コメント '+(comments.findIndex(item=>item.id===note.id)+2),origin:[note.x,note.y],
-    box:{x:box.x,y:box.y,width:box.width,height:box.height},comment:true});
+    box:{x:box.x,y:box.y,width:box.width,height:box.height}});
   }
   return items;
  }
@@ -580,8 +581,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(editingPage<0&&projectionLockActive()&&moves.some(m=>drawingProjectionNames.includes(m.id)&&(Math.abs(m.dx)>1e-6||Math.abs(m.dy)>1e-6)))throw Error('投影図を自由に整列するには「第三角法の配置をロック」を解除してください');
    for(const move of moves){
     const item=items.find(item=>item.id===move.id),box={...item.box,x:item.box.x+move.dx,y:item.box.y+move.dy};
-    const outside=item.comment?drawingCommentPlacementIssue(box,sheet):box.x<5||box.y<17||box.x+box.width>sheet.width-5||box.y+box.height>sheet.contentBottom;
-    if(outside)throw Error('図枠と表題欄に収まる位置で整列してください');
+    if(drawingBoxPlacementIssue(box,sheet))throw Error('図枠の内側で、表題欄を避けて整列してください');
     next[item.id]=[item.origin[0]+move.dx,item.origin[1]+move.dy];
    }
    setPagePositionMap(next);selection=null;render();status(items.length+' 項目を整列しました。元に戻すで取り消せます');
@@ -1496,17 +1496,17 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const svg=viewportHost.querySelector('svg');
   const issues=drawingSheetOverflow(svg,sheet);
   const adjusting=$('drawing-layout-mode').checked;
-  let titleBlockOverlap=false;
+  let titleBlockOverlap='';
   // Updating the toolbar above the paper during a gesture shifts its screen origin.
   const list=drag?.moved?null:document.createDocumentFragment();
   for(const {element:el,box,reason} of issues){
    const {view,dimension,detailDimension,comment,marker,section,detail,holeTable:table,holeLabels,leader}=el.dataset;
    const overlapsTitleBlock=reason==='titleBlock';
-   titleBlockOverlap||=overlapsTitleBlock;
    const name=view?el.querySelector(':scope > text').textContent:dimension!==undefined?'寸法 '+(Number(dimension)+1):
     detailDimension?viewLabel(detailDimension)+'の寸法':
     comment?'コメント':leader?'矢印付き注記':table?'穴位置表':holeLabels?'穴の番号・基準点':marker?'中心表示 '+(markers.findIndex(m=>m.id===marker)+1):
     section?'切断線 '+String.fromCharCode(65+sections.findIndex(s=>s.id===section)):'詳細範囲 D'+(details.findIndex(d=>d.id===detail)+1);
+   if(overlapsTitleBlock)titleBlockOverlap||=name;
    const adjust=()=>{
     if(busy||drag)return;
     $('drawing-layout-mode').checked=true;
@@ -1518,8 +1518,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    };
    if(list){
     const button=document.createElement('button');
-    button.type='button';button.textContent=overlapsTitleBlock?'コメント（表題欄と重なり）':name;button.onclick=adjust;
-    button.setAttribute('aria-label',overlapsTitleBlock?'コメントと表題欄の重なりを調整':name+'のはみ出しを調整');
+    button.type='button';button.textContent=overlapsTitleBlock?name+'（表題欄と重なり）':name;button.onclick=adjust;
+    button.setAttribute('aria-label',overlapsTitleBlock?name+'と表題欄の重なりを調整':name+'のはみ出しを調整');
     list.append(button);
    }
    el.setAttribute('data-drawing-overflow','true');
@@ -1571,7 +1571,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-layout-help').textContent=linkedProjections?'TOPとFRONTは左右、FRONTとRIGHTは上下の移動が連動します。図の右下の角をドラッグすると拡縮します。':editingPage>=0?'図をドラッグすると移動し、図の右下の角をドラッグすると拡縮します。':layoutKind==='compact'?'右下の角をドラッグして各図の大きさを調整できます。縮尺は図面に表示します。':projectionLockActive()?'第三角法の配置をロック中。上面図は上下、右側面図は左右に動かせます。図の角をドラッグすると投影図が同じ比率で拡縮します。':'配置ロックを解除中。投影図を自由に動かせます。図の右下の角で拡縮できます。';
  const titleBlockOverlap=renderOverflow();if(!drag?.moved)renderReviewList();drawHoleSelection();
  addDrawingHoleHitAreas(viewportHost.querySelector('svg'),sheet);
- $('drawing-svg').disabled=overflow||Object.keys(data.sectionErrors||{}).length>0;$('drawing-pdf').disabled=blockPDFExport();$('drawing-paper').textContent='用紙 '+sheet.width.toFixed(1)+' × '+sheet.height.toFixed(1)+' mm';status(titleBlockOverlap?'コメントが表題欄と重なっています。表題欄の横など、図枠の空いている場所へ移動してください':overflow?'用紙の外にはみ出しています。縮尺を小さくするか、配置・用紙サイズを変更してください':data.bodyCount+' ボディ · 寸法 '+dimensions.filter(d=>sheet.layout[d.view]&&drawingDimensionVisible(d,sheet.layout[d.view])).length+' 個 · 作業ファイルを保存すると再編集できます');
+ $('drawing-svg').disabled=overflow||Object.keys(data.sectionErrors||{}).length>0;$('drawing-pdf').disabled=blockPDFExport();$('drawing-paper').textContent='用紙 '+sheet.width.toFixed(1)+' × '+sheet.height.toFixed(1)+' mm';status(titleBlockOverlap?titleBlockOverlap+'が表題欄と重なっています。図枠内の空いている場所へ移動してください':overflow?'用紙の外にはみ出しています。縮尺を小さくするか、配置・用紙サイズを変更してください':data.bodyCount+' ボディ · 寸法 '+dimensions.filter(d=>sheet.layout[d.view]&&drawingDimensionVisible(d,sheet.layout[d.view])).length+' 個 · 作業ファイルを保存すると再編集できます');
  if(pageError)status('PDFのページを表示できません。'+pageError);
  if(drag?.moved){drawCommentWidthHandle();syncInspectedHole();drawViewResizeHandles();}else controls();
  if($('drawing-layout-mode').checked&&!picking&&!action){
@@ -2762,10 +2762,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function drawingDragBox(state){
   if(state.type==='comment')return viewportHost.querySelector('[data-comment="'+(state.name==='comment'?'true':state.name)+'"]').getBBox();
   if(state.type==='holeTable')return sheet.holeBox;
-  if(state.type!=='view')return null;
-  const view=sheet.layout[state.name],title=sheet.viewTitles[state.name];
-  return {x:Math.min(view.x,title.x),y:title.y,width:Math.max(view.x+view.width,title.x+title.width)-Math.min(view.x,title.x),
-   height:view.y+view.height-title.y};
+  return state.type==='view'?sheet.layout[state.name]:null;
  }
  function drawPaperGuide(axis,position,attribute='data-placement-guide'){
   const svg=viewportHost.querySelector('svg');
@@ -2788,7 +2785,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const locked=editingPage<0&&state.type==='view'&&projectionLockActive()&&drawingProjectionNames.includes(state.name);
   const axis=locked?projectionDragAxis(state.name):null;
   const {delta,guides}=state.guideBox&&$('drawing-snap').checked&&!event.altKey?
-   snapDrawingPlacement([dx,dy],state.guideBox,sheet,{view:state.type==='view'?state.name:undefined,comment:state.type==='comment',
+   snapDrawingPlacement([dx,dy],state.guideBox,sheet,{view:state.type==='view'?state.name:undefined,
     movingViews:locked&&state.name==='front'?drawingProjectionNames:state.followers?.map(({name})=>name)}):
    {delta:[dx,dy],guides:[]};
   if(axis!==null)delta[1-axis]=0;

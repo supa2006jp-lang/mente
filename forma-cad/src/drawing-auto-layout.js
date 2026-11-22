@@ -6,6 +6,7 @@ import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
 import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmitted,drawingViewBreak} from './drawing-break.js';
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout} from './drawing-leaders.js';
+import {drawingFrameInset} from './drawing-paper-bounds.js';
 import {drawingViewTitle} from './drawing-view-title.js';
 const minimumGap=3;
 const minimumGaps=[minimumGap,minimumGap];
@@ -32,14 +33,15 @@ export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,pr
  else if(d.kind==='angle'){for(let i=0;i<2;i++)at[i]=d.vertex[i]+(at[i]-d.vertex[i])*old/next;}
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
  return {...structuredClone(d),at,...(d.alongOffset===undefined?{}:{alongOffset:d.alongOffset*old/next})};});}
-export function decoratedDrawingViews(frames,scale,dimensions,options){const boxes={},layout={};
- const {mixed}=drawingScaleSummary(Object.values(frames).map(frame=>scale*frame.factor));
+export function decoratedDrawingViews(frames,scale,dimensions,options,{includeTitles=true}={}){const boxes={},layout={};
+ const mixed=includeTitles&&drawingScaleSummary(Object.values(frames).map(frame=>scale*frame.factor)).mixed;
  for(const [key,f] of Object.entries(frames)){
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
   const view={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
   layout[key]=view;
-  const title=drawingViewTitle(key,view,options,mixed).bounds;
-  boxes[key]={x:-.5,y:title.y,width:Math.max(width+1,title.x+title.width+1),height:height-title.y+.5};
+  const title=includeTitles?drawingViewTitle(key,view,options,mixed).bounds:null;
+  const upper=title?.y??-.5;
+  boxes[key]={x:-.5,y:upper,width:title?Math.max(width+1,title.x+title.width+1):width+1,height:height-upper+.5};
  }
  const include=(key,b,pad=1)=>{const a=boxes[key];if(!a)return;const x=Math.min(a.x,b.x-pad),y=Math.min(a.y,b.y-pad);a.width=Math.max(a.x+a.width,b.x+b.width+pad)-x;a.height=Math.max(a.y+a.height,b.y+b.height+pad)-y;a.x=x;a.y=y;},point=drawingPaperPoint,points=(key,ps,pad=1)=>{include(key,{x:Math.min(...ps.map(p=>p[0])),y:Math.min(...ps.map(p=>p[1])),width:Math.max(...ps.map(p=>p[0]))-Math.min(...ps.map(p=>p[0])),height:Math.max(...ps.map(p=>p[1]))-Math.min(...ps.map(p=>p[1]))},pad);};
  const inherited=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions,!!options.pageViews);
@@ -175,7 +177,11 @@ function largestFittingScale(attempt){
 
 export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',options={},fixedScale=false,isoOnRight=false,spreadViews=false,preferProjectionOrder=false}={}){
  if(options.holeTable)options={...options,holeTable:resolveDrawingHoleTable(options.holeTable,data.views)};
- if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210],[width,height]=options.pageSize??(options.orientation==='portrait'?[size[1],size[0]]:size),area={x:6,y:18,width:width-12,height:height-(options.frame?35:12)-19},frames=drawingViewFrames(data,options);
+ if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');
+ const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210];
+ const [width,height]=options.pageSize??(options.orientation==='portrait'?[size[1],size[0]]:size);
+ const inset=drawingFrameInset+1,bottom=height-(options.frame?35:12)-1;
+ const area={x:inset,y:inset,width:width-2*inset,height:bottom-inset},frames=drawingViewFrames(data,options);
  const maxNoteWidth=width-2*drawingCommentMargin;
  const notes=options.pageNotes??drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
  // Keep longer lines when they fit. Fixed-scale views may leave only a narrow column.
@@ -195,10 +201,11 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   const limit=nominal/2;
   return largestFittingScale(value=>value<=limit+1e-12?true:null)?.scale??minDrawingScale;
  };
- const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale)=>{
+ const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale,{packingArea=area,includeTitles=false}={})=>{
   const nextOptions={...placementOptions,autoIsoScale};
   const nextFrames=drawingViewFrames(data,nextOptions,s);
-  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames),views=decoratedDrawingViews(nextFrames,s,resized,nextOptions);
+  const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames);
+  const views=decoratedDrawingViews(nextFrames,s,resized,nextOptions,{includeTitles});
   for(const column of noteColumns){
    const annotations=[];
    for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){
@@ -211,11 +218,11 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
     const grouped=group?groupProjectionViews(views,nextFrames,s,gaps,group):views;
     const items=[...grouped,...annotations];
     if(items.length>24)throw Error('自動配置する図が多すぎます');
-    const packed=packDrawingItems(items,area.width,area.height,right,gaps,group?[]:order);
+    const packed=packDrawingItems(items,packingArea.width,packingArea.height,right,gaps,group?[]:order);
     return packed?{items,packed,gaps}:null;
    };
    const layout=packWithGaps(minimumGaps);
-   if(layout)return {...layout,packWithGaps,dimensions:resized,autoIsoScale};
+   if(layout)return {...layout,packWithGaps,dimensions:resized,autoIsoScale,packingArea,isoOnRight:right};
   }
   return null;
  };
@@ -244,18 +251,24 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    if(larger?.scale>result.autoIsoScale)result=larger.result;
   }
  }
+ // Captions and header clearance are preferred only after fixing both scales.
+ const withHeadroom={...area,y:18,height:bottom-18};
+ const decorated=attempt(nextScale,result.isoOnRight,result.autoIsoScale,{packingArea:withHeadroom,includeTitles:true})??
+  attempt(nextScale,result.isoOnRight,result.autoIsoScale,{includeTitles:true});
+ const layouts=decorated?[decorated,result]:[result];
+ result=layouts[0];
  if(preferProjectionOrder&&!options.linkedProjections&&frames.front&&(frames.top||frames.right)){
-  // Keep the fitted scales and test the preferred view order on the same sheet.
-  const fitOrder=result.packWithGaps,order=['top','right'].filter(name=>frames[name]);
+  const order=['top','right'].filter(name=>frames[name]);
   const candidates=order.length>1?[order,['top'],['right']]:[order];
-  for(const dirs of candidates){
-   const packWithGaps=gaps=>fitOrder(gaps,dirs),ordered=packWithGaps(minimumGaps);
-   if(ordered){result={...result,...ordered,packWithGaps};break;}
+  preferredOrder:for(const dirs of candidates)for(const candidate of layouts){
+   const packWithGaps=gaps=>candidate.packWithGaps(gaps,dirs),ordered=packWithGaps(minimumGaps);
+   if(ordered){result={...candidate,...ordered,packWithGaps};break preferredOrder;}
   }
  }
- const layout=spreadViews&&Object.keys(frames).length>1?spreadDrawingItems(result,area):result;
+ const used=result.packingArea;
+ const layout=spreadViews&&Object.keys(frames).length>1?spreadDrawingItems(result,used):result;
  const {gaps:[gapX,gapY],packed}=layout;
- const positions={},boxes=[],offset=[area.x+(area.width-(packed.w-gapX))/2,area.y+(area.height-(packed.h-gapY))/2];
+ const positions={},boxes=[],offset=[used.x+(used.width-(packed.w-gapX))/2,used.y+(used.height-(packed.h-gapY))/2];
  for(const block of layout.items){
   const [px,py]=packed.at[block.key];
   for(const item of block.children??[block]){
@@ -264,5 +277,5 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    boxes.push({key:item.key,x,y,width:item.width,height:item.height});
   }
  }
- return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area,boxes,autoIsoScale:result.autoIsoScale};
+ return {scale:nextScale,positions,dimensions:result.dimensions,paper,layout:'compact',area:used,boxes,autoIsoScale:result.autoIsoScale};
 }
