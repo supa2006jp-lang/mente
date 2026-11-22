@@ -41,8 +41,9 @@ import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js'
 import {canInspectExtrusionJoins,assertExtrusionJoinContacts,extrusionJoinConnectionPath} from './extrusion-join-selection.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
-import {freeScrewBlank,freeScrewThread} from './free-screw.js';
-import {freeScrewSettings} from './free-screw-settings.js';
+import {chamferScrewTip,freeScrewBlank,freeScrewThread} from './free-screw.js';
+import {freeScrewSettings,screwWorldZ} from './free-screw-settings.js';
+import {freeScrewFitSection} from './free-screw-fit.js';
 import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
@@ -500,17 +501,31 @@ export function runOperation(features,spec,onProgress,context={}){
  return finishCadSteps(runOperationSteps(features,spec,onProgress,context));
 }
 export function* runOperationSteps(features,spec,onProgress,context={}){
+ if(spec.type==='freeScrewFitSection'){
+  return freeScrewFitSection(freeScrewSettings(spec.settings),spec.screwBrep,spec.nutBrep,spec.nutPosition,onProgress);
+ }
  if(spec.type==='freeScrew'||spec.type==='freeScrewPreview'){
   const settings=freeScrewSettings(spec);
   onProgress?.({stage:'ねじの軸・頭部・工具穴を作成しています'});
-  const blank=freeScrewBlank(settings);
+  const blank=freeScrewBlank(settings);let draft;
   try{
-   if(spec.type==='freeScrewPreview')return {outputs:[{id:spec.id,...cadMesh(blank)}]};
+   if(spec.type==='freeScrewPreview'){
+    const {diameter,origin:[x,y],headDown,tipChamfer}=settings;
+    if(tipChamfer)draft=chamferScrewTip(blank,diameter/2,[x,y,screwWorldZ(settings,0)],headDown,tipChamfer);
+    return {outputs:[{id:spec.id,...cadMesh(draft??blank)}]};
+   }
    const brep=serializeCadShape(blank);
    rememberBody(brep,blank);
    const seed={kind:'cadop',id:spec.id,outputs:[{id:spec.id,brep}],remove:[]};
-   return yield* runOperationSteps([seed],freeScrewThread(settings),onProgress);
-  }finally{blank.delete();}
+   const screw=yield* runOperationSteps([seed],freeScrewThread(settings),onProgress);
+   const {nut}=settings;
+   if(!nut)return screw;
+   onProgress?.({stage:nut.autoPull?'ナットのねじ山に自動プルを適用しています':'ナットのねじ山を作成しています'});
+   const created={kind:'cadop',id:spec.id,spec:settings,...screw};
+   const mate=yield* runOperationSteps([created],{type:'threadMate',target:spec.id,id:nut.id,
+    shape:nut.shape,wall:nut.wall,length:nut.height,clearance:nut.autoPull?nut.clearance:0},onProgress);
+   return {outputs:[...screw.outputs,...mate.outputs],remove:[],analysis:{nut:mate.analysis}};
+  }finally{draft?.delete();blank.delete();}
  }
  if(spec.type==='formOutlineComparison')return compareFormSilhouette(formSilhouette(spec.mesh,spec.view),spec.outline,spec.tolerance);
  if(spec.type==='formClearance'){
@@ -1122,7 +1137,19 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  const start=selected.fromTop?selected.height-offset-length:offset;
  selected.origin.addScaledVector(selected.normal,start);
  const externalCut=nominal&&!selected.internal;
- if(externalCut){const threaded=nominalMaleThread(base,selected,p,length,onProgress);try{onProgress?.({stage:'ねじの表示形状を作成しています'});emit(p.target,threaded);}finally{threaded.delete();}outputs.at(-1).threadSource={features,spec:{...p,threadInternal:false}};return {outputs,remove};}
+ if(externalCut){
+  const amount=p.tipChamfer??0;
+  if(amount&&(!Number.isFinite(amount)||amount<0||amount>=Math.min(selected.radius,length)||Math.abs(selected.normal.z)<1-1e-8))throw Error('ねじ先端の面取り寸法が不正です');
+  const threaded=nominalMaleThread(base,selected,p,length,onProgress);let trimmed;
+  try{
+   if(amount){
+    const tip=selected.origin.clone().addScaledVector(selected.normal,selected.fromTop?length:0);
+    trimmed=chamferScrewTip(threaded,selected.radius,tip.toArray(),selected.fromTop,amount);
+   }
+   onProgress?.({stage:'ねじの表示形状を作成しています'});emit(p.target,trimmed??threaded);
+  }finally{trimmed?.delete();threaded.delete();}
+  outputs.at(-1).threadSource={features,spec:{...p,threadInternal:false}};return {outputs,remove};
+ }
  const radius=selected.radius,path=threadHelix(pitch,length,radius,!!p.leftHand),sign=nominal?-1:selected.internal?-1:1;
  let points=metric?[[ -sign*pitch*.02,-pitch*.45],[sign*pitch*.541266,-pitch*.125],[sign*pitch*.541266,pitch*.125],[-sign*pitch*.02,pitch*.45]]:[[-sign*wire/2,-wire/2],[sign*wire/2,0],[-sign*wire/2,wire/2]];
  if(p.threadFaceOffsets){const offsets=[...p.threadFaceOffsets];if(selected.internal)offsets[3]=Math.max(offsets[3]||0,-(p.threadCylinderOffset||0));points=offsetThreadProfile(points,offsets);} let profile=R.draw(points[0]);for(const pt of points.slice(1))profile=profile.lineTo(pt);

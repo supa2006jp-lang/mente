@@ -5,6 +5,23 @@ export function sectionPlane(s){
  const {axis,coordinate,keep,direction,horizontal:x}=drawingSectionPlane(s);
  return {axis,coordinate,keep,direction,x};
 }
+// Read only the planar caps from an already tessellated native cut.
+export function sectionFaceTriangles(shape,axis,coordinate,project){
+ const triangles=[],faces=shape.faces;
+ try{
+  for(const face of faces){
+   if(face.geomType!=='PLANE')continue;
+   const box=face.boundingBox;let bounds;
+   try{bounds=box.bounds;}finally{box.delete();}
+   if(bounds.some(point=>Math.abs(point[axis]-coordinate)>1e-5))continue;
+   const mesh=face.triangulation();if(!mesh)continue;
+   for(let i=0;i<mesh.trianglesIndexes.length;i+=3){
+    triangles.push(mesh.trianglesIndexes.slice(i,i+3).map(j=>project(mesh.vertices.slice(j*3,j*3+3))));
+   }
+  }
+  return triangles;
+ }finally{faces.forEach(face=>face.delete());}
+}
 export function sectionProjection(compound,bounds,s,silhouettes=false){
  const {axis,coordinate,keep,direction,horizontal:x,vertical:y}=drawingSectionPlane(s);
  if(coordinate<=bounds[0][axis]+1e-6||coordinate>=bounds[1][axis]-1e-6)throw Error('切断線をソリッドの内側に置いてください');
@@ -17,7 +34,7 @@ export function sectionProjection(compound,bounds,s,silhouettes=false){
  const mesh=cut.mesh({tolerance:.015,angularTolerance:.1});
  if(silhouettes)view.silhouette=drawingSilhouette(mesh,direction,x);
  const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
- for(const face of cut.faces){try{if(face.geomType!=='PLANE')continue;const box=face.boundingBox;let bb;try{bb=box.bounds;}finally{box.delete();}if(bb.some(p=>Math.abs(p[axis]-coordinate)>1e-5))continue;const t=face.triangulation();if(!t)continue;for(let i=0;i<t.trianglesIndexes.length;i+=3){view.triangles.push(t.trianglesIndexes.slice(i,i+3).map(j=>{const v=t.vertices.slice(j*3,j*3+3);return [dot(v,x),dot(v,y)];}));}}finally{face.delete();}}
+ view.triangles=sectionFaceTriangles(cut,axis,coordinate,point=>[dot(point,x),dot(point,y)]);
  if(!view.triangles.length)throw Error('切断線が材質に交差していません。位置を変更してください');
  return view;
  }finally{cut?.delete();camera.delete();cutter.delete();}

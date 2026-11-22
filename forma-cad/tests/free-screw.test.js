@@ -41,6 +41,7 @@ test('the M sizes load their coarse pitch and invalid recess dimensions are reje
  assert.doesNotThrow(()=>freeScrewSettings(screw({length:1000,threadLength:8})));
  assert.throws(()=>freeScrewSettings(screw({length:3,threadLength:4})),/首下の長さ以下/);
  assert.throws(()=>freeScrewSettings(screw({head:'bar',barThickness:20})),/横棒/);
+ assert.throws(()=>freeScrewSettings(screw({tipChamfer:2})),/先端の面取り量/);
  assert.throws(()=>freeScrewSettings(screw({driveDepth:10})),/底に0.1 mm/);
  assert.throws(()=>freeScrewSettings(screw({driveSize:30})),/工具穴の周囲/);
  assert.equal(freeScrewSettings(screw({drive:'none',driveSize:30,driveDepth:50})).driveDepth,undefined);
@@ -85,7 +86,7 @@ test('the free screw reuses the real thread generator and keeps the mating-threa
 
 test('a partial thread starts at the tip in either orientation and leaves the rest of the shaft cylindrical',()=>{
  for(const [head,headDown] of [['knob',false],['bar',true]]){
-  const spec=screw({length:25,threadLength:4.2,head,drive:'none',headDown,leftHand:true,origin:[7,-3,2]});
+  const spec=screw({length:25,threadLength:4.2,head,drive:'none',headDown,leftHand:true,tipChamfer:.65,origin:[7,-3,2]});
   const [x,y,z]=spec.origin,total=spec.length+spec.headHeight;
   const result=runOperation([],spec),output=result.outputs[0],shape=R.deserializeShape(output.brep).asShape3D();
   const height=point=>headDown?z+total-point:z+point;
@@ -97,18 +98,54 @@ test('a partial thread starts at the tip in either orientation and leaves the re
    assert.ok(shank&&!shank.internal);
    near(shank.height,spec.length-spec.threadLength);
    near(shank.radius,radius);
-   let rootVertices=0;
+   let rootVertices=0,tipRadius=0;
    for(let i=0;i<output.vertices.length;i+=3){
     const [px,py,pz]=output.vertices.slice(i,i+3),axial=headDown?z+total-pz:pz-z;
     if(axial>.01&&axial<spec.threadLength-.01&&Math.hypot(px-x,py-y)<radius-.1)rootVertices++;
+    if(Math.abs(axial)<1e-5)tipRadius=Math.max(tipRadius,Math.hypot(px-x,py-y));
    }
    assert.ok(rootVertices>10,'threads remain on the tip side after changing orientation');
+   near(tipRadius,radius-spec.tipChamfer);
    assert.equal(output.threadSource.spec.leftHand,true);
+   assert.equal(output.threadSource.spec.tipChamfer,.65);
    const feature={kind:'cadop',id:spec.id,name:'部分ねじ',spec,...result};
    const mate=runOperation([feature],{type:'threadMateInfo',target:spec.id}).analysis;
    near(mate.length,spec.threadLength);assert.equal(mate.leftHand,true);
   }finally{shape.delete();}
  }
+});
+
+test('a separate hex nut can be auto-pulled without changing the screw, and the assembled section shows the fit',()=>{
+ const nut={id:'nut',shape:'hex',height:2.8,wall:2,autoPull:false};
+ const spec=screw({length:12,threadLength:4.2,head:'cylinder',drive:'none',tipChamfer:.55,headDown:true,leftHand:true,nut});
+ const baseline=runOperation([],spec);
+ const adjusted={...spec,nut:{...nut,autoPull:true,clearance:.105}};
+ const result=runOperation([],adjusted);
+ assert.deepEqual(result.outputs.map(body=>body.id),['screw','nut']);
+ near(result.outputs[0].shapeMetrics.volume,baseline.outputs[0].shapeMetrics.volume);
+ assert.equal(result.outputs[0].threadSource.spec.threadCylinderOffset,undefined);
+ assert.equal(result.outputs[1].threadSource.spec.threadCylinderOffset,-.105);
+ assert.ok(result.outputs[1].shapeMetrics.volume<baseline.outputs[1].shapeMetrics.volume);
+ const [faceMin,faceMax]=result.outputs[1].shapeMetrics.bounds;
+ near(faceMax[1]-faceMin[1],spec.diameter+2*nut.wall);
+ near(faceMax[2]-faceMin[2],nut.height);
+ assert.ok(faceMin[0]>result.outputs[0].shapeMetrics.bounds[1][0]);
+ const section=runOperation([],{type:'freeScrewFitSection',settings:adjusted,screwBrep:result.outputs[0].brep,
+  nutBrep:result.outputs[1].brep,nutPosition:result.analysis.nut.position});
+ assert.ok(section.screw.length>=1&&section.nut.length>=2);
+ assert.ok(section.overlapArea<.0005);
+ near(section.nutTop-section.nutBottom,nut.height);
+ assert.ok(section.nutBottom>spec.headHeight);
+});
+
+test('the section identifies overlap when a round nut reaches the plain shaft',()=>{
+ const spec=screw({length:12,threadLength:2.8,head:'cylinder',drive:'none',
+  nut:{shape:'round',height:4.2,wall:2,autoPull:false}});
+ const result=runOperation([],spec);
+ const section=runOperation([],{type:'freeScrewFitSection',settings:spec,screwBrep:result.outputs[0].brep,
+  nutBrep:result.outputs[1].brep,nutPosition:result.analysis.nut.position});
+ assert.ok(section.overlap.length>0&&section.overlapArea>.1);
+ assert.ok(section.nutTop>spec.threadLength);
 });
 
 test('a head or shaft change can replay the move after a saved screw without adding another body',()=>{

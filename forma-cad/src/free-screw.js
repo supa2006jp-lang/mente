@@ -11,6 +11,7 @@ function hexagon(across){
  const radius=across/Math.sqrt(3);
  return Array.from({length:6},(_,i)=>[radius*Math.cos(i*Math.PI/3),radius*Math.sin(i*Math.PI/3)]);
 }
+export const hexPrism=(across,z,height)=>polygonPrism(hexagon(across),z,height);
 function knobHead(radius,diameter,z,height){
  const step=Math.PI/3,lobeWidth=.22*step,valley=screwKnobValley(radius,diameter);
  const polar=(r,angle)=>[r*Math.cos(angle),r*Math.sin(angle)];
@@ -37,7 +38,7 @@ function barHead({headSize,headHeight,barThickness,length,diameter}){
 function screwHead(settings){
  const {head,headSize,headHeight,length,diameter}=settings;
  const radius=headSize/2,top=length+headHeight;
- if(head==='hex')return polygonPrism(hexagon(headSize),length,headHeight);
+ if(head==='hex')return hexPrism(headSize,length,headHeight);
  if(head==='cylinder')return R.makeCylinder(radius,headHeight,[0,0,length]);
  if(head==='knob')return knobHead(radius,diameter,length,headHeight);
  if(head==='bar')return barHead(settings);
@@ -54,13 +55,27 @@ function screwHead(settings){
 }
 function screwRecess({length,headHeight,drive,driveSize,driveDepth}){
  const z=length+headHeight-driveDepth,height=driveDepth+.05;
- if(drive==='hex')return polygonPrism(hexagon(driveSize),z,height);
+ if(drive==='hex')return hexPrism(driveSize,z,height);
  const end=driveSize/2,side=driveSize*.145;
  if(drive==='slot')return R.makeBox([-end,-side,z],[end,side,z+height]);
  return polygonPrism([
   [-side,-end],[side,-end],[side,-side],[end,-side],[end,side],[side,side],
   [side,end],[-side,end],[-side,side],[-end,side],[-end,-side],[-side,-side],
  ],z,height);
+}
+
+export function chamferScrewTip(shape,radius,tip,top,amount){
+ // The cone trims the existing helix, so neither its lead nor the specified
+ // length changes. Extend both sides of the cutting profile past the face.
+ const pad=Math.min(.05,(radius-amount)/2),outer=radius+pad;
+ const tool=R.draw([radius-amount-pad,-pad]).lineTo([outer,-pad]).lineTo([outer,amount+pad])
+  .close().sketchOnPlane(new R.Plane([0,0,0],[1,0,0],[0,-1,0])).revolve([0,0,1]);
+ let turned,placed;
+ try{
+  if(top)turned=tool.rotate(180,[0,0,0],[1,0,0]);
+  placed=(turned??tool).translate(tip);
+  return shape.cut(placed);
+ }finally{placed?.delete();turned?.delete();tool.delete();}
 }
 
 export function freeScrewBlank(settings){
@@ -78,9 +93,9 @@ export function freeScrewBlank(settings){
 }
 
 export function freeScrewThread(settings){
- const {id,diameter,pitch,length,threadLength,leftHand,origin:[x,y]}=settings;
+ const {id,diameter,pitch,length,threadLength,leftHand,tipChamfer,origin:[x,y]}=settings;
  const fromTip=Math.min(length/4,threadLength/2);
  return {type:'thread',target:id,profile:'metric60',threadVersion:2,modeled:true,pitch,leftHand,
-  fullLength:threadLength===length,length:threadLength,offset:0,
+  fullLength:threadLength===length,length:threadLength,offset:0,...(tipChamfer?{tipChamfer}:{}),
   designation:'M'+diameter+' × '+pitch,surfacePoint:[x+diameter/2,y,screwWorldZ(settings,fromTip)]};
 }

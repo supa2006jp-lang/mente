@@ -48,6 +48,20 @@
 #free-screw-dialog button{color:#18374b;background:#e6f0f5;border-color:#a4bccd}
 #free-screw-dialog .accent{color:white;background:#087d9b;border-color:#087d9b}
 #free-screw-dialog p{font-size:.9rem;line-height:1.45;margin:8px 0 0}
+#free-screw-dialog .screw-check{display:flex;align-items:center;gap:7px;margin:3px 0 9px}
+#free-screw-dialog .screw-check input{width:16px;height:16px;margin:0;padding:0;accent-color:#087d9b}
+#free-screw-section{margin:8px 0 0}
+#free-screw-fit-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,88px);z-index:105;width:min(560px,calc(100% - 24px));max-height:calc(100% - 104px);overflow:auto;padding:14px;background:#f5fafdf5;border:1px solid #7896aa;border-radius:10px;color:#234457;box-shadow:0 8px 25px #0003}
+#free-screw-fit-panel .panel-drag-handle{padding-right:32px;font-weight:600}
+#free-screw-fit-close{position:absolute;right:9px;top:8px}
+#free-screw-fit-panel button{background:#edf4f8;color:#234457;border-color:#9ab6c7}
+#free-screw-fit-panel button[aria-pressed=true]{background:#c5ebf2;border-color:#1687a3}
+#free-screw-fit-panel p{margin:8px 0;color:inherit;font-size:.9rem}
+#free-screw-fit-panel svg{display:block;width:100%;height:min(44vh,440px);background:#fff;border-radius:5px}
+#free-screw-fit-panel .screw-section-controls,#free-screw-fit-panel .screw-section-legend{display:flex;gap:8px 14px;flex-wrap:wrap;margin:8px 0}
+#free-screw-fit-panel .screw-section-legend span::before{content:'';display:inline-block;width:10px;height:10px;margin-right:5px;background:#83c7d9}
+#free-screw-fit-panel .screw-section-legend span:nth-child(2)::before{background:#edbd7e}
+#free-screw-fit-panel .screw-section-legend span:nth-child(3)::before{background:#da4345}
 @media(max-width:420px){#free-screw-dialog{padding:12px}#free-screw-dialog .screw-fields{grid-template-columns:1fr}}
 #drawing-crosshair{position:absolute;width:33px;height:33px;transform:translate(-50%,-50%);pointer-events:none;z-index:19}#drawing-crosshair::before,#drawing-crosshair::after{content:"";position:absolute;background:#424640;box-shadow:0 0 1px 1px #ffffff90}#drawing-crosshair::before{width:33px;height:1px;left:0;top:16px}#drawing-crosshair::after{width:1px;height:33px;left:16px;top:0}.drawing-crosshair-active canvas{cursor:none!important}
 #selection-box{position:absolute;pointer-events:none;z-index:30;border:1px solid #326cbd;background:#326cbd20}#selection-box[data-crossing="true"]{border:1px dashed #27865b;background:#27865b20}

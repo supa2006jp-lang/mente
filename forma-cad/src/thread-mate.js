@@ -1,8 +1,20 @@
+import * as R from 'replicad';
 import {defaults} from './geometry.js';
+import {hexPrism} from './free-screw.js';
+import {serializeCadShape} from './cad-serialization.js';
 import {threadMateSource} from './thread-source.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {allThreadPullSpec} from './thread-pull-spec.js';
 import {machineThreadMate} from './thread-mate-existing.js';
+
+function hexNutSeed(id,diameter,wall,height,x,y){
+ const hex=hexPrism(diameter+2*wall,0,height),bore=R.makeCylinder(diameter/2,height+.1,[0,0,-.05]);
+ let nut,placed;
+ try{
+  nut=hex.cut(bore);placed=nut.translate([x,y,0]);
+  return {kind:'cadop',id,outputs:[{id,brep:serializeCadShape(placed)}],remove:[]};
+ }finally{placed?.delete();nut?.delete();bore.delete();hex.delete();}
+}
 
 export function makeThreadMate(features,spec,{bodies,run}){
  const source=threadMateSource(features,spec.target);
@@ -25,9 +37,12 @@ export function makeThreadMate(features,spec,{bodies,run}){
  if(!q.internal&&q.diameter/2-q.pitch*.561266-q.clearance<=.1)throw Error('この径・ピッチ・逃がし量では雄ねじの芯が細くなりすぎます');
  if(spec.destination==='existing')return machineThreadMate(features,spec,q,{bodies,run});
  if(spec.destination!==undefined&&spec.destination!=='new')throw Error('相手ねじの作成先が不正です');
- const radius=q.diameter/2,outer=radius+(q.internal?q.wall:0),x=maxX+10+outer,y=(minY+maxY)/2;
+ if(spec.shape!==undefined&&(!q.internal||!['hex','round'].includes(spec.shape)))throw Error('ナットの形状が不正です');
+ const hex=spec.shape==='hex',radius=q.diameter/2,outer=radius+(q.internal?q.wall:0);
+ const x=maxX+10+(hex?outer*2/Math.sqrt(3):outer),y=(minY+maxY)/2;
  const primitive={...defaults,kind:'extrusion',id:spec.id,name:q.internal?'相手ねじ ナット':'相手ねじ 円柱',profile:'circle',mode:q.internal?'thin':'solid',side:'outside',diameter:q.diameter,wall:q.wall,depth:q.length,x,y,z:0};
  let thread={type:'thread',target:spec.id,surfacePoint:[x+radius,y,q.length/2],pitch:q.pitch,fullLength:true,leftHand:q.leftHand,profile:'metric60',threadVersion:2,modeled:true,designation:q.designation};
  if(q.clearance)thread=allThreadPullSpec(thread,-q.clearance);
- const result=run([primitive],thread);return {...result,analysis:{...q,position:[x,y,0]}};
+ const seed=hex?hexNutSeed(spec.id,q.diameter,q.wall,q.length,x,y):primitive;
+ const result=run([seed],thread);return {...result,analysis:{...q,position:[x,y,0],...(spec.shape?{shape:spec.shape}:{})}};
 }

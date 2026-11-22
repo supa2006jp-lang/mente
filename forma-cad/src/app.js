@@ -1174,7 +1174,7 @@ function openMachiningHistory(id){
 }
 const selectedThreadSurface=()=>!selectedFace&&selectedSurface?.radius>0&&meshes.get(selectedSurface.bodyId)?.visible?selectedSurface:null;
 const freeScrewController=createFreeScrewDialog({
- kernel:new KernelClient(),scene,getFeatures:()=>features,getBody:id=>meshes.get(id),notify,
+ kernel:new KernelClient(),scene,host,getFeatures:()=>features,getBody:id=>meshes.get(id),notify,
  place(settings){
   const bounds=new THREE.Box3();
   for(const mesh of meshes.values())bounds.expandByObject(mesh);
@@ -1187,15 +1187,21 @@ const freeScrewController=createFreeScrewDialog({
  },
  async apply(spec,result,editing,original,isCurrent,kernel,onProgress){
   const name='ねじ M'+spec.diameter+' × '+spec.length;
+  const part={...editing,kind:'cadop',id:spec.id,name,spec,...result};
+  if(spec.nut)part.bodyNames={[spec.nut.id]:'ナット',...part.bodyNames};
+  else if(editing?.spec.nut){
+   if(part.bodyNames){part.bodyNames={...part.bodyNames};delete part.bodyNames[editing.spec.nut.id];}
+   delete part.analysis;
+  }
   let next;
   if(editing){
    const index=original.findIndex(feature=>feature.id===editing.id);
    if(index<0)throw Error('編集するねじが見つかりません');
-   next=original.slice();next[index]={...editing,name,spec,...result};
+   next=original.slice();next[index]=part;
    if(index+1<next.length){
     next=(await kernel.run(next,{type:'replay',before:original,start:index+1,refreshStart:true},{onProgress})).features;
    }
-  }else next=[...original,{kind:'cadop',id:spec.id,name,spec,...result}];
+  }else next=[...original,part];
   if(!isCurrent())return;
   setProject(next);selected=null;stage='model';syncFields();
  }
