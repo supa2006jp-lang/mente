@@ -4,6 +4,8 @@ import {readFile} from 'node:fs/promises';
 import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {freeScrewBlank} from '../src/free-screw.js';
+import {createFreeScrewFitMotion} from '../src/free-screw-fit-motion.js';
+import {freeScrewPresetValues} from '../src/free-screw-presets.js';
 import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes} from '../src/free-screw-settings.js';
 import {kernelBodies,runOperation} from '../src/kernel.js';
 import {captureSelectionHistory,placeSelectionHistory} from '../src/selection-history.js';
@@ -136,6 +138,18 @@ test('a separate hex nut can be auto-pulled without changing the screw, and the 
  assert.ok(section.overlapArea<.0005);
  near(section.nutTop-section.nutBottom,nut.height);
  assert.ok(section.nutBottom>spec.headHeight);
+ const settings=freeScrewSettings(adjusted),motion=createFreeScrewFitMotion(section,settings);
+ try{
+  const tip=motion.at(0);
+  near(tip.nutBottom,settings.length+settings.headHeight);
+  const quarterTurn=motion.at(section.advance+spec.pitch/4);
+  near(quarterTurn.nutBottom,section.nutBottom-spec.pitch/4);
+  near(quarterTurn.rotation,90);
+  assert.ok(quarterTurn.nut.length>=2&&quarterTurn.overlapArea<.0005);
+  const seat=motion.at(settings.length);
+  near(seat.nutBottom,settings.headHeight);
+  assert.ok(seat.overlapArea>.1,'the moving section shows the shank obstruction');
+ }finally{motion.dispose();}
 });
 
 test('the section identifies overlap when a round nut reaches the plain shaft',()=>{
@@ -146,6 +160,27 @@ test('the section identifies overlap when a round nut reaches the plain shaft',(
   nutBrep:result.outputs[1].brep,nutPosition:result.analysis.nut.position});
  assert.ok(section.overlap.length>0&&section.overlapArea>.1);
  assert.ok(section.nutTop>spec.threadLength);
+ const motion=createFreeScrewFitMotion(section,freeScrewSettings(spec));
+ try{
+  const tip=motion.at(0);
+  near(tip.nutTop,0);
+  const seat=motion.at(spec.length);
+  near(seat.nutTop,spec.length);
+  assert.ok(tip.overlapArea<.0005&&seat.overlapArea>.1);
+ }finally{motion.dispose();}
+});
+
+test('screw presets retain screw and nut parameters across placements without retaining model identity',()=>{
+ const spec=screw({head:'bar',drive:'none',length:10,threadLength:2.8,tipChamfer:.3,leftHand:true,headDown:true,
+  nut:{id:'source-nut',shape:'round',height:2.1,wall:2.4,autoPull:true,clearance:.11}});
+ const values=freeScrewPresetValues(spec);
+ assert.equal(values.id,undefined);
+ assert.equal(values.origin,undefined);
+ assert.equal(values.nut.id,undefined);
+ const restored=freeScrewSettings({id:'new-screw',origin:[1,2,3],...JSON.parse(JSON.stringify(values))});
+ assert.deepEqual(restored,freeScrewSettings({...spec,id:'new-screw',origin:[1,2,3],nut:{...spec.nut,id:'new-screw-nut'}}));
+ assert.equal(freeScrewPresetValues(screw()).nut,undefined);
+ assert.throws(()=>freeScrewPresetValues({...spec,nut:{...spec.nut,height:-1}}),/ナットの形状/);
 });
 
 test('a head or shaft change can replay the move after a saved screw without adding another body',()=>{

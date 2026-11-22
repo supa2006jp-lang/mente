@@ -50,6 +50,12 @@
 #free-screw-dialog p{font-size:.9rem;line-height:1.45;margin:8px 0 0}
 #free-screw-dialog .screw-check{display:flex;align-items:center;gap:7px;margin:3px 0 9px}
 #free-screw-dialog .screw-check input{width:16px;height:16px;margin:0;padding:0;accent-color:#087d9b}
+#free-screw-presets{margin:10px 0 12px}
+#free-screw-presets summary{cursor:pointer;padding:5px 0;font-weight:600}
+#free-screw-dialog #free-screw-presets fieldset{margin:5px 0 0;min-width:0}
+#free-screw-presets .screw-preset-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
+#free-screw-presets .screw-preset-row+.screw-preset-row{margin-top:9px}
+#free-screw-presets .screw-preset-error{color:#9e2a25}
 #free-screw-section{margin:8px 0 0}
 #free-screw-fit-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,88px);z-index:105;width:min(560px,calc(100% - 24px));max-height:calc(100% - 104px);overflow:auto;padding:14px;background:#f5fafdf5;border:1px solid #7896aa;border-radius:10px;color:#234457;box-shadow:0 8px 25px #0003}
 #free-screw-fit-panel .panel-drag-handle{padding-right:32px;font-weight:600}
@@ -59,6 +65,11 @@
 #free-screw-fit-panel p{margin:8px 0;color:inherit;font-size:.9rem}
 #free-screw-fit-panel svg{display:block;width:100%;height:min(44vh,440px);background:#fff;border-radius:5px}
 #free-screw-fit-panel .screw-section-controls,#free-screw-fit-panel .screw-section-legend{display:flex;gap:8px 14px;flex-wrap:wrap;margin:8px 0}
+#free-screw-fit-panel .screw-section-motion{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;padding:9px 11px;background:#e8f3f7;border-radius:5px;font-size:.9rem}
+#free-screw-fit-panel .screw-section-motion label{margin:0;color:inherit;font-weight:600}
+#free-screw-fit-travel{text-align:right;font-variant-numeric:tabular-nums}
+#free-screw-fit-advance{grid-column:1/-1;margin:0;padding:0;height:22px;border:0;background:transparent;accent-color:#087d9b;cursor:ew-resize}
+#free-screw-fit-panel .screw-section-endpoints{grid-column:1/-1;display:flex;justify-content:space-between;color:#456475;font-size:.85rem}
 #free-screw-fit-panel .screw-section-legend span::before{content:'';display:inline-block;width:10px;height:10px;margin-right:5px;background:#83c7d9}
 #free-screw-fit-panel .screw-section-legend span:nth-child(2)::before{background:#edbd7e}
 #free-screw-fit-panel .screw-section-legend span:nth-child(3)::before{background:#da4345}

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {draggableDialog} from './draggable-dialog.js';
 import {createFreeScrewFitView} from './free-screw-fit-view.js';
+import {installFreeScrewPresets} from './free-screw-presets.js';
 import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes,screwNutDefaults,screwNutShapes,screwWorldZ} from './free-screw-settings.js';
 
 const options=items=>Object.entries(items).map(([value,label])=>'<option value="'+value+'">'+label+'</option>').join('');
@@ -54,6 +55,10 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
  document.body.append(dialog);
  draggableDialog(dialog);
  const $=name=>dialog.querySelector('#free-screw-'+name),form=$('form');
+ const presets=installFreeScrewPresets(form.querySelector('fieldset'),{
+  read:draft,
+  apply(spec){fillSettings(spec);schedule();},
+ });
  let original=null,editing=null,id=null,busy=false,timer=null,revision=0,preview=null,needsFit=false,prepared=null,nutInitialized=false;
  const hiddenBodies=[];
 
@@ -248,10 +253,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   if(dialog.open)return;
   revision++;clearTimeout(timer);clearPreview();section.close();kernel.reset();busy=false;prepared=null;
  });
- return {open(feature=null){
-  if(dialog.open)return;
-  original=getFeatures();editing=feature;id=feature?.id??crypto.randomUUID();needsFit=true;
-  const spec=feature?.spec;
+ function fillSettings(spec){
   const length=spec?.length??12,threadLength=spec?.threadLength??length;
   $('diameter').value=spec?.diameter??6;$('pitch').value=spec?.pitch??screwCoarsePitches.get(6);
   $('length').value=length;$('hand').value=spec?.leftHand?'left':'right';
@@ -267,9 +269,15 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   resetDrive();
   if(spec&&spec.drive!=='none'){$('drive-size').value=spec.driveSize;$('drive-depth').value=spec.driveDepth;}
   $('nut-enabled').checked=!!spec?.nut;nutInitialized=!!spec?.nut;resetNut(spec?.nut);
+  syncFields();
+ }
+ return {open(feature=null){
+  if(dialog.open)return;
+  original=getFeatures();editing=feature;id=feature?.id??crypto.randomUUID();needsFit=true;
   lock(false);section.close();
+  fillSettings(feature?.spec);presets.open();
   $('title').textContent=feature?'ねじを再編集':'ねじを新規作成';
   $('apply').textContent=feature?'更新':'作成';
-  syncFields();dialog.show();$('diameter').focus();schedule();
+  dialog.show();$('diameter').focus();schedule();
  }};
 }
