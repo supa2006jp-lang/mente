@@ -3,7 +3,7 @@ import {draggableDialog} from './draggable-dialog.js';
 import {scopedFaceGrid} from './face-grid.js';
 import {basisFor,worldPoint} from './frames.js';
 import {nutPocketSource,validateNutPocket} from './nut-pocket-settings.js';
-import {regionContains} from './regions.js';
+import {pointInRing,regionContains} from './regions.js';
 import {faceCenterCandidate} from './selection-candidates.js';
 
 const number=value=>Number(value.toFixed(3));
@@ -18,6 +18,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  </div><form id="nut-pocket-form">
  <p id="nut-pocket-source"></p>
  <label>加工先ボディ<select id="nut-pocket-target"></select></label>
+ <button type="button" id="nut-pocket-repick-face" hidden>加工面を選び直す</button>
  <label>配置方法<select id="nut-pocket-mode">
  <option value="rim">既存の円穴</option>
  <option value="center">面の中心</option>
@@ -39,7 +40,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  const raycaster=new THREE.Raycaster();
  const rimLine=new THREE.LineLoop(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0x0085a3,depthTest:false}));
  rimLine.visible=false;rimLine.renderOrder=32;scene.add(rimLine);
- let original,history,editing,nut,id,openings=null,selection=null,hovered=null,manualMode=false,gridOverlay=null;
+ let original,history,editing,nut,id,openings=null,activeFace=null,selection=null,hovered=null,manualMode=false,gridOverlay=null;
  let revision=0,scan=0,timer=null,preview=null,hidden=null,cached=null,busy=false;
  const mode=()=>$('mode').value,isRim=()=>mode()==='rim';
 
@@ -63,7 +64,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
   const first=raycaster.intersectObjects(visible,false)[0]?.distance??Infinity;
   const margin=(camera.top-camera.bottom)/(camera.zoom*rect.height)*6;
   let nearest=null,distance=first+.001;
-  for(const rim of openings){
+  for(const rim of activeFace.rims??[]){
    const center=new THREE.Vector3(...rim.center),normal=new THREE.Vector3(...rim.normal),facing=ray.direction.dot(normal);
    if(facing>=-1e-5)continue;
    const depth=center.clone().sub(ray.origin).dot(normal)/facing;
@@ -75,35 +76,58 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  }
  function clearFaceGrid(){
   if(!gridOverlay)return;
-  gridOverlay.grid.removeFromParent();gridOverlay.grid.geometry.dispose();gridOverlay.grid.material.dispose();
+  gridOverlay.grid.removeFromParent();
+  gridOverlay.grid.traverse(line=>line.geometry.dispose());gridOverlay.grid.material.dispose();
   gridOverlay=null;
  }
- function clearSelectionFeedback(){
-  hover(null);clearFaceGrid();showPoint(null);
- }
+ function clearHover(){hover(null);showPoint(null);}
  function displayGrid(face,basis){
   const spacing=gridStep();
   if(gridOverlay?.face!==face||gridOverlay.spacing!==spacing){
    clearFaceGrid();
    const {grid,step}=scopedFaceGrid(face,'face',spacing),{u,v,n}=basis;
+   const outline=new THREE.BufferGeometry().setFromPoints(face.outer.map(([x,y])=>new THREE.Vector3(x,0,y)));
+   grid.add(new THREE.LineLoop(outline,grid.material));
    grid.applyMatrix4(new THREE.Matrix4().makeBasis(u,n.clone().negate(),v));
    grid.position.copy(n).multiplyScalar(face.offset+.02);
-   grid.material.color.set(0x9359ba);grid.material.transparent=true;grid.material.opacity=.7;grid.material.depthWrite=false;
+   grid.material.color.set(0x9359ba);grid.material.transparent=true;grid.material.opacity=.85;grid.material.depthWrite=false;
    grid.renderOrder=3;scene.add(grid);gridOverlay={face,spacing,step,grid};
   }
   return gridOverlay.step;
  }
- function faceAt(event){
+ function hitFace(event){
   const candidate=pickFace(event,$('target').value);
   if(!candidate)throw Error('加工先ボディの平面をクリックしてください。');
-  const {face,hit}=candidate,basis=basisFor(face),{u,v,n}=basis;
+  return candidate;
+ }
+ function faceRims({face,basis:{u,v,n}}){
+  if(openings===null)return null;
+  return openings.filter(rim=>{
+   const center=new THREE.Vector3(...rim.center);
+   if(n.dot(new THREE.Vector3(...rim.normal))<.999999||Math.abs(center.dot(n)-face.offset)>1e-4)return false;
+   const uv=[center.dot(u),center.dot(v)],tolerance=Math.max(.002,rim.radius*.005);
+   return face.holes.some(ring=>pointInRing(uv,ring)&&ring.every(point=>Math.abs(Math.hypot(point[0]-uv[0],point[1]-uv[1])-rim.radius)<=tolerance));
+  });
+ }
+ function updatePlacementMode(){
+  if(activeFace)activeFace.rims=faceRims(activeFace);
+  if(manualMode||selection||openings===null)return;
+  $('mode').value=(activeFace?.rims??openings).length?'rim':'center';
+ }
+ function refreshGrid(){
+  if(dialog.open&&activeFace&&!selection)displayGrid(activeFace.face,activeFace.basis);
+ }
+ function positionAt(event){
+  const {face,basis,center}=activeFace,{u,v,n}=basis;
+  const candidate=hitFace(event);
+  if(candidate.face!==face)throw Error('紫のグリッドが表示された面で位置を選んでください。');
   let point,error;
   if(mode()==='center'){
-   point=faceCenterCandidate(hit,getFeatures())?.point;
+   point=center;
    error='面の中心に加工できる平面がありません。グリッドの交点を選んでください。';
   }else{
    const step=displayGrid(face,basis);
-   const uv=[u,v].map(axis=>Math.round(hit.point.dot(axis)/step)*step);
+   const uv=[u,v].map(axis=>Math.round(candidate.hit.point.dot(axis)/step)*step);
    point=worldPoint(face,uv);
    error='面の内側にあるグリッドの交点をクリックしてください。';
   }
@@ -115,15 +139,24 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
   return {placement:{point:point.toArray(),normal:n.toArray(),snap:mode()}};
  }
  function picking(){
-  return dialog.open&&!busy&&!selection&&!!$('target').value&&(!isRim()||openings?.length>0)&&getFeatures()===original;
+  return dialog.open&&!busy&&!selection&&!!$('target').value&&getFeatures()===original;
  }
  canvas.addEventListener('pointermove',event=>{
   if(!picking())return;
-  if(event.buttons){clearSelectionFeedback();return;}
-  if(isRim()){hover(rimAt(event));return;}
-  try{faceAt(event);}catch{clearSelectionFeedback();}
+  if(event.buttons){clearHover();if(!activeFace)clearFaceGrid();return;}
+  if(!activeFace){
+   try{const {face}=hitFace(event);displayGrid(face,basisFor(face));}
+   catch{clearFaceGrid();}
+  }else if(isRim()){
+   if(activeFace.rims?.length)hover(rimAt(event));
+  }else{
+   try{positionAt(event);}catch{clearHover();}
+  }
  });
- canvas.addEventListener('pointerleave',()=>{if(picking())clearSelectionFeedback();});
+ canvas.addEventListener('pointerleave',()=>{
+  if(!picking())return;
+  clearHover();if(!activeFace)clearFaceGrid();
+ });
  function clearPreview(){
   if(hidden){hidden.mesh.visible=hidden.visible;hidden=null;}
   if(preview){
@@ -131,14 +164,15 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
   }
  }
  function invalidate(){
-  revision++;clearTimeout(timer);cached=null;clearPreview();clearSelectionFeedback();
+  revision++;clearTimeout(timer);cached=null;clearPreview();clearHover();clearFaceGrid();
  }
  function controls(){
   $('target').disabled=busy;
   $('mode').disabled=busy;
   $('clearance').disabled=busy;
   $('bore-field').hidden=isRim();$('bore-diameter').disabled=busy||isRim();
-  $('repick').hidden=!selection;$('repick').disabled=busy;
+  $('repick-face').hidden=!activeFace&&!selection;$('repick-face').disabled=busy;
+  $('repick').hidden=!selection||!activeFace;$('repick').disabled=busy;
   $('apply').disabled=busy||!cached;
  }
  function setSize(){
@@ -159,7 +193,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  function schedule(){
   if(!dialog.open||busy)return;
   invalidate();controls();setSize();
-  if(!selection)return;
+  if(!selection){refreshGrid();return;}
   const status=$('status'),token=revision;
   let spec;
   const placement=isRim()?{opening:selection}:{placement:selection,boreDiameter:$('bore-diameter').valueAsNumber};
@@ -178,19 +212,20 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  }
  function instruction(){
   if(!$('target').value)return '加工先ボディを選択してください。';
-  if(mode()==='center')return '加工したい平面をクリックすると、面の中心に六角ポケットと貫通穴を作ります。';
-  if(mode()==='grid')return '加工したい平面にマウスを合わせ、グリッドの交点をクリックしてください。';
-  if(openings===null)return '加工先の円穴を探しています…';
-  return openings.length?'埋め込みたい側から、3D画面で円穴の内側か縁をクリックしてください。':'円穴が見つかりません。配置方法で「面の中心」か「グリッドの交点」を選べます。';
+  if(!activeFace)return '最初に、埋め込みたい側の平面をクリックしてください。';
+  if(mode()==='center')return '紫のグリッドが表示された面をもう一度クリックして、中心を確定してください。';
+  if(mode()==='grid')return '選んだ面の紫のグリッドで、配置する交点をクリックしてください。';
+  if(activeFace.rims===null)return '選んだ面の円穴を探しています…';
+  return activeFace.rims.length?'選んだ面の円穴の内側か縁をクリックしてください。':'選んだ面に円穴がありません。「面の中心」か「グリッドの交点」を選べます。';
  }
  function resetSelection(){
   selection=null;invalidate();controls();setSize();
-  $('opening').textContent='';$('status').textContent=instruction();
+  $('opening').textContent='';$('status').textContent=instruction();refreshGrid();
  }
  async function loadTarget(saved=null){
   const token=++scan,target=$('target').value,status=$('status');
   if(!saved&&!manualMode)$('mode').value='rim';
-  openings=null;resetSelection();
+  openings=null;activeFace=null;resetSelection();
   if(!target)return;
   if(!saved)fitTarget(target);
   if(saved)choose(saved.placement??saved.opening);
@@ -199,7 +234,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
    if(token!==scan||!dialog.open)return;
    if(getFeatures()!==original)throw Error('モデルが変更されました。埋め込み穴を開き直してください');
    openings=result.openings;
-   if(!manualMode&&!openings.length&&isRim()&&!selection)$('mode').value='center';
+   updatePlacementMode();
    if(!selection){controls();status.textContent=instruction();}
   }catch(error){if(token===scan&&dialog.open&&isRim()&&!selection)status.textContent=error.message;}
  }
@@ -210,7 +245,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
   schedule();
  }
  function clear(){
-  scan++;invalidate();openings=null;selection=null;busy=false;
+  scan++;invalidate();openings=null;activeFace=null;selection=null;busy=false;
   // This worker is dedicated to this dialog, including its history replay.
   kernel.reset();original=null;history=null;editing=null;nut=null;
  }
@@ -221,6 +256,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  $('mode').onchange=()=>{manualMode=true;resetSelection();};
  $('clearance').oninput=$('bore-diameter').oninput=schedule;
  $('repick').onclick=resetSelection;
+ $('repick-face').onclick=()=>{activeFace=null;resetSelection();};
  $('form').onsubmit=async event=>{
   event.preventDefault();
   if(!cached||busy)return;
@@ -237,19 +273,25 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  return {
   get active(){return dialog.open;},
   close,
+  refreshGrid,
   pick(event){
    if(!picking())return;
-   if(isRim()){
-    const rim=rimAt(event);
-    if(rim)choose(rim);
-    else $('status').textContent='加工先ボディの、手前から見える円穴の内側か縁をクリックしてください。';
-    return;
-   }
    try{
-    const candidate=faceAt(event);
+    if(!activeFace){
+     const {face,hit}=hitFace(event);
+     activeFace={face,basis:basisFor(face),center:faceCenterCandidate(hit,getFeatures())?.point};
+     updatePlacementMode();resetSelection();return;
+    }
+    if(isRim()){
+     const rim=activeFace.rims?.length&&rimAt(event);
+     if(rim)choose(rim);
+     else $('status').textContent=instruction();
+     return;
+    }
+    const candidate=positionAt(event);
     if(candidate.placement)choose(candidate.placement);
     else $('status').textContent=candidate.error;
-   }catch(error){clearSelectionFeedback();$('status').textContent=error.message;}
+   }catch(error){clearHover();$('status').textContent=error.message;}
   },
   open(source,feature=null){
    if(dialog.open)return;

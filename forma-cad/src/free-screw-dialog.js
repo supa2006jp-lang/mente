@@ -265,7 +265,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   $('thread-length').value=threadLength;$('thread-mode').value=threadLength===length?'full':'partial';
   $('chamfer').value=spec?.tipChamfer??0;
   $('placement').value=spec?.headDown?'head-down':'tip-down';
-  $('head').value=spec?.head??'pan';$('drive').value=spec?.drive??'cross';
+  $('head').value=spec?.head??'hex';$('drive').value=spec?.drive??'cross';
   resetHead();
   if(spec){
    $('head-size').value=spec.headSize;$('head-height').value=spec.headHeight;

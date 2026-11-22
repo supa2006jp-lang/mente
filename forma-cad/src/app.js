@@ -1548,7 +1548,7 @@ function refreshGrid(){
  const matrix=new THREE.Matrix4().makeBasis(basis.u,basis.n.clone().negate(),basis.v);grid.applyMatrix4(matrix);
  const origin=new THREE.Vector3(f.x,f.y,f.z);grid.position.copy(basis.n).multiplyScalar(origin.dot(basis.n)-.03);grid.userData.plane=f.plane;host.dataset.gridOffset=String(origin.dot(basis.n));grid.visible=visible;scene.add(grid);applyGridVisibility();
 }
-$('snap-step').onchange=()=>{refreshGrid();if(sketch&&firstPoint&&$('profile').value==='line')refreshLineAngleSnap();else if(sketch&&lastDrawPoint)previewEndpoint(lastDrawPoint);};
+$('snap-step').onchange=()=>{refreshGrid();nutPocketController?.refreshGrid();if(sketch&&firstPoint&&$('profile').value==='line')refreshLineAngleSnap();else if(sketch&&lastDrawPoint)previewEndpoint(lastDrawPoint);};
 $('snap-enabled').onchange=()=>{if(snapMarker)snapMarker.visible=$('snap-enabled').checked;refreshLineAngleSnap();};
 $('plane').addEventListener('change',()=>{if($('plane').value!=='CUSTOM'){activeFrame=null;gridPlane=$('plane').value;}refreshGrid();});
 
