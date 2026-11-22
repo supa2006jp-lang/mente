@@ -1,12 +1,14 @@
 import * as R from 'replicad';
 import {Vector3} from 'three';
 import {hexPrism} from './free-screw.js';
+import {screwHeadDefaults} from './free-screw-settings.js';
 import {roundOpenings} from './print-support-bores.js';
 import {validateNutPocket} from './nut-pocket-settings.js';
 
 const rimTolerance=1e-4;
 const aligned=(a,b)=>a.reduce((dot,value,i)=>dot+value*b[i],0)>1-1e-7;
 const sameCenter=(a,b)=>Math.hypot(...a.map((value,i)=>value-b[i]))<=rimTolerance;
+const roundUpMm=value=>Math.ceil((value-1e-9)*1000)/1000;
 
 function emptyPoints(shape,points){
  const solids=shape.solids,queries=[];
@@ -20,7 +22,7 @@ function emptyPoints(shape,points){
  }finally{queries.forEach(query=>query.delete());solids.forEach(solid=>solid.delete());}
 }
 
-export function nutPocketOpenings(shape){
+export function nutPocketOpenings(shape,accept=()=>true){
  if(!shape)throw Error('加工先ボディが見つかりません');
  const faces=shape.faces,openings=[];
  try{
@@ -31,7 +33,8 @@ export function nutPocketOpenings(shape){
    const n=face.normalAt();let normal;
    try{normal=new Vector3(...n.toTuple()).normalize().toArray();}finally{n.delete();}
    for(const rim of rims){
-    if(!openings.some(item=>sameCenter(item.center,rim.center)&&aligned(item.normal,normal)))openings.push({...rim,normal});
+    const opening={...rim,normal};
+    if(accept(opening)&&!openings.some(item=>sameCenter(item.center,rim.center)&&aligned(item.normal,normal)))openings.push(opening);
    }
   }
  }finally{faces.forEach(face=>face.delete());}
@@ -39,6 +42,31 @@ export function nutPocketOpenings(shape){
  // Their centres are solid, whereas a bore opens into empty space.
  const available=emptyPoints(shape,openings.map(opening=>opening.center));
  return openings.filter((_,index)=>available[index]);
+}
+
+function matchedBolt(shape,opening,nut){
+ const entry=new Vector3(...opening.center),axis=new Vector3(...opening.normal).negate();
+ const {diameter,depth,pitch,leftHand}=nut;
+ const distance=rim=>new Vector3(...rim.center).sub(entry).dot(axis);
+ const exits=nutPocketOpenings(shape,rim=>{
+  const delta=new Vector3(...rim.center).sub(entry),span=delta.dot(axis);
+  return span>depth+rimTolerance&&aligned(rim.normal,axis.toArray())&&
+   delta.addScaledVector(axis,-span).length()<=rimTolerance;
+ });
+ if(!exits.length)return null;
+ const seat=exits.reduce((far,rim)=>distance(rim)>distance(far)?rim:far),span=distance(seat),grip=span-depth;
+ // Test the complete cross section of the nominal shaft between the nut and
+ // the seat. An aligned rim alone can belong to an obstructed or stepped bore.
+ if(seat.radius<diameter/2-rimTolerance)return null;
+ const pad=1e-5,probe=R.makeCylinder(diameter/2-pad,grip-2*pad,entry.clone().addScaledVector(axis,depth+pad).toArray(),axis.toArray());
+ let obstruction;
+ try{
+  obstruction=shape.intersect(probe);
+  if(!(Math.abs(R.measureVolume(obstruction))<=1e-6))return null;
+ }finally{obstruction?.delete();probe.delete();}
+ const length=roundUpMm(span),headSize=Math.max(screwHeadDefaults(diameter,'hex').headSize,roundUpMm(seat.radius*2+.2));
+ if(length>10000||headSize>1000)return null;
+ return {diameter,pitch,leftHand,length,headSize,grip,nutHeight:depth,threadLength:Math.min(length,pitch*100,roundUpMm(depth+pitch))};
 }
 
 export function findNutPocketOpening(openings,reference,checkRadius=true){
@@ -126,7 +154,8 @@ export function makeNutPocket(base,spec,nut){
     throw Error('六角ポケットを正常に加工できませんでした。穴と寸法を確認してください');
    }
   }finally{check.delete();solids.forEach(s=>s.delete());previous.forEach(s=>s.delete());}
-  const result={shape:output,analysis:{opening,across,depth,clearance:spec.clearance}};
+ const bolt=matchedBolt(output,opening,nut);
+ const result={shape:output,analysis:{opening,across,depth,clearance:spec.clearance,...(bolt?{bolt}:{})}};
   output=null;return result;
  }finally{output?.delete();owned.reverse().forEach(shape=>shape.delete());}
 }

@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import {draggableDialog} from './draggable-dialog.js';
 import {scopedFaceGrid} from './face-grid.js';
 import {basisFor,worldPoint} from './frames.js';
-import {nutPocketSource,validateNutPocket} from './nut-pocket-settings.js';
+import {newPocketNut,nutPocketSource,validateNutPocket} from './nut-pocket-settings.js';
 import {pointInRing,regionContains} from './regions.js';
 import {faceCenterCandidate} from './selection-candidates.js';
 
 const number=value=>Number(value.toFixed(3));
 
-export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeatures,bodyName,fitTarget,pickFace,gridStep,showPoint,apply,notify}){
+export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeatures,bodyName,fitTarget,pickFace,gridStep,showPoint,apply,openBolt,notify}){
  const dialog=document.createElement('dialog');
  dialog.id='nut-pocket-dialog';
  dialog.setAttribute('aria-labelledby','nut-pocket-title');
@@ -30,6 +30,8 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  <label>片側のすき間 (mm)<input type="number" id="nut-pocket-clearance" min="0" step="any" required></label>
  <p id="nut-pocket-size"></p>
  <p id="nut-pocket-status" role="status"></p>
+ <p id="nut-pocket-bolt-info" hidden></p>
+ <button type="button" id="nut-pocket-bolt" class="accent" hidden>加工してボルト作成へ</button>
  <div class="editor-actions">
  <button type="button" id="nut-pocket-cancel">キャンセル</button>
  <button type="submit" id="nut-pocket-apply" class="accent" disabled>加工する</button>
@@ -40,7 +42,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  const raycaster=new THREE.Raycaster();
  const rimLine=new THREE.LineLoop(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0x0085a3,depthTest:false}));
  rimLine.visible=false;rimLine.renderOrder=32;scene.add(rimLine);
- let original,history,editing,nut,id,openings=null,activeFace=null,selection=null,hovered=null,manualMode=false,gridOverlay=null;
+ let original,history,editing,nut,inlineNut,id,openings=null,activeFace=null,selection=null,hovered=null,manualMode=false,gridOverlay=null;
  let revision=0,scan=0,timer=null,preview=null,hidden=null,cached=null,busy=false;
  const mode=()=>$('mode').value,isRim=()=>mode()==='rim';
 
@@ -174,6 +176,11 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
   $('repick-face').hidden=!activeFace&&!selection;$('repick-face').disabled=busy;
   $('repick').hidden=!selection||!activeFace;$('repick').disabled=busy;
   $('apply').disabled=busy||!cached;
+  const bolt=cached?.result.analysis.bolt;
+  $('bolt').hidden=!bolt;$('bolt').disabled=busy;
+  $('bolt-info').hidden=!cached;
+  if(cached)$('bolt-info').textContent=bolt?'ボルトの首下 '+number(bolt.length)+' mm（座面からナットまで '+number(bolt.grip)+' mm ＋ ナット厚 '+number(bolt.nutHeight)+' mm）':
+   'ボルトの寸法を合わせるには、ねじ径が通り、反対側に座面がある貫通穴が必要です。';
  }
  function setSize(){
   const clearance=$('clearance').valueAsNumber;
@@ -197,12 +204,15 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
   const status=$('status'),token=revision;
   let spec;
   const placement=isRim()?{opening:selection}:{placement:selection,boreDiameter:$('bore-diameter').valueAsNumber};
-  try{spec=validateNutPocket({type:'nutPocket',id,sourceBody:nut.bodyId,target:$('target').value,...placement,clearance:$('clearance').valueAsNumber});}
+  try{
+   spec=validateNutPocket({type:'nutPocket',id,sourceBody:nut.bodyId,target:$('target').value,...placement,clearance:$('clearance').valueAsNumber,
+    ...(inlineNut?{nut:inlineNut}:{})});
+  }
   catch(error){status.textContent=error.message;return;}
   status.textContent='六角ポケットの加工形状を確認しています…';
   timer=setTimeout(async()=>{
    try{
-    const result=await kernel.run(history,spec,{foreground:true,document:original});
+    const result=await kernel.run(history,inlineNut?{...spec,type:'nutPocketPreview'}:spec,{foreground:true,document:original});
     if(token!==revision||!dialog.open)return;
     if(getFeatures()!==original)throw Error('モデルが変更されました。加工する穴を選び直してください');
     showPreview(result.outputs[0],spec.target);
@@ -247,7 +257,7 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  function clear(){
   scan++;invalidate();openings=null;activeFace=null;selection=null;busy=false;
   // This worker is dedicated to this dialog, including its history replay.
-  kernel.reset();original=null;history=null;editing=null;nut=null;
+  kernel.reset();original=null;history=null;editing=null;nut=null;inlineNut=null;
  }
  function close(){if(dialog.open){dialog.close();clear();}}
  $('close').onclick=$('cancel').onclick=close;
@@ -257,19 +267,30 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
  $('clearance').oninput=$('bore-diameter').oninput=schedule;
  $('repick').onclick=resetSelection;
  $('repick-face').onclick=()=>{activeFace=null;resetSelection();};
- $('form').onsubmit=async event=>{
-  event.preventDefault();
+ async function submit(withBolt=false){
   if(!cached||busy)return;
   const token=revision,{spec,result}=cached,wasEditing=!!editing;
+  const bolt=result.analysis.bolt;
+  if(withBolt&&!bolt)return;
   const current=()=>dialog.open&&token===revision&&getFeatures()===original;
   busy=true;controls();
   try{
-   await apply(spec,result,editing,original,current,kernel);
+   let confirmed=result;
+   if(inlineNut){
+    $('status').textContent='六角ナットと埋め込み穴を作成しています…';
+    confirmed=await kernel.run(history,spec,{foreground:true,document:original});
+    if(!current())return;
+   }
+   if(withBolt&&!confirmed.analysis.bolt)throw Error('確定する形状の貫通穴と座面から、ボルトの寸法を確認できませんでした。');
+   await apply(spec,confirmed,editing,original,current,kernel);
    if(token!==revision||!dialog.open)return;
    close();notify(wasEditing?'六角ナットの埋め込み穴を更新しました':'六角ナットの埋め込み穴を作成しました');
+   if(withBolt)openBolt(confirmed.analysis.bolt);
   }catch(error){if(token===revision&&dialog.open)$('status').textContent=error.message;}
   finally{if(token===revision&&dialog.open){busy=false;controls();}}
- };
+ }
+ $('form').onsubmit=event=>{event.preventDefault();void submit();};
+ $('bolt').onclick=()=>{if($('form').reportValidity())void submit(true);};
  return {
   get active(){return dialog.open;},
   close,
@@ -297,19 +318,20 @@ export function createNutPocketDialog({scene,meshes,canvas,camera,kernel,getFeat
    if(dialog.open)return;
    const before=getFeatures(),index=feature?before.indexOf(feature):before.length;
    if(index<0)return;
-   const prefix=before.slice(0,index),selected=nutPocketSource(prefix,source);
+   const saved=feature?.spec,settings=saved?.nut??(typeof source==='object'?source:null);
+   const prefix=before.slice(0,index),selected=settings?newPocketNut(settings):nutPocketSource(prefix,source);
    if(!selected){notify('ねじ作成で作った六角ナットを選択してください');return;}
-   const targets=[...meshes].filter(([body,mesh])=>mesh.visible&&body!==source&&body!==selected.screwId).map(([body])=>body);
-   const saved=feature?.spec;
+   const targets=[...meshes].filter(([body,mesh])=>mesh.visible&&body!==selected.bodyId&&body!==selected.screwId).map(([body])=>body);
    if(saved&&!targets.includes(saved.target))targets.push(saved.target);
    if(!targets.length){notify('加工先ボディを表示してください');return;}
-   original=before;history=prefix;editing=feature;nut=selected;id=feature?.id??crypto.randomUUID();
+   original=before;history=prefix;editing=feature;nut=selected;inlineNut=settings;id=feature?.id??crypto.randomUUID();
    $('target').replaceChildren(...(targets.length>1?[new Option('加工先を選択','')]:[]),...targets.map(body=>new Option(bodyName(body),body)));
    $('target').value=saved?.target??(targets.length===1?targets[0]:'');
    $('mode').value=saved?.placement?.snap??'rim';manualMode=!!saved;
    $('clearance').value=saved?.clearance??.2;
    $('bore-diameter').value=saved?.boreDiameter??number(nut.diameter+Math.min(.4,(nut.across-nut.diameter)/2));
-   $('source').textContent=bodyName(source)+' ／ 対辺 '+number(nut.across)+' mm ／ 高さ '+number(nut.depth)+' mm';
+   const name=inlineNut?'六角ナット M'+nut.diameter:bodyName(nut.bodyId);
+   $('source').textContent=name+' ／ 対辺 '+number(nut.across)+' mm ／ 高さ '+number(nut.depth)+' mm';
    $('apply').textContent=editing?'変更を適用':'加工する';
    setSize();controls();dialog.show();void loadTarget(saved);
   },

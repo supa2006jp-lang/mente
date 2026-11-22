@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import {draggableDialog} from './draggable-dialog.js';
 import {createFreeScrewFitView} from './free-screw-fit-view.js';
 import {installFreeScrewPresets} from './free-screw-presets.js';
-import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes,screwNutDefaults,screwNutShapes,screwWorldZ} from './free-screw-settings.js';
+import {freeHexNutSettings,freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes,screwNutDefaults,screwNutShapes,screwWorldZ} from './free-screw-settings.js';
 
 const options=items=>Object.entries(items).map(([value,label])=>'<option value="'+value+'">'+label+'</option>').join('');
 
-export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,place,apply,fit,notify,canMakePocket,openPocket}){
+export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,place,placeNut,apply,fit,notify,canMakePocket,openPocket}){
  const section=createFreeScrewFitView(host);
  const dialog=document.createElement('dialog');
  dialog.id='free-screw-dialog';
@@ -14,6 +14,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
  dialog.innerHTML=`<form id="free-screw-form">
  <div class="dialog-heading"><h2 id="free-screw-title">ねじを新規作成</h2>
  <button type="button" id="free-screw-close" aria-label="閉じる">×</button></div>
+ <p id="free-screw-pocket-fit" hidden></p>
  <fieldset><legend>首下</legend><div class="screw-fields">
  <label>Mサイズ<select id="free-screw-diameter">${[...screwCoarsePitches.keys()].map(d=>'<option value="'+d+'">M'+d+'</option>').join('')}</select></label>
  <label>ピッチ (mm)<input id="free-screw-pitch" type="number" min="0.001" step="any" required></label>
@@ -47,6 +48,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
  <label class="screw-check"><input id="free-screw-nut-auto" type="checkbox">ナット側を自動プル</label>
  <button type="button" id="free-screw-section" disabled>組み合わせを断面で確認</button>
  <button type="button" id="free-screw-pocket" hidden disabled>作成して埋め込み穴へ</button>
+ <button type="button" id="free-screw-nut-first" hidden>ナットを先に埋め込む</button>
  </div></fieldset>
  <p id="free-screw-error" role="status"></p>
  <div class="editor-actions">
@@ -123,6 +125,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   $('nut-clearance').disabled=!nut||!$('nut-auto').checked;
   $('nut-clearance').closest('label').hidden=!$('nut-auto').checked;
   $('pocket').hidden=!!editing||!nut||$('nut-shape').value!=='hex'||!canMakePocket();
+  $('nut-first').hidden=$('pocket').hidden;
   const limit=$('pitch').valueAsNumber*.4;
   $('nut-clearance').max=Number.isFinite(limit)?String(limit):'';
  }
@@ -254,6 +257,18 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
  }
  form.onsubmit=event=>{event.preventDefault();void submit();};
  $('pocket').onclick=()=>{if(form.reportValidity())void submit(true);};
+ $('nut-first').onclick=()=>{
+  if(busy||$('nut-first').hidden)return;
+  try{
+   const {diameter,pitch,leftHand,nut}=draft(),input={...nut,diameter,pitch,leftHand};
+   // Only the nut parameters are needed before the stock and pocket are selected.
+   const settings=freeHexNutSettings({...input,origin:placeNut(input)});
+   clearPreview();dialog.close();openPocket(settings);
+  }catch(error){
+   clearTimeout(timer);revision++;
+   $('error').textContent=error.message;
+  }
+ };
  dialog.addEventListener('close',()=>{
   if(dialog.open)return;
   revision++;clearTimeout(timer);clearPreview();section.close();kernel.reset();busy=false;prepared=null;
@@ -268,20 +283,28 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   $('head').value=spec?.head??'hex';$('drive').value=spec?.drive??'cross';
   resetHead();
   if(spec){
-   $('head-size').value=spec.headSize;$('head-height').value=spec.headHeight;
+   $('head-size').value=spec.headSize??$('head-size').value;$('head-height').value=spec.headHeight??$('head-height').value;
    if(spec.head==='bar')$('bar-thickness').value=spec.barThickness;
   }
   resetDrive();
-  if(spec&&spec.drive!=='none'){$('drive-size').value=spec.driveSize;$('drive-depth').value=spec.driveDepth;}
+  if(spec&&spec.drive!=='none'){
+   $('drive-size').value=spec.driveSize??$('drive-size').value;
+   $('drive-depth').value=spec.driveDepth??$('drive-depth').value;
+  }
   $('nut-enabled').checked=!!spec?.nut;nutInitialized=!!spec?.nut;resetNut(spec?.nut);
   syncFields();
  }
- return {open(feature=null){
+ return {open(feature=null,bolt=null){
   if(dialog.open)return;
   original=getFeatures();editing=feature;id=feature?.id??crypto.randomUUID();needsFit=true;
   lock(false);section.close();
-  fillSettings(feature?.spec);presets.open();
-  $('title').textContent=feature?'ねじを再編集':'ねじを新規作成';
+  fillSettings(feature?.spec??bolt);presets.open();
+  $('title').textContent=feature?'ねじを再編集':bolt?'埋め込み穴に合うボルトを作成':'ねじを新規作成';
+  $('pocket-fit').hidden=!bolt;
+  if(bolt){
+   const mm=value=>Number(value.toFixed(3));
+   $('pocket-fit').textContent='埋め込み穴から設定した首下 '+mm(bolt.length)+' mm（座面からナットまで '+mm(bolt.grip)+' mm ＋ ナット厚 '+mm(bolt.nutHeight)+' mm）。';
+  }
   $('apply').textContent=feature?'更新':'作成';
   dialog.show();$('diameter').focus();schedule();
  }};

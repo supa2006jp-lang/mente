@@ -1174,15 +1174,17 @@ function openMachiningHistory(id){
  void machiningHistory.open(id);
 }
 const selectedThreadSurface=()=>!selectedFace&&selectedSurface?.radius>0&&meshes.get(selectedSurface.bodyId)?.visible?selectedSurface:null;
+function placeFastener(diameter,outsideRadius){
+ const bounds=new THREE.Box3();
+ for(const mesh of meshes.values())bounds.expandByObject(mesh);
+ if(bounds.isEmpty())return [0,0,0];
+ return [bounds.max.x+Math.max(5,diameter/2)+outsideRadius,bounds.getCenter(new THREE.Vector3()).y,0];
+}
 const freeScrewController=createFreeScrewDialog({
  kernel:new KernelClient(),scene,host,getFeatures:()=>features,getBody:id=>meshes.get(id),notify,
  canMakePocket:()=>[...meshes.values()].some(mesh=>mesh.visible),openPocket:source=>openNutPocket(source),
- place(settings){
-  const bounds=new THREE.Box3();
-  for(const mesh of meshes.values())bounds.expandByObject(mesh);
-  if(bounds.isEmpty())return [0,0,0];
-  return [bounds.max.x+Math.max(5,settings.diameter/2)+screwHeadOutsideRadius(settings),bounds.getCenter(new THREE.Vector3()).y,0];
- },
+ place:settings=>placeFastener(settings.diameter,screwHeadOutsideRadius(settings)),
+ placeNut:settings=>placeFastener(settings.diameter,(settings.diameter+2*settings.wall)/Math.sqrt(3)),
  fit(box){
   const center=fitSelectionBox(camera,box,host.clientWidth,host.clientHeight);
   if(center)resetViewControls(center,controls.enabled);
@@ -1208,7 +1210,7 @@ const freeScrewController=createFreeScrewDialog({
   setProject(next);selected=null;stage='model';syncFields();
  }
 });
-function openFreeScrew(feature=null){
+function openFreeScrew(feature=null,bolt=null){
  if(extrusionBusy||moveTool?.active||document.querySelector('dialog[open]:not(#tools-dialog)')){
   notify('編集中の操作を終了してからねじを作成してください');return;
  }
@@ -1216,7 +1218,7 @@ function openFreeScrew(feature=null){
  if(editingSectionSplitId)sectionControl.cancel();
  bodyDisplay?.stopExploded();finishSketch(false);cancelHole();closeSolidFaceMenu();
  selected=null;pendingExtrude=false;stage='model';dropPreview();syncFields();
- freeScrewController.open(feature);
+ freeScrewController.open(feature,bolt);
 }
 function openScrewIfUnselected(type){
  if(type!=='thread'||selectedThreadSurface())return false;
@@ -5678,6 +5680,7 @@ threadMateController=threadMateDialog({scene,meshes,host,pickPoint:event=>holeSn
 }});
 nutPocketController=createNutPocketDialog({
  scene,meshes,canvas:renderer.domElement,camera,kernel:new KernelClient(),getFeatures:()=>features,bodyName:bodyDisplayName,notify,
+ openBolt:bolt=>openFreeScrew(null,bolt),
  gridStep:()=>gridStep,
  pickFace(event,target){
   const hit=commandBodyHit(event);
@@ -5700,6 +5703,7 @@ nutPocketController=createNutPocketDialog({
   if(!isCurrent())throw Error('モデルが変更されました。加工する穴を選び直してください');
   if(!editing&&original.length>=150)throw Error('工程数は150までです');
   const feature={...editing,kind:'cadop',id:spec.id,name:'六角ナットの埋め込み穴',spec,...result},next=original.slice();
+  if(spec.nut)feature.bodyNames={[spec.nut.id]:'六角ナット M'+spec.nut.diameter,...feature.bodyNames};
   if(editing){
    const index=next.indexOf(editing);
    if(index<0)throw Error('工程が見つかりません');

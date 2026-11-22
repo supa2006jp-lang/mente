@@ -44,12 +44,13 @@ test('a flush hex pocket follows the selected entry and keeps the pilot bore, so
  assert.equal(rims.length,2);
  const top=rims.find(r=>r.normal[2]===1),bottom=rims.find(r=>r.normal[2]===-1);
  assert.deepEqual(top.center,[0,0,7]);assert.deepEqual(bottom.center,[0,0,0]);
- assert.deepEqual(nutPocketSource(features,'nut'),{bodyId:'nut',screwId:'screw',diameter:4,across:8,depth:2.1});
+ assert.deepEqual(nutPocketSource(features,'nut'),{bodyId:'nut',screwId:'screw',diameter:4,pitch:.7,leftHand:false,across:8,depth:2.1});
  for(const opening of [top,bottom]){
   const spec=pocket(opening),result=runOperation(features,spec);
   assert.deepEqual(result.outputs.map(o=>o.id),['stock']);assert.deepEqual(result.remove,[]);
   assert.deepEqual(result.analysis.opening,opening);
   closeTo(result.analysis.across,8.4);closeTo(result.analysis.depth,2.1);
+  closeTo(result.analysis.bolt.length,7);closeTo(result.analysis.bolt.grip,4.9);
   const expected=24*20*7-Math.PI*2.25**2*7-(Math.sqrt(3)/2*8.4**2-Math.PI*2.25**2)*2.1;
   closeTo(result.outputs[0].shapeMetrics.volume,expected);
  }
@@ -67,6 +68,7 @@ test('rotated and blind round holes are selected by the true rim, with raised bo
  assert.ok(new Vector3(...opening.normal).distanceTo(normal)<1e-5);
  const result=runOperation(features,pocket(opening,0));
  closeTo(result.analysis.across,8);
+ assert.equal(result.analysis.bolt,undefined,'a blind bore has no opposite seat for the bolt');
  assert.ok(result.outputs[0].shapeMetrics.volume>3000);
 });
 
@@ -121,4 +123,31 @@ test('new pocket placement follows an updated face, checks the seat and requires
  assert.throws(()=>runOperation(features,onFace([0,0,7],[0,0,1],'center',8)),/ナットの対辺寸法/);
  assert.throws(()=>runOperation(features,onFace([10,0,7],[0,0,1],'grid')),/側壁または底/);
  assert.throws(()=>runOperation([blank({solid:true,height:2}),fastener],onFace([0,0,2],[0,0,1])),/側壁または底/);
+});
+
+test('the pocket can create a threaded nut first and measure a matching bolt from the finished part',()=>{
+ const features=[blank({solid:true,height:8.25})];
+ const nut={id:'embedded-nut',diameter:4,pitch:.7,leftHand:true,origin:[32,0,0],
+  shape:'hex',height:2.4,wall:2,autoPull:true,clearance:.1};
+ const spec={...onFace([0,0,8.25],[0,0,1]),sourceBody:nut.id,nut};
+ const preview=runOperation(features,{...spec,type:'nutPocketPreview'});
+ assert.deepEqual(preview.outputs.map(output=>output.id),['stock']);
+ const result=runOperation(features,spec);
+ const [stock,insert]=result.outputs;
+ assert.deepEqual([stock.id,insert.id],['stock','embedded-nut']);
+ assert.equal(insert.threadSource.spec.threadInternal,true);
+ assert.equal(insert.threadSource.spec.threadCylinderOffset,-.1);
+ assert.deepEqual(result.analysis,preview.analysis);
+ const fit=result.analysis.bolt;
+ closeTo(fit.length,8.25);closeTo(fit.grip,5.85);closeTo(fit.nutHeight,2.4);
+ assert.deepEqual([fit.diameter,fit.pitch,fit.leftHand],[4,.7,true]);
+ const machined={kind:'cadop',id:spec.id,name:'六角ナットの埋め込み穴',spec,...result};
+ validateProject({format:'forma-cad',version:1,features:[...features,machined]});
+ assert.equal(nutPocketSource([...features,machined],nut.id).leftHand,true);
+ const bolt={type:'freeScrew',id:'bolt',origin:[60,0,0],...fit,head:'hex',headHeight:2.6,drive:'none'};
+ const matching=runOperation([...features,machined],bolt).outputs[0].threadSource.spec;
+ assert.deepEqual([matching.pitch,matching.leftHand,matching.threadInternal],[nut.pitch,true,false]);
+ assert.ok(matching.length>=nut.height);
+ const blocked=[blank({radius:1.8}),fastener],entry=openings(blocked).find(rim=>rim.normal[2]===1);
+ assert.equal(runOperation(blocked,pocket(entry)).analysis.bolt,undefined,'the shaft must fit through the existing bore');
 });

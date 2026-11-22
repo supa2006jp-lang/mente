@@ -42,11 +42,11 @@ import {canInspectExtrusionJoins,assertExtrusionJoinContacts,extrusionJoinConnec
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
 import {chamferScrewTip,freeScrewBlank,freeScrewThread} from './free-screw.js';
-import {freeScrewSettings,screwWorldZ} from './free-screw-settings.js';
+import {freeHexNutSettings,freeScrewSettings,screwWorldZ} from './free-screw-settings.js';
 import {freeScrewFitSection} from './free-screw-fit.js';
 import {findNutPocketFace,findNutPocketOpening,makeNutPocket,nutPocketOpenings} from './nut-pocket.js';
-import {nutPocketSource} from './nut-pocket-settings.js';
-import {makeThreadMate} from './thread-mate.js';
+import {newPocketNut,nutPocketSource} from './nut-pocket-settings.js';
+import {makeHexNut,makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
 import {cutEntryTool} from './cut-entry.js';
@@ -863,10 +863,16 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='ballJoint'){if(bodies.has(p.id+'-socket')||bodies.has(p.id+'-nut'))throw Error('ジョイントのボディIDが重複しています');const result=makeBallJoint(base,p,onProgress);try{for(const [i,id]of [p.target,p.id+'-socket',p.id+'-nut'].entries())emit(id,result.parts[i]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='bossFitTest'){const result=makeBossFitTest(p,onProgress);try{for(const part of result.parts)emit(p.id+'-'+part.role+'-'+part.key,part.shape);analysis=result.analysis;}finally{result.parts.forEach(part=>part.shape.delete());}}
  else if(p.type==='simpleBoss'){const result=makeSimpleBoss(base,p);try{emit(p.target,result.shape);analysis=result.analysis;}finally{result.shape.delete();}}
- else if(p.type==='nutPocket'){
-  const nut=bodies.has(p.sourceBody)?nutPocketSource(features,p.sourceBody):null;
+ else if(p.type==='nutPocket'||p.type==='nutPocketPreview'){
+  if(p.nut&&bodies.has(p.sourceBody))throw Error('六角ナットの作成先が既存のボディと重なっています');
+  const nut=p.nut?newPocketNut(p.nut):bodies.has(p.sourceBody)?nutPocketSource(features,p.sourceBody):null;
   const result=makeNutPocket(base,p,nut);
   try{emit(p.target,result.shape);analysis=result.analysis;}finally{result.shape.delete();}
+  if(p.nut&&p.type==='nutPocket'){
+   onProgress?.({stage:'六角ナットのねじ山を作成しています'});
+   const generated=makeHexNut(freeHexNutSettings(p.nut),(history,operation)=>runOperation(history,operation,onProgress));
+   outputs.push(...generated.outputs);
+  }
  }
  else if(p.type==='qrCode'){if(bodies.has(p.id))throw Error('QRコードのボディIDが重複しています');const result=makeQrCode(p,onProgress);try{emit(p.id,result.shape);analysis=result.analysis;}finally{result.shape.delete();}}
  else if(p.type==='bossJoint'){const pinId=p.mode==='split'?p.id+'-pin':p.pinTarget;if(p.mode==='split'&&bodies.has(pinId))throw Error('棒側のボディIDが重複しています');const result=makeBossJoint(base,bodies.get(p.pinTarget),p,onProgress);try{emit(p.target,result.parts[0]);emit(pinId,result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}

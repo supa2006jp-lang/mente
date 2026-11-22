@@ -66,12 +66,25 @@ function screwNutSettings(nut,id,pitch){
  return {id:nutId,shape,height,wall:thickness,autoPull,...(autoPull?{clearance}:{})};
 }
 
-export function freeScrewSettings(spec){
- const {id,diameter,pitch,length,threadLength=length,head,headSize,headHeight,barThickness,
-  drive,driveSize,driveDepth,leftHand=false,headDown=false,tipChamfer=0,origin}=spec;
+function validateScrewPitch(diameter,pitch,leftHand){
  if(!screwCoarsePitches.has(diameter)||!Number.isFinite(pitch)||pitch<=0||pitch>=diameter/2||typeof leftHand!=='boolean'){
   throw Error('Mサイズを選び、呼び径の半分より小さいピッチを入力してください');
  }
+}
+
+const validOrigin=origin=>Array.isArray(origin)&&origin.length===3&&origin.every(value=>Number.isFinite(value)&&Math.abs(value)<=100000);
+
+export function freeHexNutSettings(spec){
+ const {id,diameter,pitch,leftHand=false,origin}=spec;
+ validateScrewPitch(diameter,pitch,leftHand);
+ if(typeof id!=='string'||!id||!validOrigin(origin)||spec.shape!=='hex')throw Error('六角ナットの配置と形状を確認してください');
+ return {...screwNutSettings(spec,'',pitch),diameter,pitch,leftHand,origin};
+}
+
+export function freeScrewSettings(spec){
+ const {id,diameter,pitch,length,threadLength=length,head,headSize,headHeight,barThickness,
+  drive,driveSize,driveDepth,leftHand=false,headDown=false,tipChamfer=0,origin}=spec;
+ validateScrewPitch(diameter,pitch,leftHand);
  if(!Number.isFinite(length)||length<.1||length>10000)throw Error('首下の長さは0.1〜10000 mmで指定してください');
  if(!Number.isFinite(threadLength)||threadLength<.1||threadLength>length)throw Error('ねじ山の長さは0.1 mm以上、首下の長さ以下にしてください');
  if(threadLength/pitch>100+1e-8)throw Error('ねじ山が100巻き以内になるように長さかピッチを指定してください');
@@ -86,8 +99,7 @@ export function freeScrewSettings(spec){
   headHeight<barThickness+wall||headSize<Math.max(barThickness,screwBarStemRadius(diameter)*2)+2*wall)){
   throw Error('T型では、頭部の高さを横棒の太さより大きくし、横棒が軸の両側に出る長さを指定してください');
  }
- if(typeof id!=='string'||!id||typeof headDown!=='boolean'||!Array.isArray(origin)||origin.length!==3||
-  origin.some(value=>!Number.isFinite(value)||Math.abs(value)>100000))throw Error('ねじの配置位置が不正です');
+ if(typeof id!=='string'||!id||typeof headDown!=='boolean'||!validOrigin(origin))throw Error('ねじの配置位置が不正です');
  const nut=screwNutSettings(spec.nut,id,pitch);
  const settings={id,diameter,pitch,length,threadLength,head,headSize,headHeight,drive,leftHand,headDown,tipChamfer,origin,
   ...(head==='bar'?{barThickness}:{}),...(nut?{nut}:{})};
