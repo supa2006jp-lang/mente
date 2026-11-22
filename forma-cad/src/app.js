@@ -235,6 +235,7 @@ import {linkRegionOffset} from './linked-sketch-offset.js';
 let sketchOverlapCache=null;
 import {gridCellOccluders} from './grid-cell-occlusion.js';
 import {scopedFaceGrid,faceGridBounds,faceGridContains,faceGridPatches} from './face-grid.js';
+import {nearestFaceGridPoint,nearestHolePoint,sketchPointsOnFace} from './face-hole-points.js';
 import {planarFaceMeasurement} from './planar-face-measurement.js';
 import {createFaceOpeningSketch,hasOpeningSketchSource,openingDimensionLabel,openingSketchSource,planFaceOpeningSketch,planOpeningSketchEdit} from './face-opening-sketch.js';
 import {createFilletGridReference,filletGridSource} from './fillet-grid-reference.js';
@@ -1678,7 +1679,7 @@ function automaticSketchSnap(hit,event={},context=null){
 }
 function showSnap(hit,basis=sketchBasis){
  if(sketch)sketchBannerPoint=hit;
- const kind=host.dataset.snapKind||'grid',labels={gridLine:'＋ グリッド線',gridSketch:'× グリッドとスケッチ線の交点',gridBoundary:'× グリッドとソリッドの交点',edgeExtension:'× ソリッドの辺を延長した交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridLine:'+',gridSketch:'×',gridBoundary:'×',edgeExtension:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridLine','gridSketch','gridBoundary','edgeExtension','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm'+(sketchSnapCycle.items.length>1?' ／ 候補 '+(sketchSnapCycle.index+1)+'/'+sketchSnapCycle.items.length+' · Tabで切替（Shiftで逆順）':'');
+ const kind=host.dataset.snapKind||'grid',labels={gridLine:'＋ グリッド線',gridSketch:'× グリッドとスケッチ線の交点',gridBoundary:'× グリッドとソリッドの交点',edgeExtension:'× ソリッドの辺を延長した交点',perpendicularBoundary:'⊥ ソリッド境界へ垂直',perpendicularSketch:'⊥ スケッチ線へ垂直',axis:'⊥ '+(host.dataset.sketchSnapAxis||'作図')+'軸へ垂直',angle:'∠ '+(host.dataset.sketchSnapAngle||'0')+'°（'+sketchAngleStep($('line-angle-step').value)+'°吸着）',endpoint:'□ 端点',midpoint:'△ 中点',center:'⊙ 中心',point:'● スケッチ点',circumference:'◯ 円周',boundary:'◇ ソリッド境界',referenceBoundary:'◇ フィレット前の境界',grid:'＋ 交点',free:'自由位置',intersection:'× 交点'},icons={gridLine:'+',gridSketch:'×',gridBoundary:'×',edgeExtension:'×',perpendicularBoundary:'⊥',perpendicularSketch:'⊥',axis:'⊥',angle:'∠',endpoint:'□',midpoint:'△',center:'⊙',point:'●',circumference:'◯',boundary:'◇',referenceBoundary:'◇',grid:'+',free:'○',intersection:'×'};const p=hit.clone().project(camera);$('snap-icon').hidden=kind==='free'||kind==='grid'&&!$('snap-enabled').checked;$('snap-icon').textContent=icons[kind];$('snap-icon').style.color=['gridLine','gridSketch','gridBoundary','edgeExtension','angle','axis','perpendicularBoundary','perpendicularSketch'].includes(kind)?'#087f5b':'';$('snap-icon').style.left=((p.x+1)/2*host.clientWidth)+'px';$('snap-icon').style.top=((-p.y+1)/2*host.clientHeight)+'px';$('snap-readout').hidden=false;$('snap-readout').textContent=labels[kind]+' '+fmt(hit.dot(basis.u))+' , '+fmt(hit.dot(basis.v))+' mm · グリッド '+gridStep+' mm'+(sketchSnapCycle.items.length>1?' ／ 候補 '+(sketchSnapCycle.index+1)+'/'+sketchSnapCycle.items.length+' · Tabで切替（Shiftで逆順）':'');
 }
 function finishSketch(message=true){if(sketch&&$('profile').value==='point')boxSelection?.cancel();splineDisplayFeature=null;splineEditor?.closeSimplify();clearSketchSnapChoice();lineConstruction=false;constructionToggle.hidden=true;solidBoundaryFillLabel.hidden=true;solidBoundaryFill?.clear({forget:true});delete host.dataset.drawingConstruction;lastSketchPointer=null;sketchBannerPoint=null;delete host.dataset.sketchSnapAngle;delete host.dataset.sketchSnapAxis;connectedSketch=null;updateConnectedSketchUI();splineEditor?.cancelDrag();splineEditor?.closeMenu();pendingDrawingFace=sketchWorkingFace=null;$('sketch-dimensions').hidden=true;$('center-rectangle-guides').setAttribute('hidden','');$('center-rectangle-origin').setAttribute('hidden','');polygonMode=false;channelMode=false;channelReverse=false;channelDirection.hidden=true;channelEditDirection.hidden=true;channelResize?.hide();channelArrow?.hide();restoreChannelSource();$('profile').querySelector('[value=rect]').textContent='長方形';$('polygon-dimensions').hidden=true;clearArcDrag();$('circle-dimensions').hidden=true;if(!sketch)return;if(sketchPan){const id=sketchPan.id;sketchPan=null;if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);}$('snap-icon').hidden=true;if(splinePreview){disposeObject(splinePreview);splinePreview=null;}delete host.dataset.splinePreviewPoints;sketch=false;firstPoint=null;lastDrawPoint=null;chainStart=null;chainCount=0;controls.enabled=true;$('sketch-banner').hidden=true;$('line-dimensions').hidden=true;$('snap-readout').hidden=true;host.style.cursor='';for(const marker of [sketchMarker,snapMarker])if(marker)disposeObject(marker);sketchMarker=null;snapMarker=null;if(message)notifySketchFinished(sketchSession());}
 function stopLineDrawing(){if(stage!=='sketch'||$('profile').value!=='line')return false;$('cancel').click();$('status').textContent='線分の作図を終了しました。確定済みの線は残ります';return true;}
@@ -3794,22 +3795,25 @@ function planarHoleFace(hit){
 function holeSnapCandidate(event){
  const hit=commandBodyHit(event);
  if(!hit)return null;
- const face=planarHoleFace(hit),basis=basisFor(face);
+ const face=planarHoleFace(hit),basis=basisFor(face),bodyId=hit.object.userData.bodyId,screen=screenPoint(hit.point);
+ const screenDistance=point=>{const p=screenPoint(point);return Math.hypot(p.x-screen.x,p.y-screen.y);};
+ const sketchPoint=nearestHolePoint(sketchPointsOnFace(features,face,basis),screenDistance);
+ if(sketchPoint)return {face,point:sketchPoint,bodyId,kind:'point'};
  let point=hit.point.clone(),kind='free',nearest=6;
- for(const ref of [...(hit.object.userData.references||[]),...features.filter(f=>f.kind==='sketch'&&f.profile==='point'&&!f.groupHidden).map(f=>({point:[f.x,f.y,f.z],kind:'center'}))]){
-  const p=new THREE.Vector3(...ref.point),a=screenPoint(p),b=screenPoint(hit.point),d=Math.hypot(a.x-b.x,a.y-b.y);
+ for(const ref of hit.object.userData.references||[]){
+  const p=new THREE.Vector3(...ref.point),d=screenDistance(p);
   if(Math.abs(p.dot(basis.n)-face.offset)<1e-4&&d<nearest){point=p;nearest=d;kind=ref.kind||'center';}
  }
  for(const p of getIntersectionPoints()){
-  const a=screenPoint(p),b=screenPoint(hit.point),d=Math.hypot(a.x-b.x,a.y-b.y);
+  const d=screenDistance(p);
   if(Math.abs(p.dot(basis.n)-face.offset)<1e-4&&d<nearest){point=p.clone();nearest=d;kind='intersection';}
  }
  if(nearest===6&&$('snap-enabled').checked){
-  const uv=[Math.round(point.dot(basis.u)/gridStep)*gridStep,Math.round(point.dot(basis.v)/gridStep)*gridStep];
-  const candidate=worldPoint(face,uv),a=screenPoint(candidate),b=screenPoint(hit.point);
-  if(regionContains(face,uv)&&Math.hypot(a.x-b.x,a.y-b.y)<=6){point=candidate;kind='grid';}
+  const step=holeActive?viewportGridLayout(gridViewBounds(basis,face.offset),gridStep).step:gridStep;
+  const candidate=nearestFaceGridPoint(face,basis,point,step,screenDistance,6);
+  if(candidate){point=candidate;kind='grid';}
  }
- return {face,point,bodyId:hit.object.userData.bodyId,kind};
+ return {face,point,bodyId,kind};
 }
 function hoverHolePoint(event){
  try{

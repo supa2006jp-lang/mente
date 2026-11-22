@@ -94,7 +94,7 @@ test('a saved pocket can be replayed as its stock moves and records the nut depe
 });
 
 test('face-centre and grid placements create a hex pocket and a coaxial through hole in solid stock',()=>{
- for(const [snap,angle,location] of [['center',0,[0,0,7]],['grid',38,[5,0,7]]]){
+ for(const [snap,angle,location] of [['center',0,[0,0,7]],['grid',38,[5,0,7]],['point',0,[3.25,4.5,7]]]){
   const axis=new Vector3(1,0,0),radians=angle*Math.PI/180;
   const point=new Vector3(...location).applyAxisAngle(axis,radians);
   const normal=new Vector3(0,0,1).applyAxisAngle(axis,radians);

@@ -31,7 +31,7 @@ export function validateNutPocket(spec){
  const plane=(point,normal)=>vector3(point)&&vector3(normal)&&Math.abs(Math.hypot(...normal)-1)<=1e-5;
  if(spec.placement!==undefined){
   const {point,normal,snap}=spec.placement??{};
-  if(spec.opening!==undefined||!plane(point,normal)||!['center','grid'].includes(snap))throw Error('加工する平面の中心かグリッドの交点を選択してください');
+  if(spec.opening!==undefined||!plane(point,normal)||!['center','grid','point'].includes(snap))throw Error('加工する面の中心、グリッドの交点、またはスケッチ点を選択してください');
   if(!Number.isFinite(spec.boreDiameter)||spec.boreDiameter<.1||spec.boreDiameter>10000){
    throw Error('ねじ用の貫通穴の直径を0.1〜10000 mmで指定してください');
   }
