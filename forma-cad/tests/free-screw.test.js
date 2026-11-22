@@ -7,6 +7,7 @@ import {freeScrewBlank} from '../src/free-screw.js';
 import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes} from '../src/free-screw-settings.js';
 import {kernelBodies,runOperation} from '../src/kernel.js';
 import {captureSelectionHistory,placeSelectionHistory} from '../src/selection-history.js';
+import {threadCylinderInfo} from '../src/thread-cylinder.js';
 
 before(async()=>R.setOC(await init({wasmBinary:await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url))})));
 
@@ -37,6 +38,9 @@ test('the M sizes load their coarse pitch and invalid recess dimensions are reje
   assert.doesNotThrow(()=>freeScrewSettings(screw({diameter,head,drive})));
  }
  assert.throws(()=>freeScrewSettings(screw({length:1000})),/100巻き/);
+ assert.doesNotThrow(()=>freeScrewSettings(screw({length:1000,threadLength:8})));
+ assert.throws(()=>freeScrewSettings(screw({length:3,threadLength:4})),/首下の長さ以下/);
+ assert.throws(()=>freeScrewSettings(screw({head:'bar',barThickness:20})),/横棒/);
  assert.throws(()=>freeScrewSettings(screw({driveDepth:10})),/底に0.1 mm/);
  assert.throws(()=>freeScrewSettings(screw({driveSize:30})),/工具穴の周囲/);
  assert.equal(freeScrewSettings(screw({drive:'none',driveSize:30,driveDepth:50})).driveDepth,undefined);
@@ -50,7 +54,9 @@ test('each head and recess produces one solid with the chosen head and under-hea
    try{
     const volume=validVolume(shape),[min,max]=bounds(shape);
     near(min[2],0);near(max[2],settings.length+settings.headHeight);
-    near(max[1]-min[1],settings.headSize);
+    const widthAxis=['bar','knob'].includes(head)?0:1;
+    near(max[widthAxis]-min[widthAxis],settings.headSize);
+    if(head==='bar')near(max[1]-min[1],Math.max(settings.barThickness,settings.diameter*1.5));
     if(drive==='none')solidVolume=volume;else assert.ok(solidVolume-volume>.01,head+' '+drive);
    }finally{shape.delete();}
   }
@@ -59,6 +65,8 @@ test('each head and recess produces one solid with the chosen head and under-hea
 
 test('the free screw reuses the real thread generator and keeps the mating-thread settings after library placement',()=>{
  const spec=screw({diameter:3,pitch:.5,head:'cylinder',drive:'hex',leftHand:true});
+ assert.equal(freeScrewSettings(spec).threadLength,spec.length,'older saved screws are fully threaded');
+ assert.equal(freeScrewSettings(spec).headDown,false);
  const result=runOperation([],spec),output=result.outputs[0];
  assert.equal(output.id,'screw');
  assert.equal(output.threadSource.spec.leftHand,true);
@@ -73,6 +81,34 @@ test('the free screw reuses the real thread generator and keeps the mating-threa
  const placed=placeSelectionHistory(history,'saved-screw',{},'ねじ');
  const info=runOperation(placed.features,{type:'threadMateInfo',target:placed.targets[0]}).analysis;
  assert.deepEqual([info.diameter,info.pitch,info.length,info.leftHand,info.sourceInternal],[3,.5,3,true,false]);
+});
+
+test('a partial thread starts at the tip in either orientation and leaves the rest of the shaft cylindrical',()=>{
+ for(const [head,headDown] of [['knob',false],['bar',true]]){
+  const spec=screw({length:25,threadLength:4.2,head,drive:'none',headDown,leftHand:true,origin:[7,-3,2]});
+  const [x,y,z]=spec.origin,total=spec.length+spec.headHeight;
+  const result=runOperation([],spec),output=result.outputs[0],shape=R.deserializeShape(output.brep).asShape3D();
+  const height=point=>headDown?z+total-point:z+point;
+  try{
+   validVolume(shape);
+   const [min,max]=bounds(shape);near(min[2],z);near(max[2],z+total);
+   const radius=spec.diameter/2;
+   const shank=threadCylinderInfo(shape,[x+radius,y,height((spec.length+spec.threadLength)/2)]);
+   assert.ok(shank&&!shank.internal);
+   near(shank.height,spec.length-spec.threadLength);
+   near(shank.radius,radius);
+   let rootVertices=0;
+   for(let i=0;i<output.vertices.length;i+=3){
+    const [px,py,pz]=output.vertices.slice(i,i+3),axial=headDown?z+total-pz:pz-z;
+    if(axial>.01&&axial<spec.threadLength-.01&&Math.hypot(px-x,py-y)<radius-.1)rootVertices++;
+   }
+   assert.ok(rootVertices>10,'threads remain on the tip side after changing orientation');
+   assert.equal(output.threadSource.spec.leftHand,true);
+   const feature={kind:'cadop',id:spec.id,name:'部分ねじ',spec,...result};
+   const mate=runOperation([feature],{type:'threadMateInfo',target:spec.id}).analysis;
+   near(mate.length,spec.threadLength);assert.equal(mate.leftHand,true);
+  }finally{shape.delete();}
+ }
 });
 
 test('a head or shaft change can replay the move after a saved screw without adding another body',()=>{

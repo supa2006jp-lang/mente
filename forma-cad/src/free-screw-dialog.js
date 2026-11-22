@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {draggableDialog} from './draggable-dialog.js';
-import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes} from './free-screw-settings.js';
+import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes,screwWorldZ} from './free-screw-settings.js';
 
 const options=items=>Object.entries(items).map(([value,label])=>'<option value="'+value+'">'+label+'</option>').join('');
 
@@ -16,17 +16,21 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
  <label>ピッチ (mm)<input id="free-screw-pitch" type="number" min="0.001" step="any" required></label>
  <label>首下の長さ (mm)<input id="free-screw-length" type="number" min="0.1" step="any" required></label>
  <label>方向<select id="free-screw-hand"><option value="right">右ねじ</option><option value="left">左ねじ</option></select></label>
+ <label>ねじ山の範囲<select id="free-screw-thread-mode"><option value="full">首下全体</option><option value="partial">先端側だけ</option></select></label>
+ <label>先端からのねじ山の長さ (mm)<input id="free-screw-thread-length" type="number" min="0.1" step="any" required></label>
  </div></fieldset>
  <fieldset><legend>頭部</legend><div class="screw-fields">
  <label>形状<select id="free-screw-head">${options(screwHeadTypes)}</select></label>
  <label><span id="free-screw-head-size-label">頭部の外径 (mm)</span><input id="free-screw-head-size" type="number" min="0.1" step="any" required></label>
  <label>頭部の高さ (mm)<input id="free-screw-head-height" type="number" min="0.2" step="any" required></label>
+ <label>横棒の太さ (mm)<input id="free-screw-bar-thickness" type="number" min="0.2" step="any" required></label>
  </div><p id="free-screw-countersunk-note" hidden>皿頭の傾斜部分は頭部の高さに含まれます。</p></fieldset>
  <fieldset><legend>工具穴</legend><div class="screw-fields">
  <label>締め付け方式<select id="free-screw-drive">${options(screwDriveTypes)}</select></label>
  <label><span id="free-screw-drive-size-label">溝の長さ (mm)</span><input id="free-screw-drive-size" type="number" min="0.1" step="any" required></label>
  <label>工具穴の深さ (mm)<input id="free-screw-drive-depth" type="number" min="0.05" step="any" required></label>
  </div></fieldset>
+ <label>置く向き<select id="free-screw-placement"><option value="tip-down">先端を下にする</option><option value="head-down">頭部を下にする（上下反転）</option></select></label>
  <p id="free-screw-error" role="status"></p>
  <div class="editor-actions">
  <button type="button" id="free-screw-fit" disabled>プレビューにフィット</button>
@@ -38,13 +42,19 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
  let original=null,editing=null,id=null,busy=false,timer=null,revision=0,preview=null,hiddenBody=null,needsFit=false;
 
  function clearPreview(){
-  if(preview){preview.removeFromParent();preview.geometry.dispose();preview.material.dispose();preview=null;}
+  if(preview){
+   preview.removeFromParent();
+   preview.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+   preview=null;
+  }
   if(hiddenBody){hiddenBody.visible=true;hiddenBody=null;}
   $('fit').disabled=true;
  }
  function draft(){
   return {id,diameter:Number($('diameter').value),pitch:$('pitch').valueAsNumber,length:$('length').valueAsNumber,
+   threadLength:$('thread-mode').value==='full'?$('length').valueAsNumber:$('thread-length').valueAsNumber,
    head:$('head').value,headSize:$('head-size').valueAsNumber,headHeight:$('head-height').valueAsNumber,
+   barThickness:$('bar-thickness').valueAsNumber,headDown:$('placement').value==='head-down',
    drive:$('drive').value,driveSize:$('drive-size').valueAsNumber,driveDepth:$('drive-depth').valueAsNumber,
    leftHand:$('hand').value==='left'};
  }
@@ -55,6 +65,7 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
  function resetHead(){
   const values=screwHeadDefaults(Number($('diameter').value),$('head').value);
   $('head-size').value=values.headSize;$('head-height').value=values.headHeight;
+  $('bar-thickness').value=values.barThickness??'';
  }
  function resetDrive(){
   if($('drive').value==='none')return;
@@ -62,8 +73,13 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
   $('drive-size').value=values.driveSize;$('drive-depth').value=values.driveDepth;
  }
  function syncFields(){
-  $('head-size-label').textContent=$('head').value==='hex'?'頭部の対辺 (mm)':'頭部の外径 (mm)';
-  $('countersunk-note').hidden=$('head').value!=='countersunk';
+  const head=$('head').value,bar=head==='bar',full=$('thread-mode').value==='full';
+  $('thread-length').disabled=full;
+  $('thread-length').max=$('length').value;
+  if(full)$('thread-length').value=$('length').value;
+  $('head-size-label').textContent=head==='hex'?'頭部の対辺 (mm)':bar?'横棒の全長 (mm)':head==='knob'?'ノブの外径 (mm)':'頭部の外径 (mm)';
+  $('bar-thickness').disabled=!bar;$('bar-thickness').closest('label').hidden=!bar;
+  $('countersunk-note').hidden=head!=='countersunk';
   const none=$('drive').value==='none';
   $('drive-size-label').textContent=$('drive').value==='hex'?'六角穴の対辺 (mm)':'溝の長さ (mm)';
   for(const name of ['drive-size','drive-depth']){
@@ -74,14 +90,24 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
  function fitPreview(){
   if(preview)fit(new THREE.Box3().setFromObject(preview));
  }
- function showPreview(output){
+ function showPreview(output,settings){
   clearPreview();
   const geometry=new THREE.BufferGeometry();
   geometry.setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));
   geometry.setIndex(output.triangles);
   if(output.normals?.length===output.vertices.length)geometry.setAttribute('normal',new THREE.Float32BufferAttribute(output.normals,3));
   else geometry.computeVertexNormals();
-  preview=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x69b4c6,roughness:.75}));
+  preview=new THREE.Group();
+  preview.add(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x69b4c6,roughness:.75})));
+  if(settings.threadLength<settings.length){
+   const [cx,cy]=settings.origin,z=screwWorldZ(settings,settings.threadLength);
+   const radius=settings.diameter/2+.015;
+   const points=Array.from({length:64},(_,i)=>{
+    const angle=i*Math.PI/32;
+    return new THREE.Vector3(cx+radius*Math.cos(angle),cy+radius*Math.sin(angle),z);
+   });
+   preview.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color:0xe28219})));
+  }
   const body=editing&&getBody(editing.id);
   if(body?.visible){hiddenBody=body;body.visible=false;}
   scene.add(preview);$('fit').disabled=false;
@@ -98,8 +124,8 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
    try{
     const result=await kernel.run([],{type:'freeScrewPreview',...settings});
     if(!dialog.open||token!==revision||getFeatures()!==original)return;
-    showPreview(result.outputs[0]);
-    $('error').textContent='ねじ山は作成時に反映されます。';
+    showPreview(result.outputs[0],settings);
+    $('error').textContent=settings.threadLength<settings.length?'オレンジの輪が、先端からのねじ山の終点です。':'ねじ山は作成時に反映されます。';
    }catch(error){if(dialog.open&&token===revision){clearPreview();$('error').textContent=error.message;}}
   },150);
  }
@@ -107,7 +133,10 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
   if(busy)return;
   if(event.target===$('diameter')){
    $('pitch').value=screwCoarsePitches.get(Number($('diameter').value));resetHead();resetDrive();
-  }else if(event.target===$('head')){resetHead();resetDrive();}
+  }else if(event.target===$('head')){
+   if(['knob','bar'].includes($('head').value))$('drive').value='none';
+   resetHead();resetDrive();
+  }
   else if(event.target===$('drive'))resetDrive();
   syncFields();schedule();
  };
@@ -148,11 +177,17 @@ export function createFreeScrewDialog({kernel,scene,getFeatures,getBody,place,ap
   if(dialog.open)return;
   original=getFeatures();editing=feature;id=feature?.id??crypto.randomUUID();needsFit=true;
   const spec=feature?.spec;
+  const length=spec?.length??12,threadLength=spec?.threadLength??length;
   $('diameter').value=spec?.diameter??6;$('pitch').value=spec?.pitch??screwCoarsePitches.get(6);
-  $('length').value=spec?.length??12;$('hand').value=spec?.leftHand?'left':'right';
+  $('length').value=length;$('hand').value=spec?.leftHand?'left':'right';
+  $('thread-length').value=threadLength;$('thread-mode').value=threadLength===length?'full':'partial';
+  $('placement').value=spec?.headDown?'head-down':'tip-down';
   $('head').value=spec?.head??'pan';$('drive').value=spec?.drive??'cross';
   resetHead();
-  if(spec){$('head-size').value=spec.headSize;$('head-height').value=spec.headHeight;}
+  if(spec){
+   $('head-size').value=spec.headSize;$('head-height').value=spec.headHeight;
+   if(spec.head==='bar')$('bar-thickness').value=spec.barThickness;
+  }
   resetDrive();
   if(spec&&spec.drive!=='none'){$('drive-size').value=spec.driveSize;$('drive-depth').value=spec.driveDepth;}
   form.querySelectorAll('fieldset').forEach(section=>{section.disabled=false;});
