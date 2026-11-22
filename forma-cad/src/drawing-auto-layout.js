@@ -6,11 +6,12 @@ import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
 import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmitted,drawingViewBreak} from './drawing-break.js';
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout} from './drawing-leaders.js';
-import {drawingFrameInset} from './drawing-paper-bounds.js';
+import {drawingFrameInset,drawingTitleBlock} from './drawing-paper-bounds.js';
 import {drawingViewTitle} from './drawing-view-title.js';
 const minimumGap=3;
 const minimumGaps=[minimumGap,minimumGap];
 const preferredGap=12;
+const titleBlockClearance=4;
 const overlap=(a,b)=>a.x<b.x+b.width-1e-8&&a.x+a.width>b.x+1e-8&&a.y<b.y+b.height-1e-8&&a.y+a.height>b.y+1e-8;
 export function drawingViewFrames(input,options={},scale=1){
  const data=withDetails(input,options.details),frames={};
@@ -99,7 +100,40 @@ function slicingPack(items,width,height,[gapX,gapY],order){
  }
  return variants((1<<items.length)-1)[0]??null;
 }
-function freeRectPack(items,width,height,[gapX,gapY]){let best=null;const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,(a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,(a,b)=>a.width/a.height-b.width/b.height];for(const sort of sorts){let free=[{x:0,y:0,width:width+gapX,height:height+gapY}],at={},w=0,h=0,failed=false;for(const item of [...items].sort(sort)){const iw=item.width+gapX,ih=item.height+gapY,candidates=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8).sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);if(!candidates.length){failed=true;break;}const rect={x:candidates[0].x,y:candidates[0].y,width:iw,height:ih};at[item.key]=[rect.x,rect.y];w=Math.max(w,rect.x+iw);h=Math.max(h,rect.y+ih);const split=[];for(const f of free){if(!overlap(f,rect)){split.push(f);continue;}if(rect.x>f.x)split.push({...f,width:rect.x-f.x});if(rect.x+iw<f.x+f.width)split.push({...f,x:rect.x+iw,width:f.x+f.width-rect.x-iw});if(rect.y>f.y)split.push({...f,height:rect.y-f.y});if(rect.y+ih<f.y+f.height)split.push({...f,y:rect.y+ih,height:f.y+f.height-rect.y-ih});}free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&(q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));}if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};}return best;}
+function freeRectPack(items,width,height,[gapX,gapY],corner){
+ const full={x:0,y:0,width:width+gapX,height:height+gapY};
+ // The wide upper rectangle and the tall left rectangle share their upper-left area.
+ const regions=corner?[{...full,height:corner.y+gapY},{...full,width:corner.x+gapX}]:[full];
+ const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,
+  (a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,
+  (a,b)=>b.height/b.width-a.height/a.width];
+ let best=null;
+ for(const sort of sorts){
+  let free=regions,at={},w=0,h=0,failed=false;
+  for(const item of [...items].sort(sort)){
+   const iw=item.width+gapX,ih=item.height+gapY;
+   const [slot]=free.filter(r=>r.width>=iw-1e-8&&r.height>=ih-1e-8)
+    .sort((a,b)=>Math.min(a.width-iw,a.height-ih)-Math.min(b.width-iw,b.height-ih)||a.y-b.y||a.x-b.x);
+   if(!slot){failed=true;break;}
+   const rect={x:slot.x,y:slot.y,width:iw,height:ih},right=rect.x+iw,bottom=rect.y+ih;
+   at[item.key]=[rect.x,rect.y];w=Math.max(w,right);h=Math.max(h,bottom);
+   const split=[];
+   for(const region of free){
+    if(!overlap(region,rect)){split.push(region);continue;}
+    const endX=region.x+region.width,endY=region.y+region.height;
+    if(rect.x>region.x)split.push({...region,width:rect.x-region.x});
+    if(right<endX)split.push({...region,x:right,width:endX-right});
+    if(rect.y>region.y)split.push({...region,height:rect.y-region.y});
+    if(bottom<endY)split.push({...region,y:bottom,height:endY-bottom});
+   }
+   free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&
+    (q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&
+    r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));
+  }
+  if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};
+ }
+ return best;
+}
 function groupProjectionViews(views,frames,scale,[gapX,gapY],names){
  const members=views.filter(({key})=>names.includes(key));
  if(members.length<2||!frames.front)return views;
@@ -127,17 +161,38 @@ function groupProjectionViews(views,frames,scale,[gapX,gapY],names){
  return [{key:'front',width,height,children},...views.filter(({key})=>!names.includes(key))];
 }
 
-function packDrawingItems(items,width,height,isoOnRight,gaps,order){
+function packDrawingItems(items,width,height,isoOnRight,gaps,order,corner){
  const [gapX,gapY]=gaps;
- const pack=(blocks,w,h)=>blocks.length<=6?slicingPack(blocks,w,h,gaps,order):freeRectPack(blocks,w,h,gaps);
+ const pack=(blocks,w,h)=>{
+  const blocked=corner&&corner.x<w&&corner.y<h?corner:undefined;
+  return blocks.length<=6&&!blocked?slicingPack(blocks,w,h,gaps,order):freeRectPack(blocks,w,h,gaps,blocked);
+ };
  const iso=isoOnRight&&items.find(item=>item.key==='iso');
  if(!iso||items.length===1)return pack(items,width,height);
- if(iso.width+gapX>=width||iso.height>height)return null;
- const others=pack(items.filter(item=>item!==iso),width-iso.width-gapX,height);
+ const columnWidth=corner&&iso.height>corner.y?corner.x:width;
+ if(iso.width+gapX>=columnWidth||iso.height>height)return null;
+ const others=pack(items.filter(item=>item!==iso),columnWidth-iso.width-gapX,height);
  if(!others)return null;
  const h=iso.height+gapY;
- return {w:others.w+iso.width+gapX,h:Math.max(others.h,h),
-  at:{...others.at,iso:[others.w,Math.max(0,(others.h-h)/2)]}};
+ const columnBottom=corner&&others.w+iso.width>corner.x+1e-8?corner.y:height;
+ const y=Math.max(0,Math.min((others.h-h)/2,columnBottom-iso.height));
+ return {w:others.w+iso.width+gapX,h:Math.max(others.h,y+h),at:{...others.at,iso:[others.w,y]}};
+}
+
+function drawingPackingOffset({items,packed,gaps,packingArea,corner}){
+ const [gapX,gapY]=gaps;
+ let x=(packingArea.width-(packed.w-gapX))/2,y=(packingArea.height-(packed.h-gapY))/2;
+ if(corner){
+  for(const item of items){
+   const [left,top]=packed.at[item.key];
+   if(top+item.height>corner.y+1e-8)x=Math.min(x,corner.x-left-item.width);
+  }
+  for(const item of items){
+   const [left,top]=packed.at[item.key];
+   if(left+item.width+x>corner.x+1e-8)y=Math.min(y,corner.y-top-item.height);
+  }
+ }
+ return [packingArea.x+Math.max(0,x),packingArea.y+Math.max(0,y)];
 }
 
 function spreadDrawingItems(initial,area){
@@ -180,8 +235,9 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  if(!Number.isFinite(scale)||scale<=0)throw Error('縮尺を確認してください');
  const paper=options.paper==='A3'?'A3':'A4',size=paper==='A3'?[420,297]:[297,210];
  const [width,height]=options.pageSize??(options.orientation==='portrait'?[size[1],size[0]]:size);
- const inset=drawingFrameInset+1,bottom=height-(options.frame?35:12)-1;
+ const inset=drawingFrameInset+1,bottom=height-(options.frame?drawingFrameInset:12)-1;
  const area={x:inset,y:inset,width:width-2*inset,height:bottom-inset},frames=drawingViewFrames(data,options);
+ const titleBlock=options.frame?drawingTitleBlock(width,height):null;
  const maxNoteWidth=width-2*drawingCommentMargin;
  const notes=options.pageNotes??drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
  // Keep longer lines when they fit. Fixed-scale views may leave only a narrow column.
@@ -202,6 +258,8 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   return largestFittingScale(value=>value<=limit+1e-12?true:null)?.scale??minDrawingScale;
  };
  const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale,{packingArea=area,includeTitles=false}={})=>{
+  const corner=titleBlock?{x:titleBlock.x-titleBlockClearance-packingArea.x,y:titleBlock.y-titleBlockClearance-packingArea.y}:null;
+  const upperArea=corner?{...packingArea,height:corner.y}:packingArea;
   const nextOptions={...placementOptions,autoIsoScale};
   const nextFrames=drawingViewFrames(data,nextOptions,s);
   const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames);
@@ -218,11 +276,17 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
     const grouped=group?groupProjectionViews(views,nextFrames,s,gaps,group):views;
     const items=[...grouped,...annotations];
     if(items.length>24)throw Error('自動配置する図が多すぎます');
-    const packed=packDrawingItems(items,packingArea.width,packingArea.height,right,gaps,group?[]:order);
-    return packed?{items,packed,gaps}:null;
+    const packed=packDrawingItems(items,upperArea.width,upperArea.height,right,gaps,group?[]:order);
+    if(packed)return {items,packed,gaps,packingArea:upperArea};
+    if(!corner||corner.x<=0||!items.some(item=>item.width<=corner.x+1e-8))return null;
+    // Group views with a requested relative position before packing around the table.
+    const cornerItems=!group&&order.length?
+     [...groupProjectionViews(views,nextFrames,s,gaps,['front',...order]),...annotations]:items;
+    const aroundTitle=packDrawingItems(cornerItems,packingArea.width,packingArea.height,right,gaps,[],corner);
+    return aroundTitle?{items:cornerItems,packed:aroundTitle,gaps,packingArea,corner}:null;
    };
    const layout=packWithGaps(minimumGaps);
-   if(layout)return {...layout,packWithGaps,dimensions:resized,autoIsoScale,packingArea,isoOnRight:right};
+   if(layout)return {...layout,packWithGaps,dimensions:resized,autoIsoScale,isoOnRight:right};
   }
   return null;
  };
@@ -265,10 +329,9 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    if(ordered){result={...candidate,...ordered,packWithGaps};break preferredOrder;}
   }
  }
- const used=result.packingArea;
- const layout=spreadViews&&Object.keys(frames).length>1?spreadDrawingItems(result,used):result;
- const {gaps:[gapX,gapY],packed}=layout;
- const positions={},boxes=[],offset=[used.x+(used.width-(packed.w-gapX))/2,used.y+(used.height-(packed.h-gapY))/2];
+ const layout=spreadViews&&Object.keys(frames).length>1?spreadDrawingItems(result,result.packingArea):result;
+ const {packed,packingArea:used}=layout;
+ const positions={},boxes=[],offset=drawingPackingOffset(layout);
  for(const block of layout.items){
   const [px,py]=packed.at[block.key];
   for(const item of block.children??[block]){

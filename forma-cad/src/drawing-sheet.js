@@ -9,7 +9,7 @@ import {drawingViewTitle,drawingViewTitleSVG} from './drawing-view-title.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
 import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout,drawingLeadersSVG} from './drawing-leaders.js';
-import {drawingFrameInset} from './drawing-paper-bounds.js';
+import {drawingFrameInset,drawingTitleBlock} from './drawing-paper-bounds.js';
 
 const backgroundColor=value=>validDimensionColor(value)&&value.toLowerCase()!=='#ffffff'?value.toLowerCase():null;
 export const drawingBackgroundColor=options=>backgroundColor(options.viewBackground)??backgroundColor(options.paperBackground);
@@ -63,8 +63,6 @@ function viewBreakMarks(view){
  });
  return '<g data-break-marks="true" data-break-direction="'+axis+'" fill="none" stroke="#111" stroke-width=".35">'+paths.join('')+'</g>';
 }
-const sheetTitleBlock=(width,height)=>({x:Math.max(10,width-165),y:height-32,width:160,height:27});
-
 function fitSheetComment(note,x,y,limit,obstacles){
  if(note.wrapWidth!==undefined)return {...note,x,y};
  let fitted=note;
@@ -84,7 +82,7 @@ function placeSheetComments(text,options,{layout,holeBox,width,height,fixedPaper
  const rows=drawingCommentEntries(text,options,width-2*drawingCommentMargin);
  if(!rows.length)return [];
  const positions=options.positions??{},unplaced=rows.filter(note=>!positions[note.id]);
- const right=width-drawingCommentMargin,title=fixedPaper&&options.frame?sheetTitleBlock(width,height):null;
+ const right=width-drawingCommentMargin,title=fixedPaper&&options.frame?drawingTitleBlock(width,height):null;
  const blocks=Object.values(layout);
  if(holeBox)blocks.push(holeBox);
  const desired=Math.max(60,...unplaced.map(note=>note.wrapWidth??note.width));
@@ -173,7 +171,7 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const viewBoxes={};
  const scaleSummary=drawingScaleSummary(Object.values(layout).map(view=>view.scale));
  const contentBottom=height-(options.frame?35:12);
- const paper={width,height,contentBottom,titleBlock:options.frame?sheetTitleBlock(width,height):null};
+ const paper={width,height,contentBottom,titleBlock:options.frame?drawingTitleBlock(width,height):null};
  const titles=Object.fromEntries(Object.entries(layout).map(([name,view])=>[name,drawingViewTitle(name,view,options,scaleSummary.mixed,paper)]));
  const viewTitles=Object.fromEntries(Object.entries(titles).map(([name,title])=>[name,title.bounds]));
  if(viewColor){

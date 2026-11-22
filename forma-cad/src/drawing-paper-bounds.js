@@ -1,4 +1,5 @@
 export const drawingFrameInset=5;
+export const drawingTitleBlock=(width,height)=>({x:Math.max(10,width-165),y:height-32,width:160,height:27});
 
 export function drawingBoxPlacementIssue(box,{width,height,contentBottom,titleBlock}){
  const inset=drawingFrameInset-.01;

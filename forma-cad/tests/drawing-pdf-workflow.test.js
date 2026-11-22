@@ -116,7 +116,7 @@ test('placement uses the frame and the actual title block instead of reserving e
 });
 
 test('automatic placement can use the upper space at the chosen scale even when captions would not fit above',()=>{
- const data={bodyCount:1,bounds:[[0,0,0],[40,8,164]],views:{front:rect(40,164),top:rect(40,8)}};
+ const data={bodyCount:1,bounds:[[0,0,0],[144,8,164]],views:{front:rect(144,164),top:rect(144,8)}};
  const config={...options,sections:[],viewSelection:['front','top'],viewScales:{top:.5},projectionLocked:false};
  const result=optimizeDrawingLayout(data,{options:config,fixedScale:true,scale:1});
  assert.equal(result?.scale,1);
@@ -124,6 +124,33 @@ test('automatic placement can use the upper space at the chosen scale even when 
  assert.ok(sheet.layout.front.y<17);
  assert.deepEqual(drawingSheetOverflow({querySelectorAll:()=>Object.keys(sheet.layout).map(view=>({dataset:{view}}))},sheet),[]);
  assert.match(sheet.svg,/FRONT \/ SCALE 1:1/);
+});
+
+test('automatic placement packs beside the title block without shrinking a tall view',()=>{
+ for(const [width,height,orientation] of [[94,182,'landscape'],[24,264,'portrait']]){
+  const data={bodyCount:1,bounds:[[0,0,0],[width,72,height]],views:{
+   front:rect(width,height),top:rect(width,72),iso:{...rect(70,90),viewBox:[0,-90,70,90]},
+  }};
+  const config={...options,orientation,layout:'compact',sections:[],viewSelection:['front','top'],isoMode:'full',viewScales:{iso:.5}};
+  const settings={options:config,isoOnRight:true};
+  const compact=optimizeDrawingLayout(data,settings);
+  const spaced=optimizeDrawingLayout(data,{...settings,spreadViews:true});
+  assert.equal(compact.scale,1);
+  assert.equal(spaced.scale,compact.scale);
+  const sheet=drawingSheet(data,spaced.scale,true,[],'',{...config,positions:spaced.positions});
+  assert.ok(sheet.layout.front.y+sheet.layout.front.height>sheet.titleBlock.y);
+  assert.ok(sheet.layout.front.x+sheet.layout.front.width<sheet.titleBlock.x);
+  assert.ok(sheet.layout.iso.x>sheet.layout.top.x+sheet.layout.top.width);
+  const items={querySelectorAll:()=>Object.keys(sheet.layout).map(view=>({dataset:{view}}))};
+  assert.deepEqual(drawingSheetOverflow(items,sheet),[]);
+
+  const pdfOptions={...config,pdfLayout:'manual',pdfPlacement:'auto',pdfPageScales:{1:1},
+   pageAssignments:{pageCount:2,views:{front:1,top:2,iso:2},comments:{}}};
+  const [page]=drawingPDFPages(data,spaced.scale,true,[],'',pdfOptions,sheet);
+  assert.equal(page.layout.front.scale,1);
+  assert.ok(page.layout.front.y+page.layout.front.height>page.titleBlock.y);
+  assert.deepEqual(drawingSheetOverflow({querySelectorAll:()=>[{dataset:{view:'front'}}]},page),[]);
+ }
 });
 
 test('the PDF checklist maps a filtered page back to original visible dimension indices',()=>{
@@ -313,7 +340,7 @@ test('automatic placement prefers the projection order at the already fitted sca
  const data={...part,views:{front,top,right,iso:{...rect(70.71,57.2),viewBox:[0,-57.2,70.71,57.2]}}};
  for(const orientation of ['landscape','portrait']){
   const settings={...options,orientation,sections:[],isoMode:'full'};
-  const input={options:settings,isoOnRight:true,spreadViews:true};
+  const input={options:settings,scale:1.5,fixedScale:true,isoOnRight:true,spreadViews:true};
   const compact=optimizeDrawingLayout(data,input);
   const ordered=optimizeDrawingLayout(data,{...input,preferProjectionOrder:true});
   assert.equal(ordered.scale,compact.scale);
