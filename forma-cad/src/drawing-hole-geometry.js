@@ -85,7 +85,7 @@ export function drawingHoleRims(shape){
    rim.machining=pilot.machining={radius:pilot.radius,...(lower.through?{through:true}:{depth:segment.depth+lower.depth}),
     counterbore:{radius:rim.radius,depth:segment.depth}};
   }
-  return rims.map(rim=>({center:rim.center,normal:rim.plane.normal,radius:rim.radius,machining:rim.machining}));
+  return rims.map(rim=>({center:rim.center,normal:rim.plane.normal,radius:rim.radius,opening:rim.inner,machining:rim.machining}));
  }catch{
   // Some imported faces have no usable native surface or wire. Keep their projected geometry.
   return [];

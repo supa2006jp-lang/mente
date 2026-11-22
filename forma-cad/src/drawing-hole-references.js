@@ -1,6 +1,8 @@
 import {basisFor} from './frames.js';
 import {drawingProjections} from './drawing-view-preferences.js';
 import {drawingTableHoles} from './drawing-hole-table.js';
+import {machiningSuppressed} from './machining-suppression.js';
+import {drawingThreadReference,sameDrawingThread} from './drawing-thread-annotations.js';
 
 const epsilon=1e-4;
 const distance=(a,b)=>Math.hypot(a.center[0]-b.center[0],a.center[1]-b.center[1]);
@@ -8,11 +10,14 @@ const sameRadius=(a,b)=>Math.abs(a-b)<epsilon;
 const sameRim=(old,hole)=>distance(old,hole)<epsilon&&(sameRadius(old.radius,hole.radius)||
  hole.machining?.counterbore&&sameRadius(old.radius,hole.machining.counterbore.radius));
 const dot=(p,axis)=>p.reduce((value,n,i)=>value+n*axis[i],0);
-export const holeAnchor=({center,radius,sourceId})=>({center:[...center],radius,...(sourceId?{sourceId}:{})});
+export function holeAnchor({center,radius,sourceId,threadRef,machining}){
+ const thread=machining?.thread?drawingThreadReference(machining.thread):threadRef;
+ return {center:[...center],radius,...(sourceId?{sourceId}:{}),...(thread?{threadRef:thread}:{})};
+}
 export const lastHoleNumber=table=>Math.max(table?.lastNumber??0,...(table?.holes??[]).map((h,i)=>h.number??i+1));
 export function unlistedDrawingHoles(table,candidates){
  return candidates.filter(hole=>!table.holes.some(row=>
-  row.sourceId&&row.sourceId===hole.sourceId||!row.review&&sameRim(row,hole)));
+  row.sourceId&&row.sourceId===hole.sourceId||sameDrawingThread(row.threadRef,hole.machining?.thread)||!row.review&&sameRim(row,hole)));
 }
 
 export function drawingHoleCandidates(view,name,features,targets,frontFrame){
@@ -20,7 +25,7 @@ export function drawingHoleCandidates(view,name,features,targets,frontFrame){
  const holes=drawingTableHoles(view),projection=drawingProjections[name],sources=new Map();
  const drawingPoint=p=>frontFrame?[dot(p,frontFrame.u),dot(p,frontFrame.v),dot(p,frontFrame.n)]:p;
  for(const f of features){
-  if(f.kind!=='extrusion'||f.profile!=='circle'||f.operation!=='cut'||f.symmetric||f.taperAngle||!targets.includes(f.target)||
+  if(f.kind!=='extrusion'||f.profile!=='circle'||f.operation!=='cut'||machiningSuppressed(f)||f.symmetric||f.taperAngle||!targets.includes(f.target)||
    typeof f.id!=='string'||!f.id.length||f.id.length>200)continue;
   const n=drawingPoint(basisFor(f).n.toArray()),side=dot(n,projection.normal)*(-Math.sign(f.depth));
   if(Math.abs(side)<1-1e-7)continue;
@@ -62,6 +67,7 @@ export function reconcileHoleTable(table,candidates,viewBox,{targetsChanged=fals
   }
  }
  for(const row of rows)if(row.sourceId)matchUnique(row,candidates.filter(h=>h.sourceId===row.sourceId));
+ for(const row of rows)if(row.threadRef&&!matches.has(row))matchUnique(row,candidates.filter(h=>sameDrawingThread(row.threadRef,h.machining?.thread)));
  if(!targetsChanged){
   for(const row of rows)if(!row.sourceId&&!row.review)matchUnique(row,candidates.filter(h=>sameRim(row,h)));
  }

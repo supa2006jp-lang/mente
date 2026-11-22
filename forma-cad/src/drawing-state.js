@@ -8,6 +8,7 @@ import {validDrawingPrintPalette} from './drawing-print-palette.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
 import {holeReferenceLimit} from './drawing-hole-references.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
+import {validDrawingThreadReference} from './drawing-thread-annotations.js';
 import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const coordinates=(p,axes)=>Array.isArray(p)&&p.length===axes&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
@@ -63,7 +64,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    !Array.isArray(table.holes)||!table.holes.length||table.holes.length>maxDrawingTableHoles||
    table.holes.some(hole=>!point(hole?.center)||!Number.isFinite(hole.radius)||hole.radius<=0||hole.radius>1e6)||
    !validReview(table)||table.originReview!==undefined&&typeof table.originReview!=='boolean')fail();
-  const validSource=h=>h.sourceId===undefined||typeof h.sourceId==='string'&&h.sourceId.length>0&&h.sourceId.length<=200;
+  const validSource=h=>validDrawingThreadReference(h.threadRef)&&(h.sourceId===undefined||typeof h.sourceId==='string'&&h.sourceId.length>0&&h.sourceId.length<=200);
   const numbers=table.holes.map((h,i)=>h.number??i+1);
   if(new Set(numbers).size!==numbers.length||numbers.some(n=>!Number.isSafeInteger(n)||n<1)||
    table.lastNumber!==undefined&&(!Number.isSafeInteger(table.lastNumber)||table.lastNumber<Math.max(...numbers))||
@@ -133,7 +134,7 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   for(const note of o.leaders){
    if(!note||typeof note.id!=='string'||!/^leader-[a-zA-Z0-9-]{1,60}$/.test(note.id)||leaderIds.has(note.id)||
     !viewNames.has(note.view)||!point(note.anchor)||!point(note.at)||typeof note.text!=='string'||!note.text.trim()||
-    note.text.length>maxDrawingLeaderText||!validReview(note))fail();
+    note.text.length>maxDrawingLeaderText||!validReview(note)||!validDrawingThreadReference(note.threadRef))fail();
    leaderIds.add(note.id);
   }
  }

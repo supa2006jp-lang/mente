@@ -1,4 +1,5 @@
 import {filletSuppressionState} from './fillet-state.js';
+import {machiningSuppressed} from './machining-suppression.js';
 const strings=value=>Array.isArray(value)?value.filter(v=>typeof v==='string'):typeof value==='string'?[value]:[];
 export function featureReads(feature){
  const ids=new Set(),add=value=>strings(value).forEach(id=>ids.add(id)),spec=feature.spec||{};
@@ -29,6 +30,7 @@ export function reusableHistoryResult(feature){
  return Array.isArray(result.outputs)&&Array.isArray(result.remove)&&result.outputs.every(o=>o.brep||o.vertices?.length&&o.triangles?.length);
 }
 export function featureWrites(feature){
+ if(machiningSuppressed(feature))return new Set(strings(feature.targetBodies??feature.target??feature.spec?.target));
  const result=feature.cadResult||(feature.kind==='cadop'?feature:null),ids=new Set(result?.outputs?.map(o=>o.id)||[]);
  for(const id of result?.remove||[])ids.add(id);
  if(!result)ids.add(feature.kind==='extrusion'&&feature.operation!=='new'?feature.target:feature.id);

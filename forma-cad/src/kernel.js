@@ -74,6 +74,7 @@ import {splitSolidSections} from './solid-section-split.js';
 import {filletSolid,planPartialFillet,prepareFilletRadiusTrial} from './solid-fillet.js';
 import {searchFilletRadius} from './fillet-radius-search.js';
 import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
+import {drawingThreadEntries} from './drawing-thread-geometry.js';
 import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {cadMesh} from './cad-mesh.js';
@@ -656,7 +657,13 @@ function* computeOperation(features,spec,onProgress,context={}){
  if(spec.type==='coilJointInfo'){const bodies=kernelBodies(features);try{return coilJointInfo(bodies.get(spec.target),spec,jointSourceAxis(features,spec.target));}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='coilTestPiece'){const bodies=kernelBodies(features);let result;try{result=makeCoilTestPiece(bodies.get(spec.target),spec,onProgress,{preferredAxis:jointSourceAxis(features,spec.target)});return {outputs:result.parts.map((shape,i)=>({id:i?'coil-test-lid':'coil-test-body',...shape.mesh({tolerance:.08,angularTolerance:.15})})),analysis:result.analysis};}finally{result?.parts.forEach(shape=>shape.delete());for(const body of bodies.values())body.delete();}}
  if(spec.type==='enclosePrintValidate')return validateEnclosurePrintPose(features,spec);
- if(spec.type==='orthographic'){const bodies=kernelBodies(features);try{return orthographicProjection(bodies,spec.targets,spec.sections,spec.views,spec.frontFrame,spec.silhouettes);}finally{for(const body of bodies.values())body.delete();}}
+ if(spec.type==='orthographic'){
+  const bodies=kernelBodies(features);
+  try{
+   return orthographicProjection(bodies,spec.targets,spec.sections,spec.views,spec.frontFrame,spec.silhouettes,
+    ()=>drawingThreadEntries(features,bodies,spec.targets,kernelBodies));
+  }finally{for(const body of bodies.values())body.delete();}
+ }
  if(spec.type==='snapLidInfo'){const bodies=kernelBodies(features);try{return snapLidInfo(bodies.get(spec.target),bodies.get(spec.lidTarget));}finally{for(const body of bodies.values())body.delete();}}
  if(spec.type==='circularPatternSpacing'){const bodies=kernelBodies(features);try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');return circularPatternSpacing(base,spec,onProgress);}finally{bodies.forEach(shape=>shape.delete());}}
  if(spec.type==='circularPatternInfo'){const bodies=kernelBodies(features);let entries=[];try{const base=bodies.get(spec.target);if(!base)throw Error('原型ボディを選択してください');entries=patternCavityEntries(base,onProgress);return {cavities:entries.map(({shape,...entry})=>({...entry,...shape.mesh({tolerance:.08,angularTolerance:.15})}))};}finally{entries.forEach(e=>e.shape.delete());bodies.forEach(shape=>shape.delete());}}
@@ -1112,7 +1119,7 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='coil'||p.type==='thread'){if(p.pitch<=p.wire*1.05)throw Error('ピッチを断面の太さより大きくしてください');const path=R.makeHelix(p.pitch,p.pitch*p.turns,p.radius);const section=p.type==='coil'?R.drawCircle(p.wire/2).sketchOnPlane(new R.Plane([p.radius,0,0],[1,0,0],[0,-1,0])).wire:R.draw([-p.wire/2,-p.wire/2]).lineTo([p.wire/2,0]).lineTo([-p.wire/2,p.wire/2]).close().sketchOnPlane(new R.Plane([p.radius,0,0],[1,0,0],[0,-1,0])).wire;let shape=R.genericSweep(section,path,{frenet:true});if(p.type==='thread')shape=shape.fuse(R.makeCylinder(p.radius-p.wire*.25,p.pitch*p.turns));emit(p.id,shape.translate([p.x,p.y,p.z]));}
  else throw Error('未対応の形状操作です');return {outputs,remove,...(analysis?{analysis}:{}),...(removedPreview!==undefined?{removed:removedPreview}:{})};}finally{for(const body of bodies.values())body.delete();}}
 
-function remapUnchangedShellFace(before,after,reference){
+function remapUnchangedShellFace(before,after,reference,allowTrimChanges=false){
  const tolerance=1e-4,point=R.makeVertex(reference.point),oldFaces=before.faces,newFaces=after.faces;
  const normal=reference.normal&&new THREE.Vector3(...reference.normal).normalize();
  const near=faces=>faces.map(face=>({face,distance:R.measureDistanceBetween(point,face)})).filter(({face,distance})=>{
@@ -1126,7 +1133,10 @@ function remapUnchangedShellFace(before,after,reference){
   const [old,other]=near(oldFaces);
   if(!old||other&&other.distance-old.distance<tolerance)throw Error('開口面を選び直してください');
   const area=R.measureArea(old.face),box=bounds(old.face);
-  const matches=near(newFaces).filter(({face,distance})=>face.geomType===old.face.geomType&&
+  const newNear=near(newFaces);
+  if(allowTrimChanges&&old.face.geomType==='PLANE'&&old.distance<tolerance&&
+   newNear.filter(({face,distance})=>face.geomType==='PLANE'&&distance<tolerance).length===1)return [reference];
+  const matches=newNear.filter(({face,distance})=>face.geomType===old.face.geomType&&
    Math.abs(distance-old.distance)<=tolerance&&Math.abs(R.measureArea(face)-area)<=Math.max(tolerance,area*1e-7)&&
    bounds(face).every((v,i)=>Math.abs(v-box[i])<=tolerance));
   if(matches.length!==1)throw Error('形が変わった開口面を選び直してください');
@@ -1134,11 +1144,41 @@ function remapUnchangedShellFace(before,after,reference){
  }finally{point.delete();for(const face of [...oldFaces,...newFaces])face.delete();}
 }
 
-function remapHistoryReferences(before,after,spec){
+function remapHistoryReferences(before,after,spec,suppression=false){
  const oldBodies=kernelBodies(before),newBodies=kernelBodies(after);
  try{
   const bounds=s=>vertexBounds(s.mesh().vertices);
   const comparisons=new Map(),comparison=id=>{if(comparisons.has(id))return comparisons.get(id);const a=oldBodies.get(id),b=newBodies.get(id);if(!a||!b)throw Error('参照していたボディがありません');const same=a.serialize()===b.serialize();let topology=false;if(!same){const af=a.faces,bf=b.faces,ae=a.edges,be=b.edges;try{topology=af.length!==bf.length||ae.length!==be.length;}finally{for(const part of [...af,...bf,...ae,...be])part.delete();}}const result={a,b,same,topology};comparisons.set(id,result);return result;};
+  if(spec.type==='extrusionReferences'){
+   const f=spec.feature,region=f.region;
+   if(f.hole){
+    const {a,b,same}=comparison(f.target);
+    if(!same){
+     const center=[f.x,f.y,f.z],normal=basisFor(f).n,vertex=R.makeVertex(center);
+     const hasEntry=shape=>{
+      const faces=shape.faces;
+      try{return faces.some(face=>{
+       if(face.geomType!=='PLANE')return false;
+       const n=face.normalAt();
+       try{return new THREE.Vector3(...n.toTuple()).dot(normal)>.999999&&R.measureDistanceBetween(vertex,face)<1e-4;}
+       finally{n.delete();}
+      });}finally{faces.forEach(face=>face.delete());}
+     };
+     try{if(hasEntry(a)&&!hasEntry(b))throw Error('穴あけの基準面がなくなりました');}
+     finally{vertex.delete();}
+    }
+   }
+   const owner=region?.cadFace?.bodyId??region?.bodyId;
+   if(owner){
+    const {a,b,same}=comparison(owner);
+    if(!same&&filletPlaneExists(a,region)&&!filletPlaneExists(b,region))throw Error('押し出しの基準面がなくなりました');
+   }
+   if(f.endPlane?.bodyId){
+    const {a,b,same}=comparison(f.endPlane.bodyId);
+    if(!same&&filletPlaneExists(a,f.endPlane)&&!filletPlaneExists(b,f.endPlane))throw Error('押し出しの到達先の面がなくなりました');
+   }
+   return spec;
+  }
   const point=(id,p)=>{const {a,b,same,topology}=comparison(id);if(same)return p;
    if(topology)throw Error('面・辺の構成が変わりました。加工対象を選び直してください');
    const lo=bounds(a),hi=bounds(b);return p.map((v,i)=>hi.min[i]+(v-lo.min[i])*(hi.max[i]-hi.min[i])/Math.max(1e-9,lo.max[i]-lo.min[i]));};
@@ -1146,7 +1186,7 @@ function remapHistoryReferences(before,after,spec){
    const id=r.bodyId||spec.target;if(isFilletBodySuppressed(spec,id))return [r];
    const {a,b,topology}=comparison(id);
    if(topology&&key==='edges'&&['fillet','chamfer'].includes(spec.type))return remapFilletEdges(a,b,[r]);
-   if(topology&&key==='faces'&&spec.type==='shell')return remapUnchangedShellFace(a,b,r);
+   if(topology&&key==='faces'&&spec.type==='shell')return remapUnchangedShellFace(a,b,r,suppression);
    return [{...r,point:point(id,r.point)}];
   };
   for(const key of ['faces','edges'])if(spec[key]){
@@ -1165,7 +1205,16 @@ function remapHistoryReferences(before,after,spec){
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);
   if(spec.type==='assemblyMate')for(const key of ['source','destination'])spec[key]={...spec[key],point:point(spec[key].bodyId,spec[key].point)};
   if(spec.edgePoint){const {a,b,topology}=comparison(spec.target);if(spec.type==='fillet'&&topology){spec.edges=remapFilletEdges(a,b,[{bodyId:spec.target,point:spec.edgePoint}]);delete spec.edgePoint;}else spec.edgePoint=point(spec.target,spec.edgePoint);}
-  if(spec.surfacePoint)spec.surfacePoint=point(spec.target,spec.surfacePoint);
+  if(spec.surfacePoint){
+   const {a,b,same}=comparison(spec.target);
+   if(!same&&suppression&&spec.type==='thread'){
+    const old=threadCylinderInfo(a,spec.surfacePoint),next=threadCylinderInfo(b,spec.surfacePoint);
+    if(!old||!next||old.internal!==next.internal||Math.abs(old.radius-next.radius)>1e-4||
+     Math.abs(old.normal.dot(next.normal))<1-1e-7||old.origin.clone().sub(next.origin).cross(next.normal).length()>1e-4){
+     throw Error('ねじの基準となる円筒面がなくなりました');
+    }
+   }else spec.surfacePoint=point(spec.target,spec.surfacePoint);
+  }
   for(const r of [spec.face,...(spec.sections||[]),spec.region].filter(Boolean)){if(spec.type==='fillet'&&r===spec.face){const shape=newBodies.get(r.bodyId||spec.target);if(!shape||!filletPlaneExists(shape,r))throw Error('後続フィレットの基準面がなくなりました。面を選び直してください');continue;}if(r.bodyId&&oldBodies.get(r.bodyId)?.serialize()!==newBodies.get(r.bodyId)?.serialize())throw Error('参照するソリッドの面が変わりました。面を選び直してください');if(!r.bodyId&&!r.sourceIds?.length&&[...oldBodies].some(([id,b])=>b.serialize()!==newBodies.get(id)?.serialize()))throw Error('この工程の古い面参照は自動更新できません。面を選び直してください');}
   if(spec.rim&&oldBodies.get(spec.target)?.serialize()!==newBodies.get(spec.target)?.serialize())throw Error('コイルの基準円周が変わりました。円周を選び直してください');
   return spec;

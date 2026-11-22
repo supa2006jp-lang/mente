@@ -11,6 +11,7 @@ import {depthToFacePlane} from './extrusion-face-target.js';
 import {validateVolumeParts} from './volume-colors.js';
 import {validateExtrusionBarrier} from './extrusion-barrier-options.js';
 import {extrusionCircularWalls} from './extrusion-circular-walls.js';
+import {machiningSuppressed,suppressibleMachining} from './machining-suppression.js';
 import {allExtrusionTargets} from './extrusion-targets.js';
 import {validateExtrusionSymmetry,symmetricSurface} from './extrusion-symmetry.js';
 import {taperGeometry,validateTaperAngle,validateTaperOptions} from './taper.js';
@@ -32,6 +33,11 @@ export function validateFeature(f){
  validateConstraintData(f);validateSketchMirrorLinkData(f);validateCounterbore(f);validateSolidBoundaryLink(f);
  validateTaperOptions(f);
  if(!f || typeof f!=='object') throw Error('形状データが不正です。');
+ if(f.machiningSuppressed!==undefined){
+  const result=f.cadResult??f;
+  if(typeof f.machiningSuppressed!=='boolean'||!suppressibleMachining(f)||
+   f.machiningSuppressed&&(result.outputs?.length!==0||result.remove?.length!==0))throw Error('加工工程の一時解除情報が不正です');
+ }
  if(f.openingSketch!==undefined){
   const source=f.openingSketch;
   if(f.kind!=='sketch'||!source||typeof source.sketchId!=='string'||!source.sketchId||source.sketchId.length>100||!Number.isInteger(source.index)||source.index<0||
@@ -119,7 +125,7 @@ export function rebuild(features,{onLegacyStep}={}){
     target.geometry.dispose();bodies.set(f.target,result);onLegacyStep?.(i,f.target,result);
    }
   }
-  for(const [id,body] of bodies)body.geometry.userData.circularWalls=features.filter(f=>f.operation==='new'?f.id===id:f.target===id).flatMap(extrusionCircularWalls);
+  for(const [id,body] of bodies)body.geometry.userData.circularWalls=features.filter(f=>!machiningSuppressed(f)&&(f.operation==='new'?f.id===id:f.target===id)).flatMap(extrusionCircularWalls);
   return bodies;
  }catch(e){for(const b of bodies.values()) b.geometry.dispose();throw e;}
 }

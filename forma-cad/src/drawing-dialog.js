@@ -28,6 +28,7 @@ import {alignDrawingItems,drawingAlignmentActions} from './drawing-alignment.js'
 import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPointOmitted,moveDrawingBreakEdge} from './drawing-break.js';
 import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {drawingHoleCandidates,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from './drawing-hole-references.js';
+import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
 import {followSectionEdit} from './drawing-section-references.js';
 import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
@@ -182,6 +183,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '<label>要確認の穴<select id="drawing-hole-row"></select></label> <button type="button" id="drawing-hole-relink">図上で穴を再指定</button> '+
   '<button type="button" id="drawing-hole-remove-row">この行を削除</button></span>');
  $('drawing-hole-review').insertAdjacentHTML('afterend','<button id="drawing-leader-start">矢印付き注記を追加</button>'+
+  '<button id="drawing-thread-leader-start" title="ねじ穴の入口が見える図で、ねじ設定を引用します">ねじ注記を追加</button>'+
   '<label id="drawing-leader-input-label" hidden>注記本文<textarea id="drawing-leader-input" rows="2" maxlength="'+maxDrawingLeaderText+'" placeholder="例 この面を下にして印刷"></textarea></label>');
  $('drawing-dimension-add').closest('.drawing-controls').insertAdjacentHTML('afterend',
   '<div class="drawing-controls drawing-dimension-controls"><label>寸法の文字サイズ (mm)<input id="drawing-dimension-font" type="number" min="1.5" max="10" step="0.1" title="図面上の現在の寸法と、これから追加する寸法に適用します"></label>'+
@@ -299,6 +301,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function requestedViews(o){
   const sources=o.details.filter(detail=>!detail.review).map(detail=>detail.view).filter(view=>drawingProjectionNames.includes(view));
   if(o.holeTable)sources.push(o.holeTable.view);
+  for(const note of o.leaders??[])if(note.threadRef&&drawingProjectionNames.includes(note.view))sources.push(note.view);
   return [...new Set([...o.viewSelection,...sources,...(drawingViewVisible('iso',o)?['iso']:[])])];
  }
  function requireVisibleView(o){
@@ -785,7 +788,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    point?'[data-dimension-point="'+selection.id+'"]':comment?'[data-comment="'+(selection.id==='comment'||!selection.id?'true':selection.id)+'"]':'[data-dimension="'+selection.index+'"]');
   active?.setAttribute('data-edit-selected','true');
   $('drawing-editor-title').tabIndex=-1;
-  $('drawing-editor-title').textContent=point?'手動の寸法点':leader?'矢印付き注記を編集':marker?'中心線・中心マーク':comment?'コメントを編集':d?.review?'寸法の参照先を要確認':'寸法を編集';
+  $('drawing-editor-title').textContent=point?'手動の寸法点':leader?.threadRef?'モデルに連動するねじ注記':leader?'矢印付き注記を編集':marker?'中心線・中心マーク':comment?'コメントを編集':d?.review?'寸法の参照先を要確認':'寸法を編集';
   $('drawing-precision-label').hidden=!d;
   const editValue=canOverrideDrawingDimensionValue(d)&&!d.review;
   const measured=editValue?Number(dimensionValue(d).toFixed(6)):null;
@@ -799,6 +802,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-font-label').hidden=!d&&!comment;$('drawing-edit-comment').hidden=!comment;
   $('drawing-leader-edit-label').hidden=!leader;
   $('drawing-leader-edit').value=leader?.text??'';
+  $('drawing-leader-edit').readOnly=!!leader?.threadRef;
   $('drawing-font').value=comment?currentCommentStyle().size:d?.fontSize??standardDimensionFont;
   $('drawing-precision').value=d?.precision??'auto';
   $('drawing-dimension-tolerance-label').hidden=$('drawing-dimension-note-label').hidden=!d;
@@ -865,7 +869,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-edit-comment').onclick=()=>{selectDrawingComment(selection?.id??'comment');$('drawing-comment').focus();};
  $('drawing-leader-edit').onchange=()=>{
   const note=selection?.type==='leader'&&leaders.find(item=>item.id===selection.id);
-  if(!note||busy)return;
+  if(!note||note.threadRef||busy)return;
   const text=$('drawing-leader-edit').value.trim();
   if(!text){editor();return;}
   note.text=text;render();
@@ -875,6 +879,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-leader-input').value='';
   beginAction('leader');
  };
+ $('drawing-thread-leader-start').onclick=()=>beginAction('leader',{thread:true});
  $('drawing-print-palette').onchange=()=>{
   if(!sheet||busy)return;
   printPalette=$('drawing-print-palette').value;
@@ -1054,7 +1059,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    button.disabled=busy||button.hasAttribute('data-conflict-locked');
   }
   $('drawing-leader-start').disabled=!editable||leaders.length>=maxDrawingLeaders;
-  $('drawing-leader-input-label').hidden=action?.kind!=='leader';
+  $('drawing-thread-leader-start').disabled=!editable||leaders.length>=maxDrawingLeaders||!drawingProjectionNames.some(view=>threadHoles(view).length);
+  $('drawing-leader-input-label').hidden=action?.kind!=='leader'||!!action.thread;
   $('drawing-pdf-layout').disabled=!ready;
   $('drawing-pdf-layout').value=pdfLayout;
   $('drawing-pdf-placement-label').hidden=!pdfLayout;
@@ -1150,6 +1156,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   drawViewResizeHandles();
  }
  function clickLeader(e){
+  if(action.thread){
+   if(!action.hole){
+    const view=hitView(e,true),hole=nearestHole(e,view,threadHoles(view),entry=>entry);
+    if(!hole)throw Error('ねじを設定した穴の輪郭または中心付近をクリックしてください');
+    const {anchor}=drawingThreadLeader(view,hole,local(view,paperPoint(e)));
+    Object.assign(action,{view,hole,anchor});
+    status('ねじ注記の文字を置く位置をクリックしてください');
+    return;
+   }
+   leaders=placeAnnotation(leaders,'leader',drawingThreadLeader(action.view,action.hole,local(action.view,paperPoint(e))));
+   cancelPick();return;
+  }
   if(!action.anchor){
    const hit=nearest(e,'point')||nearest(e,'line');
    const view=hit?.name||hitView(e,false,true);
@@ -1184,6 +1202,23 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   status('省略範囲 '+drag.next.map(n=>Number((n*100).toFixed(1))+'%').join(' ～ '));
  }
  const tableCandidates=view=>drawingHoleCandidates(data.views[view],view,features,targets,frontFrame);
+ function threadHoles(view){
+  const layout=sheet?.layout[view];
+  if(!layout)return [];
+  return (data?.views[view]?.holeMachining??[]).filter(row=>row.thread&&
+   drawingDimensionVisible({...row,radius:row.counterbore?.radius??row.radius},layout));
+ }
+ function nearestHole(e,view,candidates,machining){
+  if(!candidates.length)return null;
+  const scale=sheet.layout[view].scale,p=paperPoint(e),matrix=viewportHost.querySelector('svg').getScreenCTM();
+  let nearest=null,best=10/Math.hypot(matrix.a,matrix.b);
+  for(const hole of candidates){
+   const q=map(view,hole.center),r=Math.hypot(p[0]-q[0],p[1]-q[1]),outer=machining(hole)?.counterbore?.radius??hole.radius;
+   const distance=Math.min(r,Math.abs(r-hole.radius*scale),Math.abs(r-outer*scale));
+   if(distance<best){best=distance;nearest=hole;}
+  }
+  return nearest;
+ }
  function holeCapacity(){
   return Math.min(maxDrawingTableHoles-(holeTable?.holes.length??0),Number.MAX_SAFE_INTEGER-lastHoleNumber(holeTable));
  }
@@ -1226,16 +1261,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    }
    Object.assign(state,{view,origin:point,candidates,selected:new Set()});
   }else{
-   const v=sheet.layout[state.view],p=paperPoint(e),matrix=viewportHost.querySelector('svg').getScreenCTM();
-   let closest=-1,best=10/Math.hypot(matrix.a,matrix.b);
-   for(const [index,c] of state.candidates.entries()){
-    const q=map(state.view,c.center),r=Math.hypot(p[0]-q[0],p[1]-q[1]),outer=c.machining?.counterbore?.radius??c.radius;
-    const distance=Math.min(r,Math.abs(r-c.radius*v.scale),Math.abs(r-outer*v.scale));
-    if(distance<best){best=distance;closest=index;}
-   }
+   const hit=nearestHole(e,state.view,state.candidates,hole=>hole.machining),closest=state.candidates.indexOf(hit);
    if(closest<0)throw Error('円の輪郭または中心付近をクリックしてください');
    if(state.rowIndex!==undefined){
-    const hit=state.candidates[closest],index=state.rowIndex;
+    const index=state.rowIndex;
     if(holeTable.holes.some((h,i)=>i!==index&&!h.review&&Math.hypot(h.center[0]-hit.center[0],h.center[1]-hit.center[1])<1e-4&&Math.abs(h.radius-hit.radius)<1e-4))throw Error('この穴には既に穴番号があります');
     holeTable.holes[index]={number:holeTable.holes[index].number,...holeAnchor(hit)};
     action=null;render();return;
@@ -1574,10 +1603,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     const geometry=data.views[holeTable.view];
     holeTable=reconcileHoleTable(holeTable,tableCandidates(holeTable.view),geometry?.viewBox,{targetsChanged});
    }
+   leaders=reconcileDrawingThreadLeaders(leaders,data.views);
    if(refresh){
     if(targetsChanged){
      markers=markers.filter(item=>item.review);
-     leaders=leaders.filter(item=>item.review);
+     leaders=leaders.filter(item=>item.review||item.threadRef);
      dimensionPoints=dimensionPoints.filter(item=>item.review);
     }
     dimensions=reconcileDrawingDimensions(withDetails(data,details),dimensions,dimensionReferences,{targetsChanged});
@@ -1611,6 +1641,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(token!==revision||!dialog.open)return;
    ({dimensions,dimensionPoints,sections,details,markers,leaders,holeTable}=followDrawingFrontChange(state,plan,result,
     view=>drawingHoleCandidates(result.views[view],view,features,targets,next)));
+   leaders=reconcileDrawingThreadLeaders(leaders,result.views);
    frontFrame=next;data={...result,sectionErrors:{}};dimensionReferences={};
    const remap=settings=>remapDrawingViewSettings(settings,plan.moves);
    hiddenViews=remap(hiddenViews);viewScales=remap(viewScales);positions=remap(positions);
@@ -2100,7 +2131,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   section:'正投影図に切断線を置いてください。円の中心・端点に吸着します',
   detail:'拡大したい部分の中心をクリックし、次に範囲の半径を指定してください',
   holes:'正投影図で穴位置表の基準点をクリックしてください。右が＋X、上が＋Yです',
-  leader:'図の中で矢印が指す箇所をクリックしてください',
+  leader:parameters.thread?'ねじを設定した穴の円または中心をクリックしてください':'図の中で矢印が指す箇所をクリックしてください',
   dimensionPoint:'図をクリックして寸法点を追加します。Altを押すと吸着を解除できます'
  }[kind]);};
  function beginReviewAction(kind,item){
@@ -2109,7 +2140,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(!names().length){status('参照先を選べる図を表示してください');return;}
   if(kind==='section')$('drawing-section-orientation').value=item.orientation;
   if(kind==='leader')$('drawing-leader-input').value=item.text;
-  beginAction(kind,{replace:item});
+  beginAction(kind,{replace:item,...(kind==='leader'&&item.threadRef?{thread:true}:{})});
   viewportHost.scrollIntoView({block:'nearest'});
  }
  function placeAnnotation(items,prefix,fields){

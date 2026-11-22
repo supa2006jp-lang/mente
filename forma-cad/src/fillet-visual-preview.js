@@ -72,7 +72,8 @@ export function createFilletVisualPreview({scene,meshes,host,getFeatures,getOver
    try{
     for(const [id,body] of bodies){const original=meshes.get(id);if(original&&!original.visible){body.geometry.dispose();continue;}const mesh=new THREE.Mesh(body.geometry,new THREE.MeshStandardMaterial({color:0x64aec5,roughness:.8,side:THREE.DoubleSide}));group.add(mesh);}
     for(const object of [...meshes.values(),...getOverlays()].filter(Boolean)){saved.push([object,object.visible]);object.visible=false;}
-    preview=group;scene.add(group);host.dataset.filletPreviewRadius=String(radius);host.dataset.filletPreviewBodies=String(group.children.length);
+    preview=group;scene.add(group);
+    if(radius!==undefined){host.dataset.filletPreviewRadius=String(radius);host.dataset.filletPreviewBodies=String(group.children.length);}
    }catch(error){dispose(group);for(const body of bodies.values())body.geometry.dispose();clearPreview();throw error;}
   }
  };

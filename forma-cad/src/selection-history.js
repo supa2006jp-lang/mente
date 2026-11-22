@@ -1,4 +1,5 @@
-import {featureReads} from './history-impact.js';
+import {featureReads,featureWrites} from './history-impact.js';
+import {machiningSuppressed} from './machining-suppression.js';
 import {allExtrusionTargets,multipleExtrusionTargets} from './extrusion-targets.js';
 import {validateProject} from './geometry.js';
 import {linkedDimensionFields,namedDimensionBinding,readNamedDimensions} from './named-dimensions.js';
@@ -8,6 +9,7 @@ const editableOperations=new Set(['join','shell','fillet','chamfer','split','mov
 const modelFeature=feature=>feature.kind==='extrusion'||!feature.kind;
 
 function bodyChanges(feature){
+ if(machiningSuppressed(feature))return {outputs:[...featureWrites(feature)],remove:[]};
  const result=feature.cadResult??(feature.kind==='cadop'?feature:null);
  if(result)return {outputs:result.outputs.map(o=>o.id),remove:result.remove};
  if(!modelFeature(feature))return {outputs:[],remove:[]};

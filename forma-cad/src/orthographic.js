@@ -5,6 +5,7 @@ import {Quaternion} from 'three';
 import {validateFrame,frameMatrix} from './frames.js';
 import {drawingSilhouette} from './drawing-silhouette.js';
 import {drawingHoleRims,projectDrawingHoles} from './drawing-hole-geometry.js';
+import {projectDrawingThreads} from './drawing-thread-geometry.js';
 import {pathEndpoints} from './drawing-dimensions.js';
 
 function visibleDimensionVertices(shape,visible){
@@ -43,7 +44,7 @@ function visibleDimensionVertices(shape,visible){
 }
 
 // Project the complete assembly so bodies also hide edges of other bodies.
-export function orthographicProjection(bodies,ids,sections=[],requested=[...defaultDrawingViews,'iso'],frontFrame,silhouettes=false){
+export function orthographicProjection(bodies,ids,sections=[],requested=[...defaultDrawingViews,'iso'],frontFrame,silhouettes=false,getThreads=()=>[]){
  if(!ids?.length)throw Error('図面にするボディがありません');
  if(ids.some(id=>!bodies.has(id)))throw Error('対象ボディが見つかりません');
  let compound=R.makeCompound(ids.map(id=>bodies.get(id).clone()));
@@ -65,8 +66,13 @@ export function orthographicProjection(bodies,ids,sections=[],requested=[...defa
  }
  const roundViews=Object.keys(views).filter(name=>drawingProjections[name]&&views[name].visible.some(path=>path.includes('A')));
  if(roundViews.length){
-  const rims=drawingHoleRims(compound);
-  for(const name of roundViews)views[name].holeMachining=projectDrawingHoles(rims,drawingProjections[name]);
+  const rims=drawingHoleRims(compound),threads=getThreads();
+  for(const name of roundViews){
+   const view=views[name],projection=drawingProjections[name],bores=projectDrawingHoles(rims,projection);
+   const threaded=projectDrawingThreads(threads,view,projection,compound,bounds,frontFrame);
+   view.holeMachining=[...threaded,...bores.filter(bore=>!threaded.some(t=>
+    Math.hypot(t.center[0]-bore.center[0],t.center[1]-bore.center[1])<1e-4&&Math.abs(t.radius-bore.radius)<1e-4))];
+  }
  }
  const sectionErrors={};for(const section of sections){if(section.review)continue;try{views[section.id]=sectionProjection(compound,bounds,section,silhouettes);}catch(e){sectionErrors[section.id]=typeof e==='number'?'断面の計算に失敗しました':e.message;}}
  return {bounds,views,bodyCount:ids.length,sectionErrors};

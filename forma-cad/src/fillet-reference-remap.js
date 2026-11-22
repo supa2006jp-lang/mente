@@ -44,11 +44,11 @@ export function remapFilletEdges(before,after,references){
 }
 
 export function filletPlaneExists(shape,plane){
- const normal=basisFor(plane).n,faces=shape.faces;
+ const normal=plane.normal??basisFor(plane).n.toArray(),faces=shape.faces;
  try{return faces.some(face=>{
   if(face.geomType!=='PLANE')return false;
   const center=face.center,n=face.normalAt();
-  try{const p=center.toTuple(),v=n.toTuple();return Math.abs(p.reduce((s,x,i)=>s+x*normal.getComponent(i),0)-plane.offset)<=tolerance&&Math.abs(v.reduce((s,x,i)=>s+x*normal.getComponent(i),0))>1-1e-7;}
+  try{const p=center.toTuple(),v=n.toTuple();return Math.abs(p.reduce((s,x,i)=>s+x*normal[i],0)-plane.offset)<=tolerance&&Math.abs(v.reduce((s,x,i)=>s+x*normal[i],0))>1-1e-7;}
   finally{center.delete();n.delete();}
  });}finally{faces.forEach(face=>face.delete());}
 }

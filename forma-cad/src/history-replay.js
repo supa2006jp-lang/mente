@@ -9,6 +9,7 @@ import {depthToGridPlane} from './extrusion-extent.js';
 import {depthToFacePlane} from './extrusion-face-target.js';
 import {refreshLinkedOffset} from './linked-sketch-offset.js';
 import {featureReads,featureWrites,localHistoryFeature,reusableHistoryResult} from './history-impact.js';
+import {machiningSuppressed} from './machining-suppression.js';
 const copy=x=>JSON.parse(JSON.stringify(x));
 // Thread provenance embeds a historical document. An edit to an unrelated
 // body can alter that embedded copy without changing this operation's inputs.
@@ -70,6 +71,7 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
  proposed=solveSketchConstraints(proposed,{before});start=Math.min(start,earliestSketchChange(before,proposed));
  const next=copy(proposed),prefix=[],changed=new Set(),ordered=before.length===next.length&&before.every((f,i)=>f.id===next[i].id);
  let reused=0,recalculated=0;const refreshedBoundaries=new Set();
+ let verifySuppressionReferences=false;
  for(let i=0;i<next.length;i++){
   let f=next[i],referenceFailed=false;try{
    const replacement=replacements.get(f.id);
@@ -81,6 +83,13 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
     refreshedBoundaries.add(f.solidBoundaryLink.bundleId);f=next[i];
    }
    const old=before[i],same=ordered&&cacheSignature(old)===cacheSignature(f);
+   const toggled=i>=start&&old?.id===f.id&&machiningSuppressed(old)!==machiningSuppressed(f);
+   if(toggled)verifySuppressionReferences=true;
+   if(i>=start&&machiningSuppressed(f)){
+    prefix.push(f);
+    if(toggled){changed.add(f.id);for(const step of [old,f])for(const id of featureWrites(step))changed.add(id);}
+    continue;
+   }
    const reuse=(i>start||i===start&&refreshStart)&&!forceFull&&same&&localHistoryFeature(f)&&reusableHistoryResult(f)&&![...featureReads(f)].some(id=>changed.has(id));
    if(i>=start){if(reuse)reused++;else recalculated++;onStep?.({stage:(i+1)+'工程目「'+(f.name||f.spec?.type||'形状')+'」'+(reuse?'の保存済み結果を再利用しています':'を再計算しています'),current:i-start,total:next.length-start,featureId:f.id,reused,recalculated});}
    if(reuse){prefix.push(copy(old));continue;}
@@ -91,7 +100,10 @@ export function replayHistory(before,proposed,start,run,remap,resolvePartition,o
     if(f.offsetLink)f=refreshLinkedOffset(f,refresh(f.offsetLink.region));
     if(f.sketchMirrorLink?.enabled)f=resolveSketchMirrorLinks([...prefix,f,...next.slice(i+1)])[i];
     if(f.region){const region=refresh(f.region);if(region!==f.region){const n=basisFor(region).n;f={...f,region,plane:region.plane,frame:region.frame,x:n.x*region.offset,y:n.y*region.offset,z:n.z*region.offset};}}
-    if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=refreshPipePath(prefix,spec);if(path)spec.pathFeature=path;}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!replacement&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed')){try{spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec);}catch(error){referenceFailed=true;throw error;}}const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
+    if(f.kind==='cadop'&&f.spec){let spec=copy(f.spec);if(spec.type==='pipe'){const path=refreshPipePath(prefix,spec);if(path)spec.pathFeature=path;}if(spec.region)spec.region=refresh(spec.region);if(spec.sections)spec.sections=spec.sections.map(refresh);if(remap&&!replacement&&!(spec.type==='fillet'&&filletSuppressionState(spec)==='suppressed')){try{spec=spec.type==='fillet'?remapFillet(before.slice(0,i),prefix,spec,before.find(old=>old.id===f.id)?.spec,remap):remap(before.slice(0,i),prefix,spec,verifySuppressionReferences);}catch(error){referenceFailed=true;throw error;}}const result=run(prefix,{...spec,id:spec.id||f.id});f={...f,spec,...result};}
+   }
+   if(i>start&&verifySuppressionReferences&&f.kind==='extrusion'&&remap&&[...featureReads(f)].some(id=>changed.has(id))){
+    remap(before.slice(0,i),prefix,{type:'extrusionReferences',feature:f});
    }
    if(i>=start&&f.kind==='extrusion'&&f.gridExtentPlane)f={...f,depth:depthToGridPlane(f,f.gridExtentPlane)};
    if(i>=start&&f.kind==='extrusion'&&f.endPlane)f={...f,depth:depthToFacePlane(f,f.endPlane)};
