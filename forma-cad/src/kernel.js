@@ -44,7 +44,7 @@ import {threadCylinderInfo} from './thread-cylinder.js';
 import {chamferScrewTip,freeScrewBlank,freeScrewThread} from './free-screw.js';
 import {freeScrewSettings,screwWorldZ} from './free-screw-settings.js';
 import {freeScrewFitSection} from './free-screw-fit.js';
-import {findNutPocketOpening,makeNutPocket,nutPocketOpenings} from './nut-pocket.js';
+import {findNutPocketFace,findNutPocketOpening,makeNutPocket,nutPocketOpenings} from './nut-pocket.js';
 import {nutPocketSource} from './nut-pocket-settings.js';
 import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
@@ -1258,11 +1258,18 @@ function remapHistoryReferences(before,after,spec,suppression=false){
   if(spec.type==='nutPocket'){
    const {b,same,topology}=comparison(spec.target);
    if(!same){
-    const openings=nutPocketOpenings(b);
-    const opening=findNutPocketOpening(openings,spec.opening,false)||
-     (!topology&&findNutPocketOpening(openings,{...spec.opening,center:point(spec.target,spec.opening.center)},false));
-    if(!opening)throw Error('六角ポケットの基準の円穴が変わりました。加工する穴を選び直してください');
-    spec.opening=opening;
+    if(spec.placement){
+     const placement={...spec.placement,point:topology?spec.placement.point:point(spec.target,spec.placement.point)};
+     const face=findNutPocketFace(b,placement);
+     if(!face)throw Error('六角ポケットの基準面が変わりました。加工する面を選び直してください');
+     spec.placement={...placement,point:face.center,normal:face.normal};
+    }else{
+     const openings=nutPocketOpenings(b);
+     const opening=findNutPocketOpening(openings,spec.opening,false)||
+      (!topology&&findNutPocketOpening(openings,{...spec.opening,center:point(spec.target,spec.opening.center)},false));
+     if(!opening)throw Error('六角ポケットの基準の円穴が変わりました。加工する穴を選び直してください');
+     spec.opening=opening;
+    }
    }
   }
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);

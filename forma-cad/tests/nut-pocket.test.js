@@ -20,19 +20,22 @@ before(async()=>{
 const closeTo=(actual,expected,tolerance=1e-5)=>assert.ok(Math.abs(actual-expected)<tolerance,`${actual} ≠ ${expected}`);
 const openings=features=>runOperation(features,{type:'nutPocketOpenings',target:'stock'}).openings;
 const pocket=(opening,clearance=.2)=>({type:'nutPocket',id:'recess',target:'stock',sourceBody:'nut',opening,clearance});
+const onFace=(point,normal,snap='center',boreDiameter=4.4)=>({
+ type:'nutPocket',id:'recess',target:'stock',sourceBody:'nut',placement:{point,normal,snap},boreDiameter,clearance:.2,
+});
 
-function blank({radius=2.25,x=0,height=7,boreDepth=height+.2,rotation=0,shift=[0,0,0],boss=false}={}){
+function blank({radius=2.25,x=0,height=7,boreDepth=height+.2,rotation=0,shift=[0,0,0],boss=false,solid=false}={}){
  const stock=R.makeBox([-12,-10,0],[12,10,height]);
  const direction=boss?[0,0,1]:[0,0,-1];
- const tool=R.makeCylinder(radius,boreDepth,[x,0,height+(boss?-.1:.1)],direction);
+ const tool=solid?null:R.makeCylinder(radius,boreDepth,[x,0,height+(boss?-.1:.1)],direction);
  let formed,turned,placed;
  try{
-  formed=boss?stock.fuse(tool):stock.cut(tool);
+  formed=solid?stock:boss?stock.fuse(tool):stock.cut(tool);
   turned=rotation?formed.rotate(rotation,[0,0,0],[1,0,0]):formed;
   placed=turned.translate(shift);
   const brep=placed.serialize();
   return {kind:'cadop',id:'stock',name:'本体',outputs:[{id:'stock',brep,...placed.mesh()}],remove:[]};
- }finally{placed?.delete();turned?.delete();formed?.delete();tool.delete();stock.delete();}
+ }finally{placed?.delete();turned?.delete();formed?.delete();tool?.delete();stock.delete();}
 }
 
 test('a flush hex pocket follows the selected entry and keeps the pilot bore, source nut and target identity',()=>{
@@ -41,7 +44,7 @@ test('a flush hex pocket follows the selected entry and keeps the pilot bore, so
  assert.equal(rims.length,2);
  const top=rims.find(r=>r.normal[2]===1),bottom=rims.find(r=>r.normal[2]===-1);
  assert.deepEqual(top.center,[0,0,7]);assert.deepEqual(bottom.center,[0,0,0]);
- assert.deepEqual(nutPocketSource(features,'nut'),{bodyId:'nut',screwId:'screw',across:8,depth:2.1});
+ assert.deepEqual(nutPocketSource(features,'nut'),{bodyId:'nut',screwId:'screw',diameter:4,across:8,depth:2.1});
  for(const opening of [top,bottom]){
   const spec=pocket(opening),result=runOperation(features,spec);
   assert.deepEqual(result.outputs.map(o=>o.id),['stock']);assert.deepEqual(result.remove,[]);
@@ -86,4 +89,36 @@ test('a saved pocket can be replayed as its stock moves and records the nut depe
  const replay=runOperation([blank({shift:[3,5,2]}),...saved.slice(1)],{type:'replay',before:saved,start:0});
  assert.deepEqual(replay.features.at(-1).spec.opening.center,[3,5,9]);
  closeTo(replay.features.at(-1).outputs[0].shapeMetrics.volume,old.at(-1).outputs[0].shapeMetrics.volume);
+});
+
+test('face-centre and grid placements create a hex pocket and a coaxial through hole in solid stock',()=>{
+ for(const [snap,angle,location] of [['center',0,[0,0,7]],['grid',38,[5,0,7]]]){
+  const axis=new Vector3(1,0,0),radians=angle*Math.PI/180;
+  const point=new Vector3(...location).applyAxisAngle(axis,radians);
+  const normal=new Vector3(0,0,1).applyAxisAngle(axis,radians);
+  const features=[blank({solid:true,rotation:angle}),fastener];
+  assert.deepEqual(openings(features),[]);
+  const spec=onFace(point.toArray(),normal.toArray(),snap),result=runOperation(features,spec);
+  assert.deepEqual(result.outputs.map(output=>output.id),['stock']);
+  assert.ok(new Vector3(...result.analysis.opening.center).distanceTo(point)<1e-5);
+  closeTo(result.analysis.opening.radius,2.2);
+  const hexVolume=Math.sqrt(3)/2*8.4**2*2.1,throughVolume=Math.PI*2.2**2*(7-2.1);
+  closeTo(result.outputs[0].shapeMetrics.volume,24*20*7-hexVolume-throughVolume);
+  const machined=[...features,{kind:'cadop',id:spec.id,name:'六角ナットの埋め込み穴',spec,...result}];
+  const exit=openings(machined).find(rim=>new Vector3(...rim.normal).dot(normal)<-.99999);
+  assert.ok(exit);
+  assert.ok(new Vector3(...exit.center).distanceTo(point.clone().addScaledVector(normal,-7))<1e-5);
+ }
+});
+
+test('new pocket placement follows an updated face, checks the seat and requires a point on the actual face',()=>{
+ const flat=()=>blank({solid:true}),features=[flat(),fastener],spec=onFace([0,0,7],[0,0,1]);
+ const operation={kind:'cadop',id:spec.id,name:'六角ナットの埋め込み穴',spec,...runOperation(features,spec)};
+ const saved=validateProject(JSON.parse(JSON.stringify({format:'forma-cad',version:1,features:[...features,operation]})));
+ const replay=runOperation([blank({solid:true,shift:[3,5,2]}),...saved.slice(1)],{type:'replay',before:saved,start:0});
+ assert.deepEqual(replay.features.at(-1).spec.placement,{point:[3,5,9],normal:[0,0,1],snap:'center'});
+ assert.throws(()=>runOperation(features,onFace([0,0,6.9],[0,0,1])),/平面上にありません/);
+ assert.throws(()=>runOperation(features,onFace([0,0,7],[0,0,1],'center',8)),/ナットの対辺寸法/);
+ assert.throws(()=>runOperation(features,onFace([10,0,7],[0,0,1],'grid')),/側壁または底/);
+ assert.throws(()=>runOperation([blank({solid:true,height:2}),fastener],onFace([0,0,2],[0,0,1])),/側壁または底/);
 });

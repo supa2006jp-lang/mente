@@ -47,18 +47,44 @@ export function findNutPocketOpening(openings,reference,checkRadius=true){
  return matches.length===1?matches[0]:null;
 }
 
+export function findNutPocketFace(shape,placement){
+ const faces=shape.faces,point=new Vector3(...placement.point),vertex=R.makeVertex(placement.point),query=new R.DistanceTool();
+ let best=null,nearest=rimTolerance;
+ try{
+  for(const face of faces){
+   if(face.geomType!=='PLANE')continue;
+   const n=face.normalAt();let normal;
+   try{normal=new Vector3(...n.toTuple()).normalize();}finally{n.delete();}
+   if(!aligned(normal.toArray(),placement.normal))continue;
+   const distance=query.distanceBetween(vertex,face);
+   if(!Number.isFinite(distance)||distance>nearest)continue;
+   const anchor=face.center;
+   try{
+    const offset=normal.dot(new Vector3(...anchor.toTuple()).sub(point));
+    best={center:point.clone().addScaledVector(normal,offset).toArray(),normal:normal.toArray()};
+    nearest=distance;
+   }finally{anchor.delete();}
+  }
+  return best;
+ }finally{vertex.delete();query.delete();faces.forEach(face=>face.delete());}
+}
+
 export function makeNutPocket(base,spec,nut){
  validateNutPocket(spec);
  if(!nut)throw Error('ねじ作成で作った六角ナットを選択してください');
  if(spec.target===nut.screwId)throw Error('ねじとナットとは別の加工先ボディを選択してください');
- const opening=findNutPocketOpening(nutPocketOpenings(base),spec.opening);
- if(!opening)throw Error('円穴の開口が見つかりません。加工する穴を選び直してください');
+ if(!base)throw Error('加工先ボディが見つかりません');
+ const placement=spec.placement;
+ const face=placement?findNutPocketFace(base,placement):null;
+ const opening=placement?(face&&{...face,radius:spec.boreDiameter/2}):findNutPocketOpening(nutPocketOpenings(base),spec.opening);
+ if(!opening)throw Error(placement?'選択した点が加工先の平面上にありません。面を選び直してください':'円穴の開口が見つかりません。加工する穴を選び直してください');
  const {center,normal,radius}=opening,{depth}=nut,across=nut.across+2*spec.clearance;
  const seatWidth=nut.across/2-radius;
  if(seatWidth<=rimTolerance)throw Error('穴径がナットの対辺寸法に近すぎます。ナットを支える受け面を残せる寸法にしてください');
  const insufficient='六角ポケットの側壁または底の受け面が足りません。加工する側、ナット寸法、すき間を確認してください';
- const box=base.boundingBox;let diagonal;
- try{const [lo,hi]=box.bounds;diagonal=Math.hypot(...hi.map((v,i)=>v-lo[i]));}finally{box.delete();}
+ const box=base.boundingBox;let lo,hi;
+ try{[lo,hi]=box.bounds;}finally{box.delete();}
+ const diagonal=Math.hypot(...hi.map((v,i)=>v-lo[i]));
  if(across>=diagonal||depth>=diagonal)throw Error(insufficient);
  const inward=new Vector3(...normal).negate(),z=new Vector3(0,0,1),tilt=z.angleTo(inward);
  const rotationAxis=z.clone().cross(inward);
@@ -73,8 +99,10 @@ export function makeNutPocket(base,spec,nut){
  const band=Math.min(.025,depth/10,seatWidth/4),lead=.01;
  let output;
  try{
-  const floorPoint=new Vector3(...center).addScaledVector(inward,depth+2e-5).toArray();
-  if(!emptyPoints(base,[floorPoint])[0])throw Error('円穴が浅く、ポケットの底にねじを通す穴を残せません');
+  if(!placement){
+   const floorPoint=new Vector3(...center).addScaledVector(inward,depth+2e-5).toArray();
+   if(!emptyPoints(base,[floorPoint])[0])throw Error('円穴が浅く、ポケットの底にねじを通す穴を残せません');
+  }
   const cutter=hex(across,-lead,depth);
   // A thin collar enclosing the cut and its floor must remain solid. The
   // coaxial pilot bore is the intended opening through that floor.
@@ -83,7 +111,15 @@ export function makeNutPocket(base,spec,nut){
   const collar=hold(hold(envelope.cut(cutter)).cut(bore));
   const contact=hold(base.intersect(collar)),expected=R.measureVolume(collar);
   if(!(expected>0)||expected-R.measureVolume(contact)>Math.max(1e-7,expected*1e-5))throw Error(insufficient);
-  output=base.cut(cutter);
+  let stock=base;
+  if(placement){
+   // Project the far bounds onto the bore axis, as with through-all cutting.
+   const extent=direction.reduce((sum,axis,i)=>sum+axis*((axis>=0?hi:lo)[i]-center[i]),0);
+   const start=new Vector3(...center).addScaledVector(inward,-lead).toArray();
+   const pilot=hold(R.makeCylinder(radius,extent+lead+.1,start,direction));
+   stock=hold(base.cut(pilot));
+  }
+  output=stock.cut(cutter);
   const solids=output.solids,previous=base.solids,check=new (R.getOC().BRepCheck_Analyzer)(output.wrapped,true,false);
   try{
    if(!check.IsValid()||solids.length!==previous.length||R.measureVolume(base)-R.measureVolume(output)<1e-7){
