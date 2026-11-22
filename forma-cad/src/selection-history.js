@@ -5,7 +5,7 @@ import {validateProject} from './geometry.js';
 import {linkedDimensionFields,namedDimensionBinding,readNamedDimensions} from './named-dimensions.js';
 import {sketchConstraintsEnabled} from './sketch-constraints.js';
 
-const editableOperations=new Set(['join','shell','fillet','chamfer','split','move','sphere','revolve','loft','pipe','simpleBoss']);
+const editableOperations=new Set(['join','shell','fillet','chamfer','split','move','sphere','revolve','loft','pipe','simpleBoss','freeScrew']);
 const modelFeature=feature=>feature.kind==='extrusion'||!feature.kind;
 
 function bodyChanges(feature){
@@ -83,17 +83,18 @@ function requiredHistory(features,targets){
 
 const meshFields=['id','brep','vertices','triangles','normals','faceGroups','planarFaces','cadCoordinatePrecision',
  'shapeMetrics','materialParts','faceMaterials'];
-function savedResult(result){
+function savedResult(result,keepThreadSource=false){
  return {outputs:result.outputs.map(o=>{
   if(!o.brep)throw Error('編集履歴のソリッドにCAD形状データがありません');
-  return Object.fromEntries(meshFields.filter(key=>o[key]!==undefined).map(key=>[key,o[key]]));
+  const mesh=Object.fromEntries(meshFields.filter(key=>o[key]!==undefined).map(key=>[key,o[key]]));
+  return keepThreadSource&&o.threadSource?{...mesh,threadSource:o.threadSource}:mesh;
  }),remove:result.remove};
 }
 
 function savedFeature(feature){
  if(feature.kind==='cadop'){
   const {outputs,remove,analysis,removed,added,previewWarnings,...input}=feature;
-  return {...input,...savedResult(feature)};
+  return {...input,...savedResult(feature,feature.spec?.type==='freeScrew')};
  }
  return feature.cadResult?{...feature,cadResult:savedResult(feature.cadResult)}:feature;
 }

@@ -41,6 +41,8 @@ import {extrusionJoinInfo,extrusionJoinContacts} from './extrusion-join-info.js'
 import {canInspectExtrusionJoins,assertExtrusionJoinContacts,extrusionJoinConnectionPath} from './extrusion-join-selection.js';
 import {circularPatternSpacing} from './circular-pattern-spacing.js';
 import {threadCylinderInfo} from './thread-cylinder.js';
+import {freeScrewBlank,freeScrewThread} from './free-screw.js';
+import {freeScrewSettings} from './free-screw-settings.js';
 import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
@@ -498,6 +500,18 @@ export function runOperation(features,spec,onProgress,context={}){
  return finishCadSteps(runOperationSteps(features,spec,onProgress,context));
 }
 export function* runOperationSteps(features,spec,onProgress,context={}){
+ if(spec.type==='freeScrew'||spec.type==='freeScrewPreview'){
+  const settings=freeScrewSettings(spec);
+  onProgress?.({stage:'ねじの軸・頭部・工具穴を作成しています'});
+  const blank=freeScrewBlank(settings);
+  try{
+   if(spec.type==='freeScrewPreview')return {outputs:[{id:spec.id,...cadMesh(blank)}]};
+   const brep=serializeCadShape(blank);
+   rememberBody(brep,blank);
+   const seed={kind:'cadop',id:spec.id,outputs:[{id:spec.id,brep}],remove:[]};
+   return yield* runOperationSteps([seed],freeScrewThread(settings),onProgress);
+  }finally{blank.delete();}
+ }
  if(spec.type==='formOutlineComparison')return compareFormSilhouette(formSilhouette(spec.mesh,spec.view),spec.outline,spec.tolerance);
  if(spec.type==='formClearance'){
   const bodies=kernelBodies(features);

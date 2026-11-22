@@ -35,6 +35,20 @@
 #tools-dialog.thread-dialog #cad-apply{background:#087fac;color:white;border-color:#087fac}
 #tools-dialog.thread-dialog #cad-fields{display:block}.thread-settings{display:grid;gap:9px}.thread-settings label{display:grid!important;grid-template-columns:125px 1fr;align-items:center;gap:10px;margin:0!important;font-size:14px}
 .thread-settings input,.thread-settings select{margin:0!important;min-width:0;width:100%}.thread-settings input[type=checkbox]{width:18px;height:18px;accent-color:#0786ba}.thread-settings output{font-size:14px}.thread-settings p{font-size:12px;line-height:1.5}.thread-settings input:disabled{opacity:.5}
+#free-screw-dialog{position:fixed;inset:auto 16px 16px auto;z-index:1200;margin:0;width:min(430px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;padding:18px;color:#20394c;background:#f3f8fb;color-scheme:light;border:1px solid #9eb8ca;border-radius:12px;box-shadow:0 10px 30px #0004}
+#free-screw-dialog form{display:block;padding:0;margin:0}
+#free-screw-dialog h2{font-size:1.2rem;margin:0}
+#free-screw-dialog fieldset{border:1px solid #b5cbd9;border-radius:7px;margin:12px 0;padding:10px}
+#free-screw-dialog legend{font-weight:600;padding:0 4px}
+#free-screw-dialog .screw-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+#free-screw-dialog label{font-size:.92rem;line-height:1.35;color:inherit;margin:0}
+#free-screw-dialog label>span{float:none;font-size:inherit;color:inherit}
+#free-screw-dialog input,#free-screw-dialog select{display:block;width:100%;margin:4px 0 0;padding:7px 8px;color:#15354a;background:#fff;border:1px solid #a4bccd;border-radius:5px}
+#free-screw-dialog .editor-actions{position:sticky;bottom:-18px;justify-content:flex-end;background:#f3f8fb;padding:9px 0 2px}
+#free-screw-dialog button{color:#18374b;background:#e6f0f5;border-color:#a4bccd}
+#free-screw-dialog .accent{color:white;background:#087d9b;border-color:#087d9b}
+#free-screw-dialog p{font-size:.9rem;line-height:1.45;margin:8px 0 0}
+@media(max-width:420px){#free-screw-dialog{padding:12px}#free-screw-dialog .screw-fields{grid-template-columns:1fr}}
 #drawing-crosshair{position:absolute;width:33px;height:33px;transform:translate(-50%,-50%);pointer-events:none;z-index:19}#drawing-crosshair::before,#drawing-crosshair::after{content:"";position:absolute;background:#424640;box-shadow:0 0 1px 1px #ffffff90}#drawing-crosshair::before{width:33px;height:1px;left:0;top:16px}#drawing-crosshair::after{width:1px;height:33px;left:16px;top:0}.drawing-crosshair-active canvas{cursor:none!important}
 #selection-box{position:absolute;pointer-events:none;z-index:30;border:1px solid #326cbd;background:#326cbd20}#selection-box[data-crossing="true"]{border:1px dashed #27865b;background:#27865b20}
 #tools-dialog[open],#tools-dialog.thread-dialog[open]{position:fixed;inset:auto 16px 16px auto;margin:0;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);box-sizing:border-box}

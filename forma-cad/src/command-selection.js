@@ -1,10 +1,10 @@
 export function commandAvailability(type,state){
  const bodies=state.bodies||0,selected=state.bodyIds?.length||0;
+ if(type==='thread')return {enabled:true,reason:(state.threadSurface??state.cylinder)?'選択した円筒面にねじを作成します。':'単独のねじを新規作成します。円筒面を選択してから押すと既存の面にねじを作れます。'};
  if(type==='move'&&state.sketchMoveSelection)return {enabled:true,reason:'選択した線につながるスケッチをまとめて移動します。'};
  if(type==='mirror'&&(state.sketchSelection||!bodies&&state.sketches))return {enabled:true,reason:state.sketchSelection?'スケッチの選択を引き継ぎます。ミラーの基準を指定してください。':'スケッチ図形を選択してミラーできます。'};
- if(['printSupport','fillet','chamfer','shell','join','split','enclose','coilJoint','move','pull','trimSurface','mirror','circular','rectangular','thread','ballJoint','bossJoint','cylinderHinge','snapLid','slideLid'].includes(type)&&!bodies)return {enabled:false,reason:'先にソリッドを作成または読み込んでください。'};
+ if(['printSupport','fillet','chamfer','shell','join','split','enclose','coilJoint','move','pull','trimSurface','mirror','circular','rectangular','ballJoint','bossJoint','cylinderHinge','snapLid','slideLid'].includes(type)&&!bodies)return {enabled:false,reason:'先にソリッドを作成または読み込んでください。'};
  if(type==='join'&&bodies<2)return {enabled:false,reason:'結合・切り取りには2つ以上のボディが必要です。'};
- if(type==='thread'&&!state.cylinder)return {enabled:false,reason:'円柱の側面または穴の内壁を選択してください。'};
  if(type==='pull'&&!state.faces&&!state.cylinder)return {enabled:false,reason:'動かす平面または円筒面を選択してください。'};
  return {enabled:true,reason:state.edges?state.edges+' 辺の選択を引き継ぎます。':state.faces?state.faces+' 面の選択を引き継ぎます。':selected?selected+' ボディの選択を引き継ぎます。'+(selected>1&&!['join','move','fillet','chamfer','mirror'].includes(type)?'このコマンドの対象は欄で1つ指定します。':''):'対象を画面またはコマンド内で選択できます。'};
 }

@@ -27,7 +27,10 @@ test('history distinguishes affected resources from unrelated steps and follows 
  const result=historyImpact(features,'s');assert.deepEqual(result.steps.map(s=>s.affected),[true,false,true,true,true]);assert.equal(result.affected,4);assert.deepEqual(historyImpact(features,'missing').steps,[]);
 });
 test('command availability explains missing bodies and references and preserves compatible selection counts',()=>{
- assert.equal(commandAvailability('join',{bodies:1}).enabled,false);assert.match(commandAvailability('thread',{bodies:2}).reason,/内壁/);assert.equal(commandAvailability('fillet',{bodies:2,edges:3}).enabled,true);assert.match(commandAvailability('move',{bodies:2,bodyIds:['a','b']}).reason,/2 ボディ/);
+ assert.equal(commandAvailability('join',{bodies:1}).enabled,false);assert.equal(commandAvailability('fillet',{bodies:2,edges:3}).enabled,true);assert.match(commandAvailability('move',{bodies:2,bodyIds:['a','b']}).reason,/2 ボディ/);
+ assert.equal(commandAvailability('thread',{bodies:0}).enabled,true);
+ assert.match(commandAvailability('thread',{bodies:2,cylinder:true,threadSurface:false}).reason,/単独のねじを新規作成/);
+ assert.match(commandAvailability('thread',{bodies:2,threadSurface:true}).reason,/選択した円筒面に/);
 });
 test('cancelling one active calculation preserves queued work and exposes structured failure details',async()=>{
  const workers=[],events=[],client=new KernelClient(()=>{const worker={postMessage(payload){this.last=payload;},terminate(){this.dead=true;}};workers.push(worker);return worker;}),off=subscribeKernelActivity(event=>{if(event.client===client)events.push(event);});
