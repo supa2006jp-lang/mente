@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {draggableDialog} from './draggable-dialog.js';
 import {createFreeScrewFitView} from './free-screw-fit-view.js';
 import {installFreeScrewPresets} from './free-screw-presets.js';
-import {freeHexNutSettings,freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes,screwNutDefaults,screwNutShapes,screwWorldZ} from './free-screw-settings.js';
+import {freeHexNutSettings,freeScrewSettings,recommendedCrossDepth,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes,screwNutDefaults,screwNutShapes,screwWorldZ} from './free-screw-settings.js';
 
 const options=items=>Object.entries(items).map(([value,label])=>'<option value="'+value+'">'+label+'</option>').join('');
 
@@ -33,8 +33,9 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
  <fieldset><legend>工具穴</legend><div class="screw-fields">
  <label>締め付け方式<select id="free-screw-drive">${options(screwDriveTypes)}</select></label>
  <label><span id="free-screw-drive-size-label">溝の長さ (mm)</span><input id="free-screw-drive-size" type="number" min="0.1" step="any" required></label>
- <label>工具穴の深さ (mm)<input id="free-screw-drive-depth" type="number" min="0.05" step="any" required></label>
- </div></fieldset>
+ <label><span id="free-screw-drive-depth-label">工具穴の深さ (mm)</span><input id="free-screw-drive-depth" type="number" min="0.05" step="any" required></label>
+ </div>
+ <button type="button" id="free-screw-cross-depth" hidden></button></fieldset>
  <label>置く向き<select id="free-screw-placement"><option value="tip-down">先端を下にする</option><option value="head-down">頭部を下にする（上下反転）</option></select></label>
  <fieldset><legend>相手ナット</legend>
  <label class="screw-check"><input id="free-screw-nut-enabled" type="checkbox">ねじとナットを一緒に作成</label>
@@ -113,12 +114,18 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   $('head-size-label').textContent=head==='hex'?'頭部の対辺 (mm)':bar?'横棒の全長 (mm)':head==='knob'?'ノブの外径 (mm)':'頭部の外径 (mm)';
   $('bar-thickness').disabled=!bar;$('bar-thickness').closest('label').hidden=!bar;
   $('countersunk-note').hidden=head!=='countersunk';
-  const none=$('drive').value==='none';
-  $('drive-size-label').textContent=$('drive').value==='hex'?'六角穴の対辺 (mm)':'溝の長さ (mm)';
+  const drive=$('drive').value,none=drive==='none';
+  $('drive-size-label').textContent=drive==='hex'?'六角穴の対辺 (mm)':'溝の長さ (mm)';
+  $('drive-depth-label').textContent=drive==='cross'?'十字溝の深さ (mm)':'工具穴の深さ (mm)';
   for(const name of ['drive-size','drive-depth']){
    $(name).disabled=none;
    $(name).closest('label').hidden=none;
   }
+  const recommended=drive==='cross'?recommendedCrossDepth(draft()):null;
+  const crossDepth=$('cross-depth');
+  crossDepth.hidden=recommended===null;
+  crossDepth.disabled=recommended===$('drive-depth').valueAsNumber;
+  crossDepth.textContent=recommended===null?'':'推奨深さ '+recommended+' mm を適用';
   const nut=$('nut-enabled').checked;
   $('nut-fields').hidden=!nut;
   for(const name of ['nut-shape','nut-height','nut-wall','nut-auto'])$(name).disabled=!nut;
@@ -192,6 +199,12 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   }
   else if(event.target===$('nut-enabled')&&$('nut-enabled').checked&&!nutInitialized){resetNut();nutInitialized=true;}
   else if(event.target===$('drive'))resetDrive();
+  syncFields();schedule();
+ };
+ $('cross-depth').onclick=()=>{
+  const depth=recommendedCrossDepth(draft());
+  if(depth===null)return;
+  $('drive-depth').value=depth;
   syncFields();schedule();
  };
  $('fit').onclick=fitPreview;

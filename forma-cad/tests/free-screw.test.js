@@ -6,7 +6,7 @@ import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js
 import {freeScrewBlank} from '../src/free-screw.js';
 import {createFreeScrewFitMotion} from '../src/free-screw-fit-motion.js';
 import {freeScrewPresetValues} from '../src/free-screw-presets.js';
-import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes} from '../src/free-screw-settings.js';
+import {freeScrewSettings,recommendedCrossDepth,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,screwHeadDefaults,screwHeadTypes} from '../src/free-screw-settings.js';
 import {kernelBodies,runOperation} from '../src/kernel.js';
 import {captureSelectionHistory,placeSelectionHistory} from '../src/selection-history.js';
 import {threadCylinderInfo} from '../src/thread-cylinder.js';
@@ -47,6 +47,44 @@ test('the M sizes load their coarse pitch and invalid recess dimensions are reje
  assert.throws(()=>freeScrewSettings(screw({driveDepth:10})),/底に0.1 mm/);
  assert.throws(()=>freeScrewSettings(screw({driveSize:30})),/工具穴の周囲/);
  assert.equal(freeScrewSettings(screw({drive:'none',driveSize:30,driveDepth:50})).driveDepth,undefined);
+});
+
+test('cross recess defaults are deeper and an existing groove can be deepened within its head',()=>{
+ const hex=screw({diameter:6,head:'hex'}),shallow={...hex,driveDepth:1.782};
+ assert.equal(hex.driveDepth,3.168);
+ assert.equal(freeScrewSettings(shallow).driveDepth,1.782);
+ assert.equal(recommendedCrossDepth(shallow),hex.driveDepth);
+ for(const drive of ['hex','slot'])assert.equal(screw({diameter:6,head:'hex',drive}).driveDepth,shallow.driveDepth);
+
+ const thin=screw({head:'hex',headHeight:.2});
+ assert.equal(thin.driveDepth,.1);
+ assert.doesNotThrow(()=>freeScrewSettings(thin));
+
+ const countersunk=screw({diameter:6,head:'countersunk',driveSize:8.7,driveDepth:1.485});
+ const depth=recommendedCrossDepth(countersunk);
+ assert.equal(screwDriveDefaults(countersunk).driveSize,6);
+ assert.ok(depth>countersunk.driveDepth&&depth<screwDriveDefaults(countersunk).driveDepth);
+ assert.doesNotThrow(()=>freeScrewSettings({...countersunk,driveDepth:depth}));
+ assert.throws(()=>freeScrewSettings({...countersunk,driveDepth:depth+.001}),/工具穴の周囲/);
+ assert.equal(recommendedCrossDepth({...hex,driveSize:50}),null);
+});
+
+test('the cut reaches the deeper floor across the cross arms and leaves material below it',()=>{
+ const spec=screw({diameter:6,head:'hex'}),[x,y,z]=spec.origin,base=z+spec.length,top=base+spec.headHeight;
+ const gauge=R.makeBox([x-.3,y-2.8,base],[x+.3,y+2.8,top+.01]);
+ try{
+  for(const driveDepth of [1.782,spec.driveDepth]){
+   const shape=freeScrewBlank(freeScrewSettings({...spec,driveDepth}));
+   const materialInGroove=shape.intersect(gauge);
+   try{
+    validVolume(shape);
+    const [min,max]=bounds(materialInGroove);
+    near(min[2],base);
+    near(max[2],top-driveDepth);
+    near(bounds(shape)[1][2],top);
+   }finally{materialInGroove.delete();shape.delete();}
+  }
+ }finally{gauge.delete();}
 });
 
 test('each head and recess produces one solid with the chosen head and under-head dimensions',()=>{

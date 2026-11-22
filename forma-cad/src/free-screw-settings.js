@@ -11,6 +11,7 @@ export const screwDriveTypes={cross:'プラス（十字溝）',hex:'六角穴',s
 export const screwNutShapes={hex:'六角ナット',round:'円形ナット'};
 const headProportions={pan:[1.95,.65],cylinder:[1.65,1],hex:[1.67,.66],countersunk:[2,.55],knob:[3.2,.95],bar:[4,1.65]};
 const mm=value=>Number(value.toFixed(3));
+const floorMm=value=>Math.floor((value+1e-9)*1000)/1000;
 const wall=.1;
 
 export function screwHeadDefaults(diameter,head){
@@ -37,12 +38,31 @@ function driveRadius(type,size){
  if(type==='hex')return size/Math.sqrt(3);
  return Math.hypot(size/2,size*.145);
 }
+
+export function recommendedCrossDepth(settings){
+ const {head,headHeight,diameter,driveSize}=settings;
+ const requiredRadius=driveRadius('cross',driveSize)+wall,mouthRadius=openingRadius(settings,0);
+ if(!Number.isFinite(driveSize)||driveSize<.1||!(mouthRadius>=requiredRadius))return null;
+ // Leave a fifth of the head under the recess and limit the depth of tall heads by M size.
+ let depth=floorMm(Math.min(headHeight*.8,diameter*.65,headHeight-wall));
+ if(head==='countersunk'&&openingRadius(settings,depth)<requiredRadius){
+  const shankRadius=diameter/2;
+  // Keep the chosen groove length and stop before the tapered side reaches it.
+  const limit=headHeight*(1-screwCountersinkRatio*(requiredRadius-shankRadius)/(mouthRadius-shankRadius));
+  depth=Math.min(depth,floorMm(limit));
+ }
+ return Number.isFinite(depth)&&depth>=.05?depth:null;
+}
+
 export function screwDriveDefaults(settings){
  const {drive,diameter,headHeight}=settings;
- const driveDepth=mm(headHeight*.45);
+ const baseDepth=mm(headHeight*.45);
  const ratio=driveRadius(drive,1);
- const maxSize=openingRadius(settings,driveDepth)*.76/ratio;
- return {driveSize:mm(Math.min(maxSize,diameter*(drive==='hex'?.64:1))),driveDepth};
+ // Keep the opening size and let the sides of the head limit the deeper cut.
+ const maxSize=openingRadius(settings,baseDepth)*.76/ratio;
+ const driveSize=mm(Math.min(maxSize,diameter*(drive==='hex'?.64:1)));
+ const driveDepth=drive==='cross'?recommendedCrossDepth({...settings,driveSize})??baseDepth:baseDepth;
+ return {driveSize,driveDepth};
 }
 
 export function screwNutDefaults({diameter,pitch,threadLength}){

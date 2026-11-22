@@ -56,7 +56,7 @@
 #free-screw-presets .screw-preset-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
 #free-screw-presets .screw-preset-row+.screw-preset-row{margin-top:9px}
 #free-screw-presets .screw-preset-error{color:#9e2a25}
-#free-screw-section,#free-screw-pocket,#free-screw-nut-first{margin:8px 5px 0 0}
+#free-screw-section,#free-screw-pocket,#free-screw-nut-first,#free-screw-cross-depth{margin:8px 5px 0 0}
 #free-screw-fit-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,88px);z-index:105;width:min(560px,calc(100% - 24px));max-height:calc(100% - 104px);overflow:auto;padding:14px;background:#f5fafdf5;border:1px solid #7896aa;border-radius:10px;color:#234457;box-shadow:0 8px 25px #0003}
 #free-screw-fit-panel .panel-drag-handle{padding-right:32px;font-weight:600}
 #free-screw-fit-close{position:absolute;right:9px;top:8px}
