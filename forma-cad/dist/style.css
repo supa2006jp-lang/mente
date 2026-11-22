@@ -56,7 +56,7 @@
 #free-screw-presets .screw-preset-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
 #free-screw-presets .screw-preset-row+.screw-preset-row{margin-top:9px}
 #free-screw-presets .screw-preset-error{color:#9e2a25}
-#free-screw-section{margin:8px 0 0}
+#free-screw-section,#free-screw-pocket{margin:8px 5px 0 0}
 #free-screw-fit-panel{position:absolute;left:var(--panel-left,12px);top:var(--panel-top,88px);z-index:105;width:min(560px,calc(100% - 24px));max-height:calc(100% - 104px);overflow:auto;padding:14px;background:#f5fafdf5;border:1px solid #7896aa;border-radius:10px;color:#234457;box-shadow:0 8px 25px #0003}
 #free-screw-fit-panel .panel-drag-handle{padding-right:32px;font-weight:600}
 #free-screw-fit-close{position:absolute;right:9px;top:8px}
@@ -74,6 +74,16 @@
 #free-screw-fit-panel .screw-section-legend span:nth-child(2)::before{background:#edbd7e}
 #free-screw-fit-panel .screw-section-legend span:nth-child(3)::before{background:#da4345}
 @media(max-width:420px){#free-screw-dialog{padding:12px}#free-screw-dialog .screw-fields{grid-template-columns:1fr}}
+#nut-pocket-dialog{position:fixed;inset:auto 16px 16px auto;margin:0;z-index:1200;width:min(375px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;padding:15px;color:#20394c;background:#f3f8fb;color-scheme:light;border:1px solid #9eb8ca;border-radius:10px;box-shadow:0 10px 30px #0004}
+#nut-pocket-dialog .dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#nut-pocket-dialog h2{margin:0;font-size:1.17rem}
+#nut-pocket-dialog form{display:grid;gap:11px;padding:0;margin:10px 0 0}
+#nut-pocket-dialog p,#nut-pocket-dialog label{margin:0;color:inherit;font-size:.92rem;line-height:1.45}
+#nut-pocket-dialog p:empty{display:none}
+#nut-pocket-dialog input,#nut-pocket-dialog select{margin:4px 0 0;padding:7px 8px;background:white;color:#15354a;border-color:#a4bccd}
+#nut-pocket-dialog button{color:#18374b;background:#e6f0f5;border-color:#a4bccd}
+#nut-pocket-dialog .accent{color:white;background:#087d9b;border-color:#087d9b}
+#nut-pocket-dialog .editor-actions{background:transparent;padding:0;margin:0}
 #drawing-crosshair{position:absolute;width:33px;height:33px;transform:translate(-50%,-50%);pointer-events:none;z-index:19}#drawing-crosshair::before,#drawing-crosshair::after{content:"";position:absolute;background:#424640;box-shadow:0 0 1px 1px #ffffff90}#drawing-crosshair::before{width:33px;height:1px;left:0;top:16px}#drawing-crosshair::after{width:1px;height:33px;left:16px;top:0}.drawing-crosshair-active canvas{cursor:none!important}
 #selection-box{position:absolute;pointer-events:none;z-index:30;border:1px solid #326cbd;background:#326cbd20}#selection-box[data-crossing="true"]{border:1px dashed #27865b;background:#27865b20}
 #tools-dialog[open],#tools-dialog.thread-dialog[open]{position:fixed;inset:auto 16px 16px auto;margin:0;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);box-sizing:border-box}

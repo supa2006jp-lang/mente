@@ -6,7 +6,7 @@ import {freeScrewSettings,screwCoarsePitches,screwDriveDefaults,screwDriveTypes,
 
 const options=items=>Object.entries(items).map(([value,label])=>'<option value="'+value+'">'+label+'</option>').join('');
 
-export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,place,apply,fit,notify}){
+export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,place,apply,fit,notify,canMakePocket,openPocket}){
  const section=createFreeScrewFitView(host);
  const dialog=document.createElement('dialog');
  dialog.id='free-screw-dialog';
@@ -46,6 +46,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
  </div>
  <label class="screw-check"><input id="free-screw-nut-auto" type="checkbox">ナット側を自動プル</label>
  <button type="button" id="free-screw-section" disabled>組み合わせを断面で確認</button>
+ <button type="button" id="free-screw-pocket" hidden disabled>作成して埋め込み穴へ</button>
  </div></fieldset>
  <p id="free-screw-error" role="status"></p>
  <div class="editor-actions">
@@ -121,6 +122,7 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   for(const name of ['nut-shape','nut-height','nut-wall','nut-auto'])$(name).disabled=!nut;
   $('nut-clearance').disabled=!nut||!$('nut-auto').checked;
   $('nut-clearance').closest('label').hidden=!$('nut-auto').checked;
+  $('pocket').hidden=!!editing||!nut||$('nut-shape').value!=='hex'||!canMakePocket();
   const limit=$('pitch').valueAsNumber*.4;
   $('nut-clearance').max=Number.isFinite(limit)?String(limit):'';
  }
@@ -160,11 +162,12 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
   prepared=null;
   if(!$('nut-enabled').checked)section.close();
   else if(section.active)section.pending('設定を変更しました。「組み合わせを断面で確認」で更新できます。');
-  $('section').disabled=true;
+  $('section').disabled=$('pocket').disabled=true;
   let settings;
   try{settings=read();}catch(error){clearPreview();$('error').textContent=error.message;$('apply').disabled=true;return;}
   $('apply').disabled=false;
   $('section').disabled=!settings.nut;
+  $('pocket').disabled=$('pocket').hidden;
   $('error').textContent='軸・頭部・工具穴をプレビューしています…';
   timer=setTimeout(async()=>{
    try{
@@ -226,9 +229,8 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
    }
   }finally{if(dialog.open&&revision===token)lock(false);}
  };
- form.onsubmit=async event=>{
-  event.preventDefault();
-  if(busy||$('apply').disabled)return;
+ async function submit(makePocket=false){
+  if(busy||$('apply').disabled||(makePocket&&$('pocket').hidden))return;
   clearTimeout(timer);
   const token=++revision,before=original,feature=editing;
   const current=()=>dialog.open&&revision===token&&getFeatures()===before;
@@ -244,11 +246,14 @@ export function createFreeScrewDialog({kernel,scene,host,getFeatures,getBody,pla
    if(!dialog.open||revision!==token)return;
    dialog.close();
    notify(feature?'ねじと後続工程を更新しました':spec.nut?'ねじとナットを作成しました':'M'+spec.diameter+'のねじを作成しました');
+   if(makePocket)openPocket(spec.nut.id);
   }catch(error){if(current())$('error').textContent=error.message;}
   finally{
    if(dialog.open&&revision===token)lock(false);
   }
- };
+ }
+ form.onsubmit=event=>{event.preventDefault();void submit();};
+ $('pocket').onclick=()=>{if(form.reportValidity())void submit(true);};
  dialog.addEventListener('close',()=>{
   if(dialog.open)return;
   revision++;clearTimeout(timer);clearPreview();section.close();kernel.reset();busy=false;prepared=null;

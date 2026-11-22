@@ -20,7 +20,7 @@ export function localHistoryFeature(feature){
  if(feature.kind!=='cadop'||!feature.spec)return false;
  if(feature.spec.type==='loft')return !!feature.spec.sections?.length&&feature.spec.sections.every(r=>r.sourceIds?.length||r.bodyId||r.cadFace?.bodyId);
  if(['fillet','chamfer','shell','pull','simpleBoss','split'].includes(feature.spec.type)&&!featureReads(feature).size)return false;
- return ['thread','freeScrew','fillet','chamfer','shell','pull','simpleBoss','split','loft','form','sphere'].includes(feature.spec.type);
+ return ['thread','freeScrew','nutPocket','fillet','chamfer','shell','pull','simpleBoss','split','loft','form','sphere'].includes(feature.spec.type);
 }
 export function reusableHistoryResult(feature){
  const result=feature.cadResult||(feature.kind==='cadop'?feature:null);

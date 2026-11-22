@@ -44,6 +44,8 @@ import {threadCylinderInfo} from './thread-cylinder.js';
 import {chamferScrewTip,freeScrewBlank,freeScrewThread} from './free-screw.js';
 import {freeScrewSettings,screwWorldZ} from './free-screw-settings.js';
 import {freeScrewFitSection} from './free-screw-fit.js';
+import {findNutPocketOpening,makeNutPocket,nutPocketOpenings} from './nut-pocket.js';
+import {nutPocketSource} from './nut-pocket-settings.js';
 import {makeThreadMate} from './thread-mate.js';
 import {circularRing} from './circular-ring.js';
 import {matchingExtrusionWall} from './extrusion-circular-walls.js';
@@ -501,6 +503,11 @@ export function runOperation(features,spec,onProgress,context={}){
  return finishCadSteps(runOperationSteps(features,spec,onProgress,context));
 }
 export function* runOperationSteps(features,spec,onProgress,context={}){
+ if(spec.type==='nutPocketOpenings'){
+  const bodies=kernelBodies(features);
+  try{return {openings:nutPocketOpenings(bodies.get(spec.target))};}
+  finally{bodies.forEach(body=>body.delete());}
+ }
  if(spec.type==='freeScrewFitSection'){
   return freeScrewFitSection(freeScrewSettings(spec.settings),spec.screwBrep,spec.nutBrep,spec.nutPosition,onProgress);
  }
@@ -856,6 +863,11 @@ if(spec.type==='compactProject'){const records=[],cache=new Map(),entries=featur
  else if(p.type==='ballJoint'){if(bodies.has(p.id+'-socket')||bodies.has(p.id+'-nut'))throw Error('ジョイントのボディIDが重複しています');const result=makeBallJoint(base,p,onProgress);try{for(const [i,id]of [p.target,p.id+'-socket',p.id+'-nut'].entries())emit(id,result.parts[i]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='bossFitTest'){const result=makeBossFitTest(p,onProgress);try{for(const part of result.parts)emit(p.id+'-'+part.role+'-'+part.key,part.shape);analysis=result.analysis;}finally{result.parts.forEach(part=>part.shape.delete());}}
  else if(p.type==='simpleBoss'){const result=makeSimpleBoss(base,p);try{emit(p.target,result.shape);analysis=result.analysis;}finally{result.shape.delete();}}
+ else if(p.type==='nutPocket'){
+  const nut=bodies.has(p.sourceBody)?nutPocketSource(features,p.sourceBody):null;
+  const result=makeNutPocket(base,p,nut);
+  try{emit(p.target,result.shape);analysis=result.analysis;}finally{result.shape.delete();}
+ }
  else if(p.type==='qrCode'){if(bodies.has(p.id))throw Error('QRコードのボディIDが重複しています');const result=makeQrCode(p,onProgress);try{emit(p.id,result.shape);analysis=result.analysis;}finally{result.shape.delete();}}
  else if(p.type==='bossJoint'){const pinId=p.mode==='split'?p.id+'-pin':p.pinTarget;if(p.mode==='split'&&bodies.has(pinId))throw Error('棒側のボディIDが重複しています');const result=makeBossJoint(base,bodies.get(p.pinTarget),p,onProgress);try{emit(p.target,result.parts[0]);emit(pinId,result.parts[1]);analysis=result.analysis;}finally{result.parts.forEach(shape=>shape.delete());}}
  else if(p.type==='slideLid'){const lidId=p.id+'-lid';if(bodies.has(lidId))throw Error('蓋のボディIDが既存のボディと重なっています');const result=makeSlideLid(base,p);try{emit(p.target,result.body);emit(lidId,result.lid);analysis=result.analysis;}finally{result.body.delete();result.lid.delete();}}
@@ -1243,6 +1255,16 @@ function remapHistoryReferences(before,after,spec,suppression=false){
   }
   if(spec.type==='printSupport'&&spec.faceOverrides)spec.faceOverrides=spec.faceOverrides.map(row=>({...row,selection:{...row.selection,point:point(row.selection.bodyId,row.selection.point)}}));
   if(spec.type==='threadMate'&&spec.destination==='existing'&&spec.placement)spec.placement={...spec.placement,point:point(spec.placement.bodyId,spec.placement.point)};
+  if(spec.type==='nutPocket'){
+   const {b,same,topology}=comparison(spec.target);
+   if(!same){
+    const openings=nutPocketOpenings(b);
+    const opening=findNutPocketOpening(openings,spec.opening,false)||
+     (!topology&&findNutPocketOpening(openings,{...spec.opening,center:point(spec.target,spec.opening.center)},false));
+    if(!opening)throw Error('六角ポケットの基準の円穴が変わりました。加工する穴を選び直してください');
+    spec.opening=opening;
+   }
+  }
   if(spec.type==='simpleBoss')spec.point=point(spec.target,spec.point);
   if(spec.type==='assemblyMate')for(const key of ['source','destination'])spec[key]={...spec[key],point:point(spec[key].bodyId,spec[key].point)};
   if(spec.edgePoint){const {a,b,topology}=comparison(spec.target);if(spec.type==='fillet'&&topology){spec.edges=remapFilletEdges(a,b,[{bodyId:spec.target,point:spec.edgePoint}]);delete spec.edgePoint;}else spec.edgePoint=point(spec.target,spec.edgePoint);}
