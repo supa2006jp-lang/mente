@@ -31,7 +31,7 @@ import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.
 import {drawingHoleCandidates,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
 import {followSectionEdit} from './drawing-section-references.js';
-import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions} from './drawing-auto-dimensions.js';
+import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
@@ -1616,11 +1616,19 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
      dimensionPoints=dimensionPoints.filter(item=>item.review);
     }
     dimensions=reconcileDrawingDimensions(withDetails(data,details),dimensions,dimensionReferences,{targetsChanged});
+   }
+   const scale=Number($('drawing-scale').value),settings=options();
+   const overall=reconcileAutomaticOverallDimensions(data,dimensions,view=>drawingViewScale(view,scale,settings));
+   dimensions=overall.dimensions;
+   if(refresh){
     const needsReview=dimensions.filter(d=>d.review).length;
     const wasReplaying=replaying;replaying=wasReplaying||!recordEdit;
-    try{render();}finally{replaying=wasReplaying;}
+    try{render(true,{reflowDimensions:overall.rebuilt>0});}finally{replaying=wasReplaying;}
     if(sheet&&!overflow)status('図面を更新しました。引き継いだ寸法 '+(dimensions.length-needsReview)+' 件'+(needsReview?' ／ 要確認 '+needsReview+' 件':''));
-   }else if(saved||!applyAutomaticLayout())render();
+   }else if(saved||!applyAutomaticLayout()){
+    render(true,{reflowDimensions:overall.rebuilt>0});
+    if(sheet&&!overflow&&(overall.removed||overall.rebuilt))status('現在の形状に合わせて自動外形寸法を整理しました。更新 '+overall.rebuilt+' 件 ／ 古い重複 '+overall.removed+' 件');
+   }
    const failures=Object.values(result.sectionErrors||{}).filter(Boolean);
    if(failures.length)status('断面図：'+failures.join(' / '));
    return !!sheet;

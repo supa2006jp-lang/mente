@@ -4,9 +4,10 @@ import {holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawing
 import {readDrawingState} from '../src/drawing-state.js';
 import {drawingHoleMarkers,resolveDrawingHoleTable,drawingHoleTableSVG,drawingHoleTableSize} from '../src/drawing-hole-table.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
-import {alignThirdAngleViews,isThirdAngleLayout} from '../src/drawing-view-preferences.js';
+import {alignThirdAngleViews,isThirdAngleLayout,projectDrawingIsometric} from '../src/drawing-view-preferences.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
-import {dimensionLabel} from '../src/drawing-dimensions.js';
+import {dimensionLabel,dimensionValue} from '../src/drawing-dimensions.js';
+import {overallDrawingDimensions,reconcileAutomaticOverallDimensions} from '../src/drawing-auto-dimensions.js';
 
 const hole=(x,sourceId,radius=2.5)=>({center:[x,0],radius,...(sourceId?{sourceId}:{})});
 const table=(holes,all=holes)=>({view:'top',origin:[0,0],holes,references:holeReferenceInventory(all)});
@@ -95,4 +96,41 @@ test('isometric dimensions retain real vertex positions and require review when 
  assert.equal(dimensionLabel(reconcileDrawingDimensions(data,[d],{})[0]),'20');
  data.views.iso.dimensionVertices[1]={point:b,model:[1,-1,21]};
  assert.equal(dimensionLabel(reconcileDrawingDimensions(data,[d],{})[0]),'要確認');
+});
+
+function overallFixture(x,width){
+ const modelA=[x,0,0],modelB=[x+width,0,0],a=projectDrawingIsometric(modelA),b=projectDrawingIsometric(modelB);
+ const data={bounds:[[x,0,0],[x+width,40,24]],views:{front:shape(width),iso:{dimensionVertices:[{point:a,model:modelA},{point:b,model:modelB}]}}};
+ const [front]=overallDrawingDimensions(data);
+ const iso={view:'iso',kind:'aligned',overall:'iso-x',a,b,modelA,modelB,at:[8,-16]};
+ return {data,dimensions:[front,iso].map(d=>({...d,automatic:true}))};
+}
+
+test('current auto overall dimensions retire stale duplicates on opening and retain their exact placements',()=>{
+ const {data,dimensions}=overallFixture(-30,60);
+ const [front,iso]=overallFixture(0,43).dimensions.map(d=>({...d,review:true}));
+ const manual={...front,automatic:false},override={...front,displayValue:43};
+ const styled={...iso,lineColor:'#2277aa'},pinned={...iso,pinned:true};
+ dimensions[0].at=[17,31];dimensions[1].pdfPlacement={at:[12,-15]};
+ const kept=[manual,override,styled,pinned,...dimensions];
+ const result=reconcileAutomaticOverallDimensions(data,[front,iso,...kept],()=>1);
+ assert.deepEqual(result,{dimensions:kept,removed:2,rebuilt:0});
+ assert.equal(result.dimensions.at(-1),dimensions[1]);
+ assert.deepEqual(reconcileAutomaticOverallDimensions(data,result.dimensions,()=>1),{dimensions:kept,removed:0,rebuilt:0});
+});
+
+test('replacing a target rebuilds plain auto overall dimensions only when the new geometry supports them',()=>{
+ const old=overallFixture(0,43),{data}=overallFixture(-30,60);
+ const oldIso=old.dimensions[1],modelB=[0,40,0];
+ const unusable={...oldIso,overall:'iso-y',modelB,b:projectDrawingIsometric(modelB)};
+ const annotated={...old.dimensions[0],note:'加工後',tolerance:.2};
+ const pending=reconcileDrawingDimensions(data,[...old.dimensions,unusable,annotated],{},{targetsChanged:true});
+ const result=reconcileAutomaticOverallDimensions(data,pending,view=>view==='front'?2:1);
+ assert.equal(result.rebuilt,2);assert.equal(result.removed,0);
+ const [front,iso,unsupported,review]=result.dimensions;
+ assert.deepEqual(front,{view:'front',kind:'horizontal',a:[-30,0],b:[30,0],at:[-30,4],overall:'fronthorizontal',automatic:true});
+ assert.equal(iso.review,undefined);
+ assert.equal(dimensionValue(iso),60);
+ assert.deepEqual(iso.modelA,[-30,0,0]);assert.deepEqual(iso.modelB,[30,0,0]);
+ assert.equal(unsupported,pending[2]);assert.equal(review,pending[3]);
 });

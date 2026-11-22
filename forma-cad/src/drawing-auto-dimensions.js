@@ -2,7 +2,7 @@ import {drawingCurves} from './drawing-curves.js';
 import {dimensionValue} from './drawing-dimensions.js';
 import {circlePatternDimensions,dimensionAxisGraph} from './drawing-feature-dimensions.js';
 import {arrangeDrawingDimensions} from './drawing-dimension-layout.js';
-import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawingProjectedFrame} from './drawing-view-preferences.js';
+import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawingProjectedFrame,drawingIsometricOutline} from './drawing-view-preferences.js';
 import {drawingDimensionVisible,fullDrawingSpan} from './drawing-break.js';
 import {insideView,withDetails} from './drawing-annotations.js';
 import {groupDrawingDimensions} from './drawing-dimension-groups.js';
@@ -86,15 +86,21 @@ export function hideDuplicateOverallDimensions(dimensions,sheet){
  return {dimensions:updated,hidden};
 }
 
+function projectionOverallDimensions(data,view,scale){
+ const {bx:u0,by:v0,width,height}=drawingProjectedFrame(view,data.bounds),u1=u0+width,v1=v0+height;
+ return [
+  {view,kind:'horizontal',a:[u0,v1],b:[u1,v1],at:[u0,v1+8/scale],overall:view+'horizontal'},
+  {view,kind:'vertical',a:[u0,v0],b:[u0,v1],at:[u0-8/scale,v1],overall:view+'vertical'},
+ ];
+}
+
 export function overallDrawingDimensions(data,scale=1,sheet,{uniqueAxes=false}={}){
  const dimensions=[];
  // Each projection gets both of its own axes, even when that length also
  // appears in another view. Deduplication remains local to a view.
  for(const view of defaultDrawingViewOrder){
   if(!data.views[view]||sheet&&!sheet.layout[view])continue;
-  const {bx:u0,by:v0,width,height}=drawingProjectedFrame(view,data.bounds),u1=u0+width,v1=v0+height;
-  const s=sheet?.layout[view]?.scale??scale;
-  dimensions.push({view,kind:'horizontal',a:[u0,v1],b:[u1,v1],at:[u0,v1+8/s]},{view,kind:'vertical',a:[u0,v0],b:[u0,v1],at:[u0-8/s,v1]});
+  dimensions.push(...projectionOverallDimensions(data,view,sheet?.layout[view]?.scale??scale));
  }
  const seen=new Set();
  return dimensions.filter(d=>{
@@ -104,7 +110,7 @@ export function overallDrawingDimensions(data,scale=1,sheet,{uniqueAxes=false}={
   if(seen.has(axis))return false;
   seen.add(axis);
   return true;
- }).map(d=>({...d,overall:d.view+d.kind}));
+ });
 }
 
 function spansIsoAxis(a,b,axis,[min,max]){
@@ -149,6 +155,62 @@ function isoOverallDimension(vertices,bounds,axis,scale,outline){
   }
  }
  return best;
+}
+
+function isOverallDimension(d){
+ if(d.view==='iso')return d.kind==='aligned'&&isoOverallKeys.includes(d.overall);
+ return drawingProjectionNames.includes(d.view)&&['horizontal','vertical'].includes(d.kind)&&
+  d.overall===d.view+d.kind;
+}
+
+const plainAutomaticOverall=d=>d.automatic===true&&isOverallDimension(d)&&!d.pinned&&!d.unplaced&&!d.note&&
+ !d.feature&&d.repeat==null&&d.tolerance===undefined&&d.displayValue===undefined&&d.manualEndpoints===undefined;
+
+function isCurrentOverall(data,d){
+ const view=data.views[d.view];
+ if(!view)return false;
+ if(d.view==='iso'){
+  const axis=isoOverallKeys.indexOf(d.overall);
+  const hasVertex=(point,model)=>view.dimensionVertices?.some(vertex=>
+   vertex.model.every((value,i)=>isoNear(value,model[i]))&&vertex.point.every((value,i)=>isoNear(value,point[i])));
+  return spansIsoAxis(d.modelA,d.modelB,axis,data.bounds)&&hasVertex(d.a,d.modelA)&&hasVertex(d.b,d.modelB);
+ }
+ const axis=d.kind==='horizontal'?0:1;
+ const current=projectionOverallDimensions(data,d.view,1)[axis];
+ return isoNear(Math.min(d.a[axis],d.b[axis]),current.a[axis])&&isoNear(Math.max(d.a[axis],d.b[axis]),current.b[axis]);
+}
+
+const sameOverallFormat=(old,current)=>['precision','fontSize','lineColor','textColor'].every(
+ key=>old[key]==null||old[key]===current[key]);
+
+export function reconcileAutomaticOverallDimensions(data,dimensions,viewScale){
+ if(!dimensions.some(d=>d.review&&plainAutomaticOverall(d)))return {dimensions,removed:0,rebuilt:0};
+ const current=new Map();
+ for(const d of dimensions)if(!d.review&&isOverallDimension(d)&&isCurrentOverall(data,d))current.set(d.overall,d);
+ let removed=0,rebuilt=0;
+ // Prefer newer placements when a legacy file contains several retired copies of an overall dimension.
+ const result=[...dimensions].reverse().flatMap(d=>{
+  if(!d.review||!plainAutomaticOverall(d)||!data.views[d.view])return [d];
+  const replacement=current.get(d.overall);
+  if(replacement){
+   if(!sameOverallFormat(d,replacement))return [d];
+   removed++;
+   return [];
+  }
+  const scale=viewScale(d.view);
+  const measure=d.view==='iso'?
+   isoOverallDimension(data.views.iso.dimensionVertices??[],data.bounds,isoOverallKeys.indexOf(d.overall),scale,drawingIsometricOutline(data.bounds)):
+   projectionOverallDimensions(data,d.view,scale)[d.kind==='horizontal'?0:1];
+  if(!measure||dimensionValue(measure)<=1e-6){
+   return [d];
+  }
+  const {review,alongOffset,pdfPlacement,...format}=d;
+  const next={...format,...measure};
+  current.set(d.overall,next);
+  rebuilt++;
+  return [next];
+ });
+ return {dimensions:result.reverse(),removed,rebuilt};
 }
 
 // Only complete visible circles get diameter dimensions. Partial fillets and
