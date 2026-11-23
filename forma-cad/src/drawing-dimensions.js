@@ -2,6 +2,7 @@ import {drawingDimensionVisible,drawingPaperPoint} from './drawing-break.js';
 
 export const canOverrideDrawingDimensionValue=d=>!!d&&!d.repeat&&['horizontal','vertical','aligned'].includes(d.kind);
 export const validDrawingDimensionDisplayValue=value=>Number.isFinite(value)&&value>0;
+export const isCircularDimensionKind=kind=>kind==='diameter'||kind==='radius'||kind==='thread';
 function numberLabel(d){
  const value=d.displayValue??dimensionValue(d);
  if(d.precision!=null)return value.toFixed(d.precision);
@@ -11,7 +12,7 @@ export const escapeDrawingText=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 export function dimensionLabel(d){
  if(d.review)return '要確認';
  const value=numberLabel(d);
- const nominal=d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
+ const nominal=d.kind==='thread'?'M'+value:d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
   (['diameter','radius'].includes(d.kind)?(d.count>1?d.count+'×':'')+(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
  const tolerance=d.tolerance===undefined?'':' ±'+d.tolerance+(d.kind==='angle'?'°':'');
  return nominal+tolerance+(d.note?' '+d.note:'');
@@ -38,6 +39,7 @@ function dimensionGroup(d,index,paths,colors,geometry,inherited){
 export function dimensionValue(d){
  if(d.view==='iso'&&d.modelA&&d.modelB)return Math.hypot(...d.modelB.map((value,axis)=>value-d.modelA[axis]));
  if(d.kind==='diameter')return d.radius*2;
+ if(d.kind==='thread')return d.nominalDiameter??d.radius*2;
  if(d.kind==='radius')return d.radius;
  if(d.kind==='angle'){
   const a=[d.a[0]-d.vertex[0],d.a[1]-d.vertex[1]],b=[d.b[0]-d.vertex[0],d.b[1]-d.vertex[1]];
@@ -68,11 +70,15 @@ export function drawingDimensionGeometry(d,view,scale=view.scale){
     arrowPoints(last,[Math.sin(end)*direction,-Math.cos(end)*direction])],
    arc:{first,last,center,start,sweep,radius}};
  }
- if(d.kind==='radius'||d.kind==='diameter'){
+ if(isCircularDimensionKind(d.kind)){
   const center=map(d.center),length=Math.hypot(at[0]-center[0],at[1]-center[1])||1;
   const u=[(at[0]-center[0])/length,(at[1]-center[1])/length],radius=d.radius*scale;
   const tip=d.arcPoint?map(d.arcPoint):add(center,u,radius);
   const radial=d.arcPoint?tip.map((n,i)=>(n-center[i])/radius):u;
+  if(d.kind==='thread'){
+   const leader=at.map((value,i)=>value-tip[i]),span=Math.hypot(...leader);
+   return {at,main:[],extensions:[[tip,at]],arrows:[arrowPoints(tip,span?leader.map(value=>value/span):radial)]};
+  }
   const far=add(center,u,-radius),diameter=d.kind==='diameter';
   return {at,main:[],extensions:[[tip,at],[diameter?far:center,tip]],
    arrows:diameter?[arrowPoints(tip,radial),arrowPoints(far,u)]:[arrowPoints(tip,radial)]};

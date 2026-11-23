@@ -4,6 +4,7 @@ import {threadCylinderInfo} from './thread-cylinder.js';
 import {drawingHoleRims} from './drawing-hole-geometry.js';
 import {completeDrawingCircles} from './drawing-auto-dimensions.js';
 import {assemblyTargets} from './assembly-state.js';
+import {threadMateSource} from './thread-source.js';
 
 const tolerance=1e-4,matchRadius=(a,b)=>Math.abs(a-b)<tolerance;
 const coordinateAxes=[[1,0,0],[0,1,0],[0,0,1]].map(p=>new Vector3(...p));
@@ -126,9 +127,30 @@ export function drawingThreadEntries(features,bodies,targets,bodiesAt){
  return entries;
 }
 
-export function projectDrawingThreads(entries,view,projection,compound,bounds,frontFrame){
+export function drawingThreadShaftEntries(features,targets,bodiesAt){
+ const entries=[];
+ for(const bodyId of targets){
+  const source=threadMateSource(features,bodyId);
+  if(source?.spec.threadInternal!==false)continue;
+  const {spec}=source,original=bodiesAt(source.features);
+  try{
+   const body=original.get(spec.target),cylinder=body&&threadCylinderInfo(body,spec.surfacePoint);
+   if(!cylinder||cylinder.internal)continue;
+   const position=(point,direction)=> (source.transforms??[]).reduce((value,move)=>movedPoint(move,value,direction),point);
+   const {origin,normal,radius,height}=cylinder;
+   for(const end of ['low','high']){
+    const high=end==='high',center=origin.clone().addScaledVector(normal,high?height:0);
+    entries.push({center:position(center,false),normal:position(normal.clone().multiplyScalar(high?1:-1),true),radius,
+     thread:{id:spec.id??spec.target,bodyId,end,diameter:radius*2,pitch:spec.pitch},tipChamfer:spec.tipChamfer??0});
+   }
+  }finally{for(const body of original.values())body.delete();}
+ }
+ return entries;
+}
+
+function projectThreadEntries(entries,projection,compound,bounds,frontFrame,shown){
  if(!entries.length)return [];
- const circles=completeDrawingCircles(view),normal=new Vector3(...projection.normal);
+ const normal=new Vector3(...projection.normal);
  const horizontal=new Vector3(...projection.horizontal),vertical=new Vector3(...projection.vertical);
  const axes=frontFrame&&[frontFrame.u,frontFrame.v,frontFrame.n].map(axis=>new Vector3(...axis));
  const mapped=p=>axes?new Vector3(...axes.map(axis=>axis.dot(p))):p;
@@ -136,13 +158,28 @@ export function projectDrawingThreads(entries,view,projection,compound,bounds,fr
  for(const entry of entries){
   if(mapped(entry.normal).dot(normal)<1-1e-7)continue;
   const p=mapped(entry.center),center=[p.dot(horizontal),p.dot(vertical)],level=p.dot(normal);
-  const ring=entry.machining.counterbore?.radius??entry.radius;
-  if(!circles.some(circle=>Math.hypot(circle.center[0]-center[0],circle.center[1]-center[1])<tolerance&&matchRadius(circle.radius,ring)))continue;
+  if(shown&&!shown(entry,center))continue;
   if(near-level>tolerance){
    const ray=R.makeLine(p.clone().addScaledVector(normal,tolerance).toArray(),p.clone().addScaledVector(normal,near-level+1).toArray());
    try{if(R.measureDistanceBetween(ray,compound)<tolerance*.5)continue;}finally{ray.delete();}
   }
-  matches.push({...entry.machining,center,entryLevel:level,thread:entry.thread});
+  matches.push({entry,center,entryLevel:level});
  }
  return matches.filter(entry=>matches.filter(other=>Math.hypot(entry.center[0]-other.center[0],entry.center[1]-other.center[1])<tolerance).length===1);
+}
+
+export function projectDrawingThreads(entries,view,projection,compound,bounds,frontFrame){
+ if(!entries.length)return [];
+ const circles=completeDrawingCircles(view);
+ const shown=(entry,center)=>{
+  const radius=entry.machining.counterbore?.radius??entry.radius;
+  return circles.some(circle=>Math.hypot(circle.center[0]-center[0],circle.center[1]-center[1])<tolerance&&matchRadius(circle.radius,radius));
+ };
+ return projectThreadEntries(entries,projection,compound,bounds,frontFrame,shown)
+  .map(({entry,center,entryLevel})=>({...entry.machining,center,entryLevel,thread:entry.thread}));
+}
+
+export function projectDrawingThreadShafts(entries,projection,compound,bounds,frontFrame){
+ return projectThreadEntries(entries,projection,compound,bounds,frontFrame)
+  .map(({entry,center})=>({center,radius:entry.radius,thread:entry.thread,tipChamfer:entry.tipChamfer}));
 }

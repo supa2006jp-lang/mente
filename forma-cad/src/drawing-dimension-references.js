@@ -1,8 +1,9 @@
 import {circles,insideView} from './drawing-annotations.js';
 import {drawingCurves} from './drawing-curves.js';
-import {dimensionValue,pathEndpoints} from './drawing-dimensions.js';
+import {dimensionValue,isCircularDimensionKind,pathEndpoints} from './drawing-dimensions.js';
 import {drawingProjectedFrame,drawingProjections} from './drawing-view-preferences.js';
 import {drawingDimensionCenterGuides,drawingDimensionPointFits} from './drawing-dimension-points.js';
+import {sameProjectedThreadRim} from './drawing-thread-dimensions.js';
 
 const epsilon=1e-4;
 export const drawingReferenceCircleLimit=256;
@@ -159,13 +160,22 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
   return contexts.get(name);
  };
  return dimensions.map(d=>{
-  if(d.review&&(!d.holeRefs||d.unplaced||!resolveHoleCenter))return d;
+  if(d.review&&(d.unplaced||!(d.kind==='thread'&&d.threadRef||d.holeRefs&&resolveHoleCenter)))return d;
   const view=data.views[d.view],box=frame(data,d.view),reference=references[d.view];
   let updated;
   if(view&&!targetsChanged){
    if(d.view==='iso')updated=followIsometricDimension(d,view);
    else if(['horizontal','vertical'].includes(d.kind)&&d.overall===d.view+d.kind)updated=overall(d,box,reference);
-   else if(['diameter','radius'].includes(d.kind))updated=followCircleDimension(d,context(d.view,view,reference).follow);
+   else if(d.kind==='thread'&&d.threadRef){
+    const rim=sameProjectedThreadRim(view,d);
+    if(rim){
+     updated=followCircleDimension(d,()=>rim);
+     updated.nominalDiameter=rim.thread.diameter;
+     if(d.pdfPlacement)updated.pdfPlacement={...d.pdfPlacement,at:translate(d.pdfPlacement.at,d.at,updated.at)};
+     delete updated.review;
+    }
+   }
+   else if(isCircularDimensionKind(d.kind))updated=followCircleDimension(d,context(d.view,view,reference).follow);
    else if(d.kind==='angle')updated=unchangedAngle(d,view)?d:null;
    else if(d.feature==='pitch')updated=followPitch(d,context(d.view,view,reference),reference);
    else if(d.automatic&&d.feature!=='profile-edge')updated=followLocation(d,context(d.view,view,reference),reference,box);

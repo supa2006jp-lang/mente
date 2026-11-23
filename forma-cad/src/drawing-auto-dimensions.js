@@ -1,5 +1,5 @@
 import {drawingCurves} from './drawing-curves.js';
-import {dimensionValue} from './drawing-dimensions.js';
+import {dimensionValue,isCircularDimensionKind} from './drawing-dimensions.js';
 import {circlePatternDimensions,dimensionAxisGraph} from './drawing-feature-dimensions.js';
 import {arrangeDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawingProjectedFrame,drawingIsometricOutline} from './drawing-view-preferences.js';
@@ -59,7 +59,7 @@ function extraLinearDimensions(view,shape,lines,placement){
  }
  return dimensions;
 }
-function key(d){const values=['diameter','radius'].includes(d.kind)?[...d.center,d.radius]:d.kind==='horizontal'?[d.a[0],d.b[0]].sort((a,b)=>a-b):d.kind==='vertical'?[d.a[1],d.b[1]].sort((a,b)=>a-b):[...d.a,...d.b];return [d.view,d.kind,...values.map(round)].join(',');}
+function key(d){const values=isCircularDimensionKind(d.kind)?[...d.center,d.radius]:d.kind==='horizontal'?[d.a[0],d.b[0]].sort((a,b)=>a-b):d.kind==='vertical'?[d.a[1],d.b[1]].sort((a,b)=>a-b):[...d.a,...d.b];return [d.view,d.kind,...values.map(round)].join(',');}
 const overallAxis=d=>d.view==='iso'?isoOverallKeys.indexOf(d.overall):drawingProjections[d.view]?.[d.kind]?.findIndex(n=>n!==0);
 function visibleOverallAxis(d,sheet){
  const view=sheet.layout[d.view],axis=overallAxis(d);

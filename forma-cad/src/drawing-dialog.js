@@ -9,7 +9,7 @@ import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {prepareDrawingComment,prepareJapanesePDF} from './drawing-pdf-text.js';
 import {defaultDrawingCommentColor,drawingCommentFamily,hasDrawingCommentFont,loadDrawingCommentFont,minCommentWidth,maxCommentWidth,validCommentWidth} from './drawing-comments.js';
 import {TEXT_FONTS} from './text-fonts.js';
-import {canOverrideDrawingDimensionValue,defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionSVG,dimensionLabel,dimensionValue,pathEndpoints,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
+import {canOverrideDrawingDimensionValue,defaultDrawingDimensionColor,drawingDimensionColor,drawingDimensionGeometry,dimensionSVG,dimensionLabel,dimensionValue,isCircularDimensionKind,pathEndpoints,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
 import {drawingDimensionBetween,drawingDimensionEndpoint,isLinearDimensionKind,replaceDrawingDimensionEndpoint} from './drawing-linear-dimensions.js';
 import {canSaveDrawingMaterial,createDrawingMaterialsStore,drawingMaterialKey,standardDrawingMaterials} from './drawing-materials.js';
 import {drawingCurves,angleDimension} from './drawing-curves.js';
@@ -30,6 +30,7 @@ import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPoint
 import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {associateDrawingHoleSources,drawingHoleCandidates,drawingHoleCenterReference,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,resolveDrawingHoleCenter,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
+import {drawingThreadDimensionTarget} from './drawing-thread-dimensions.js';
 import {followSectionEdit} from './drawing-section-references.js';
 import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
@@ -49,6 +50,7 @@ const dimensionPickTargets={
  aligned:'同じ図で長さを測る両端の寸法点をクリックします。',
  diameter:'直径を測る円・円弧の線をクリックします。',
  radius:'半径を測る円・円弧の線をクリックします。',
+ thread:'ねじ・ねじ穴の円形の外周をクリックします。',
  angle:'同じ図で角度をつくる２本の直線をクリックします。',
 };
 const colorFields=[['lineColor','line','寸法線の色'],['textColor','text','数字・注記の色']];
@@ -82,7 +84,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  <div class="drawing-controls"><label>部品名<input id="drawing-name" maxlength="80"></label><label>改訂番号<input id="drawing-revision" maxlength="20" size="8" placeholder="例 02"></label><label>材質<input id="drawing-material" maxlength="80" placeholder="手入力"></label><select id="drawing-material-preset" aria-label="材質の候補"><option value="" disabled>候補から選択</option>${standardDrawingMaterials.map(([group,items])=>'<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>').join('')}<optgroup id="drawing-material-saved" label="登録した材質" hidden></optgroup></select><span class="drawing-material-actions"><button type="button" id="drawing-material-save" aria-label="入力した材質を候補に登録">登録</button><button type="button" id="drawing-material-remove" aria-label="登録した材質を候補から削除" hidden>削除</button></span><label>作成日<input id="drawing-date" type="date"></label><small id="drawing-material-status" role="status"></small></div>
  <p id="drawing-layout-help">通常配置は第三角法です。「大きく自動配置」は図の位置関係を自由に組み替え、共通縮尺で用紙を広く使います。寸法・コメント・配置は保存されます。</p>
  <div class="drawing-controls">
-  <label>寸法<select id="drawing-dimension-kind" aria-describedby="drawing-dimension-hint"><option value="horizontal">水平（横の距離）</option><option value="vertical">垂直（縦の距離）</option><option value="aligned" selected>２点間（直線距離）</option><option value="diameter">直径 Ø</option><option value="radius">半径 R</option><option value="angle">角度</option></select></label>
+  <label>寸法<select id="drawing-dimension-kind" aria-describedby="drawing-dimension-hint"><option value="horizontal">水平（横の距離）</option><option value="vertical">垂直（縦の距離）</option><option value="aligned" selected>２点間（直線距離）</option><option value="diameter">直径 Ø</option><option value="radius">半径 R</option><option value="thread">ねじ（M）</option><option value="angle">角度</option></select></label>
   <small id="drawing-dimension-hint"></small>
   <button id="drawing-dimension-add">寸法線を追加</button><button id="drawing-dimension-overall">全体寸法を追加</button><button id="drawing-dimension-undo">最後の寸法を削除</button><button id="drawing-dimension-clear">寸法を全削除</button><button id="drawing-dimension-cancel" hidden>寸法追加を中止</button>
  </div>
@@ -2365,7 +2367,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  function markPoints(){
   const pointMode=action?.kind==='dimensionPoint';
-  if(!pointMode&&action?.kind!=='line'&&(!picking||['radius','diameter','angle'].includes(picking.kind)))return;
+  if(!pointMode&&action?.kind!=='line'&&(!picking||isCircularDimensionKind(picking.kind)||picking.kind==='angle'))return;
   const svg=viewportHost.querySelector('svg');
   if(pointMode&&action.guide)drawDimensionPointGuides(svg,action.guide);
   for(const name of picking?dimensionViews(picking.kind):names()){
@@ -2427,7 +2429,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   action=null;selection=null;picking={kind,...reference};render();
   if(reference.endpoint){status(dimensionHint.textContent);return;}
-  status(['diameter','radius'].includes(kind)?'円または円弧をクリックし、寸法を置く位置をクリックしてください':
+  status(kind==='thread'?'ねじの外周をクリックし、M表記を置く位置をクリックしてください':
+   isCircularDimensionKind(kind)?'円または円弧をクリックし、寸法を置く位置をクリックしてください':
    kind==='angle'?'同じ図の直線を２本選び、角度寸法を置く位置をクリックしてください':
    '同じ図の寸法点を２点選び、寸法線を置く位置をクリックしてください');
  }
@@ -2535,6 +2538,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
      test([line.a[0]+t*(line.b[0]-line.a[0]),line.a[1]+t*(line.b[1]-line.a[1])],{line});
     }
    }else{
+    if(picking?.kind==='thread'){
+     const mouse=local(name,[cursor.x,cursor.y]);
+     for(const shaft of view.threadShafts??[]){
+      if(!drawingDimensionVisible(shaft,v))continue;
+      const offset=mouse.map((value,i)=>value-shaft.center[i]),length=Math.hypot(...offset);
+      if(length>1e-7)test(shaft.center.map((value,i)=>value+offset[i]*shaft.radius/length),{threadShaft:shaft});
+     }
+    }
     const modelCursor=[v.bx+(cursor.x-v.x)/v.scale,v.by+(cursor.y-v.y)/v.scale],cursors=[modelCursor];
     if(v.break){
      const shifted=[...modelCursor];
@@ -2558,14 +2569,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   return best;
  }
  function dimensionTargetAt(e){
-  const kind=picking.kind,targetKind=kind==='angle'?'line':['radius','diameter'].includes(kind)?'arc':'point';
+  const kind=picking.kind,targetKind=kind==='angle'?'line':isCircularDimensionKind(kind)?'arc':'point';
   const hit=nearest(e,targetKind);
   if(!hit)return {error:{
    line:'直線に近い位置をクリックしてください',
-   arc:'円・円弧に近い位置をクリックしてください（楕円は対象外）',
+   arc:kind==='thread'?'ねじの円形の外周をクリックしてください':'円・円弧に近い位置をクリックしてください（楕円は対象外）',
    point:picking.view==='iso'||!names().length?'俯瞰図の頂点をクリックしてください':
     '寸法点をクリックしてください。必要な点がなければ「寸法点を追加」を使えます'
   }[targetKind]};
+  if(kind==='thread'){
+   const threadDimension=drawingThreadDimensionTarget(viewData(hit.name),hit);
+   return {...hit,threadDimension,label:dimensionLabel({kind,...threadDimension})};
+  }
   if(hit.centerGuide)hit.holeRef=referenceForCenter(hit.name,hit.centerGuide);
   if(picking.firstLine){
    try{return {...hit,angle:angleDimension(picking.firstLine,hit.line)};}
@@ -2601,13 +2616,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function previewDimensionTarget(e){
   const hit=dimensionTargetAt(e);
   if(hit.error){clearDimensionHover();return;}
-  const target=hit.line??hit.arc??hit.point;
+  const target=hit.line??hit.arc??hit.threadShaft??hit.point;
   const same=dimensionHover?.target===target&&dimensionHover.view===hit.name;
   if(!same)clearDimensionHover();
   showDimensionSnapLabel(e,hit.label??(hit.arc?'円周':hit.line?'輪郭線':hit.model?'頂点':'寸法点'));
   if(same)return;
   const svg=viewportHost.querySelector('svg'),viewName=CSS.escape(hit.name);
-  if(!hit.line&&!hit.arc){
+  if(!hit.line&&!hit.arc&&!hit.threadShaft){
    const selector=hit.manual?'[data-dimension-point="'+CSS.escape(hit.manual)+'"]':hit.centerGuide?
     '[data-dimension-center-guide="'+viewName+'"][data-center-point="'+JSON.stringify(hit.point)+'"]':
     '[data-snap-view="'+viewName+'"][data-snap-point="'+JSON.stringify(hit.point)+'"]';
@@ -2620,9 +2635,15 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const view=svg.querySelector('[data-view="'+viewName+'"] > g[transform]');
   if(!view)return;
   const clips=[...view.querySelectorAll('g[clip-path]')],groups=clips.length?clips:[view];
-  const path=document.createElementNS(svg.namespaceURI,'path'),{a,b}=target;
-  path.setAttribute('d','M '+a.join(' ')+(hit.arc?' A '+target.radius+' '+target.radius+' 0 '+Number(target.large)+' '+Number(target.sweep)+' ':' L ')+b.join(' '));
-  path.setAttribute('data-dimension-hover',hit.arc?'arc':'line');
+  const path=document.createElementNS(svg.namespaceURI,'path');
+  if(hit.threadShaft){
+   const [x,y]=target.center,r=target.radius,from=(x-r)+' '+y,to=(x+r)+' '+y,arc=' A '+r+' '+r+' 0 0 1 ';
+   path.setAttribute('d','M '+from+arc+to+arc+from);
+  }else{
+   const {a,b}=target;
+   path.setAttribute('d','M '+a.join(' ')+(hit.arc?' A '+target.radius+' '+target.radius+' 0 '+Number(target.large)+' '+Number(target.sweep)+' ':' L ')+b.join(' '));
+  }
+  path.setAttribute('data-dimension-hover',hit.arc||hit.threadShaft?'arc':'line');
   const nodes=groups.map(group=>group.appendChild(path.cloneNode()));
   dimensionHover={target,view:hit.name,nodes};
  }
@@ -2674,7 +2695,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  if(hit.error)throw Error(hit.error);
  clearDimensionHover();
  if(picking.endpoint){acceptDimensionEndpoint(hit.edited);return;}
- if(hit.arc){picking={...picking,view:hit.name,center:hit.arc.center,radius:hit.arc.radius,ready:true};}
+ if(hit.threadDimension){picking={...picking,...hit.threadDimension,view:hit.name,ready:true};}
+ else if(hit.arc){picking={...picking,view:hit.name,center:hit.arc.center,radius:hit.arc.radius,ready:true};}
  else if(hit.line){
   if(!hit.angle){picking.view=hit.name;picking.firstLine=hit.line;syncDimensionHint();status('２本目の直線を選択してください');return;}
   Object.assign(picking,hit.angle,{ready:true});
@@ -2693,7 +2715,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(hit.holeRef)(picking.holeRefs??={}).b=hit.holeRef;
   picking.ready=true;
  }
- syncDimensionHint();status('寸法 '+Number(dimensionValue(picking).toFixed(3))+(picking.kind==='angle'?'°':' mm')+'：配置位置をクリックしてください');}catch(err){status(err.message);}};
+ syncDimensionHint();status(picking.kind==='thread'?'ねじ寸法 '+dimensionLabel(picking)+'。配置位置をクリックしてください':
+  '寸法 '+Number(dimensionValue(picking).toFixed(3))+(picking.kind==='angle'?'°':' mm')+'：配置位置をクリックしてください');}catch(err){status(err.message);}};
  function beginDimensionDrag(event,index,inherited){
   const d=inherited?sheet.inheritedDimensions[index]:onSheetDimensions()[index];
   if(!d)return;

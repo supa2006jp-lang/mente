@@ -79,7 +79,7 @@ import {splitSolidSections} from './solid-section-split.js';
 import {filletSolid,planPartialFillet,prepareFilletRadiusTrial} from './solid-fillet.js';
 import {searchFilletRadius} from './fillet-radius-search.js';
 import {remapFilletEdges,filletPlaneExists} from './fillet-reference-remap.js';
-import {drawingThreadEntries} from './drawing-thread-geometry.js';
+import {drawingThreadEntries,drawingThreadShaftEntries} from './drawing-thread-geometry.js';
 import {isFilletBodySuppressed} from './fillet-state.js';
 import {chamferSolid} from './solid-chamfer.js';
 import {cadMesh} from './cad-mesh.js';
@@ -697,7 +697,8 @@ function* computeOperation(features,spec,onProgress,context={}){
   const bodies=kernelBodies(features);
   try{
    return orthographicProjection(bodies,spec.targets,spec.sections,spec.views,spec.frontFrame,spec.silhouettes,
-    ()=>drawingThreadEntries(features,bodies,spec.targets,kernelBodies));
+    includeHoles=>({holes:includeHoles?drawingThreadEntries(features,bodies,spec.targets,kernelBodies):[],
+     shafts:drawingThreadShaftEntries(features,spec.targets,kernelBodies)}));
   }finally{for(const body of bodies.values())body.delete();}
  }
  if(spec.type==='snapLidInfo'){const bodies=kernelBodies(features);try{return snapLidInfo(bodies.get(spec.target),bodies.get(spec.lidTarget));}finally{for(const body of bodies.values())body.delete();}}

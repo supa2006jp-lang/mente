@@ -10,6 +10,9 @@ import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from '../src/drawing-thread-annotations.js';
 import {drawingDimensionCenterGuides,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
+import {drawingThreadDimensionTarget} from '../src/drawing-thread-dimensions.js';
+import {dimensionLabel,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
+import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 
 before(async()=>R.setOC(await init({wasmBinary:await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url))})));
 
@@ -64,4 +67,29 @@ test('a translated thread stays attached, and an occluding boss or a reamed bore
  assert.ok(!project([...threaded,cover],[...targets,cover.id]).views.top.holeMachining.some(row=>row.thread));
  const reamed=op(threaded,{type:'extrusion',id:'ream',target:box.id,feature:{...hole,id:'ream'}});
  assert.ok(!project(reamed).views.top.holeMachining.some(row=>row.thread));
+});
+
+test('a thread dimension uses the nominal size and keeps its arrow on the selected counterbore',()=>{
+ const thread={id:'thread',bodyId:'plate',end:'high',diameter:6,pitch:1};
+ const hole={center:[8,10],radius:3,counterbore:{radius:5},thread};
+ const outline='M 0 0 L 40 0 L 40 28 L 0 28 Z';
+ const rim='M 3 10 A 5 5 0 0 1 13 10 A 5 5 0 0 1 3 10';
+ const view={viewBox:[0,0,40,28],visible:[outline,rim],holeMachining:[hole]};
+ const picked=drawingThreadDimensionTarget(view,{arc:{center:[8,10],radius:5},point:[13,10]});
+ const d={...picked,kind:'thread',view:'top',at:[16,20]};
+ assert.equal(dimensionLabel(d),'M6');
+ assert.equal(d.threadRim,'counterbore');
+ const geometry=drawingDimensionGeometry(d,{x:10,y:20,bx:0,by:0,scale:2});
+ assert.deepEqual(geometry.arrows.map(arrow=>arrow[0]),[[36,40]]);
+ assert.deepEqual(geometry.extensions,[[[36,40],[42,60]]]);
+ const data={views:{top:view},bounds:[[0,-28,0],[40,0,8]]};
+ const refs=captureDrawingReferences(data,[d]);
+ const edited={...data,views:{top:{...view,holeMachining:[{...hole,center:[14,12],thread:{...thread,diameter:8}}]}}};
+ const [updated]=reconcileDrawingDimensions(edited,[d],refs);
+ assert.equal(dimensionLabel(updated),'M8');
+ assert.deepEqual(updated.arcPoint,[19,12]);
+ const removed={...edited,views:{top:{...view,holeMachining:[]}}};
+ assert.equal(dimensionLabel(reconcileDrawingDimensions(removed,[d],refs)[0]),'要確認');
+ assert.equal(dimensionLabel({...d,...drawingThreadDimensionTarget({},{arc:{center:[8,10],radius:2},point:[10,10]}),
+  nominalDiameter:undefined,threadRef:undefined,threadRim:undefined}),'M4');
 });

@@ -1,7 +1,7 @@
 import {dimensionLabel,drawingDimensionColor,validDimensionColor} from './drawing-dimensions.js';
 import {drawingProjections} from './drawing-view-preferences.js';
 
-const kinds={horizontal:'水平',vertical:'垂直',aligned:'２点間',diameter:'直径',radius:'半径 R',angle:'角度'};
+const kinds={horizontal:'水平',vertical:'垂直',aligned:'２点間',diameter:'直径',radius:'半径 R',thread:'ねじ',angle:'角度'};
 const identity=d=>JSON.stringify([d.view,d.kind,d.a,d.b,d.vertex,d.center,d.radius,d.centers,d.modelA,d.modelB]);
 export function editDrawingDimensions(dimensions,indices,patch){
  const chosen=new Set(indices);if([...chosen].some(i=>!Number.isInteger(i)||i<0||i>=dimensions.length))throw Error('寸法を選び直してください');

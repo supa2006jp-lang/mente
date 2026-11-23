@@ -1,4 +1,4 @@
-import {canOverrideDrawingDimensionValue,dimensionValue,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
+import {canOverrideDrawingDimensionValue,dimensionValue,isCircularDimensionKind,validDimensionColor,validDrawingDimensionDisplayValue} from './drawing-dimensions.js';
 import {drawingProjectionNames,validDrawingDetailFactor,validDrawingScale} from './drawing-view-preferences.js';
 import {autoDimensionKeys,autoDimensionViewTypes} from './drawing-auto-dimensions.js';
 import {validateFrame} from './frames.js';
@@ -9,6 +9,7 @@ import {maxDrawingTableHoles} from './drawing-hole-table.js';
 import {holeReferenceLimit,validDrawingHoleCenterReference} from './drawing-hole-references.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {validDrawingThreadReference} from './drawing-thread-annotations.js';
+import {drawingThreadRimKinds} from './drawing-thread-dimensions.js';
 import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const coordinates=(p,axes)=>Array.isArray(p)&&p.length===axes&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
@@ -158,8 +159,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
  for(const d of s.dimensions){
   if(d.precision!=null&&(!Number.isInteger(d.precision)||d.precision<0||d.precision>6))fail();
   if(d.fontSize!=null&&(!Number.isFinite(d.fontSize)||d.fontSize<1.5||d.fontSize>10))fail();
-  if(!['horizontal','vertical','aligned','diameter','radius','angle'].includes(d.kind)||!point(d.at))fail();
-  if(['diameter','radius'].includes(d.kind)){
+  if(!['horizontal','vertical','aligned','diameter','radius','thread','angle'].includes(d.kind)||!point(d.at))fail();
+  if(isCircularDimensionKind(d.kind)){
    if(!point(d.center)||!Number.isFinite(d.radius)||d.radius<=0||d.radius>1e6)fail();
   }else if(!point(d.a)||!point(d.b))fail();
   if(d.kind==='angle'&&!point(d.vertex))fail();
@@ -180,7 +181,11 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    Object.entries(d.holeRefs).some(([key,ref])=>key!=='a'&&key!=='b'||!validDrawingHoleCenterReference(ref))))fail();
   if(d.alongOffset!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||
    !Number.isFinite(d.alongOffset)||Math.abs(d.alongOffset)>1e6))fail();
-  if(d.arcPoint!==undefined&&(d.kind!=='radius'||!point(d.arcPoint)))fail();
+  if(d.arcPoint!==undefined&&(!['radius','thread'].includes(d.kind)||!point(d.arcPoint)))fail();
+  if(d.nominalDiameter!==undefined&&(d.kind!=='thread'||!Number.isFinite(d.nominalDiameter)||d.nominalDiameter<=0||d.nominalDiameter>2e6))fail();
+  if(d.threadRef!==undefined&&(d.kind!=='thread'||!validDrawingThreadReference(d.threadRef)||
+   !drawingThreadRimKinds.includes(d.threadRim)||d.nominalDiameter===undefined))fail();
+  if(d.threadRef===undefined&&d.threadRim!==undefined)fail();
   if(d.tolerance!==undefined&&(!Number.isFinite(d.tolerance)||d.tolerance<0||d.tolerance>1e6))fail();
   if(d.note!==undefined&&(typeof d.note!=='string'||d.note.length>60||/[\u0000-\u001f]/.test(d.note)))fail();
   if(['lineColor','textColor'].some(key=>d[key]!==undefined&&!validDimensionColor(d[key])))fail();
