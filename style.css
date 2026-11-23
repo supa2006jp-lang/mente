@@ -23878,6 +23878,7 @@ select.history-assist-copied-value {
 .shift-photo-compare-fill-color.eyedropper-target-active,
 .shift-photo-compare-callout-text-color.eyedropper-target-active,
 .shift-photo-compare-blank-bg-color.eyedropper-target-active,
+.shift-photo-compare-blank-bg-end-color.eyedropper-target-active,
 .shift-photo-compare-color-target.eyedropper-target-active {
     border-color: #f59e0b !important;
     background: #fff7ed !important;

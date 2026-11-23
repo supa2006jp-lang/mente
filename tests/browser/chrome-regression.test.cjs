@@ -1569,3 +1569,60 @@ test('photo background radial: panel, center preview, swap, export and saved sta
     assert.equal(await page.evaluate("!!document.getElementById('shift-photo-compare-overlay')"), true);
     await page.evaluate('app.closeShiftPhotoCompare()');
 });
+
+test('photo background eyedropper: independent endpoints, image and palette picking, undo and save', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close()); const { page } = harness;
+    await page.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    const pick = await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        await app.openShiftPhotoCompareWithPhotos([app.createShiftPhotoCompareBlankBasePhoto('#336699',{enabled:true,color:'#ffffff',type:'radial',centerX:25,centerY:75})],{source:'photoManagerBlank',title:'Eyedropper test'});
+        const wrap=document.querySelector('.shift-photo-compare-image-wrap'),image=wrap.querySelector(':scope > img');await image.decode();
+        const r=wrap.getBoundingClientRect(),drawn=app.getShiftPhotoCompareRenderedImageRect(image,r.width,r.height),point={x:r.left+drawn.x+drawn.width*.1,y:r.top+drawn.y+drawn.height*.9};
+        window.backgroundPickExpected=await app.getShiftPhotoCompareColorAtPoint(wrap,point.x,point.y);
+        window.backgroundPickBefore=app.captureImageEditSnapshot();
+        document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
+        document.querySelector('.shift-photo-compare-blank-bg-end-color .shift-photo-compare-eyedropper').click();
+        return {...point,expected:backgroundPickExpected,target:app._shiftPhotoCompareEyedropperTarget,label:app.getShiftPhotoComparePaletteEyedropperLabel(),endActive:document.querySelector('.shift-photo-compare-blank-bg-end-color').classList.contains('eyedropper-target-active'),startActive:document.querySelector('.shift-photo-compare-blank-bg-color').classList.contains('eyedropper-target-active')};
+    })()`);
+    assert.match(pick.expected,/^#[0-9a-f]{6}$/); assert.notEqual(pick.expected,'#ffffff');
+    assert.equal(pick.target,'blankEnd'); assert.equal(pick.label,'背景の終了色'); assert.equal(pick.endActive,true); assert.equal(pick.startActive,false);
+    await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:pick.x,y:pick.y,button:'left',clickCount:1});
+    await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:pick.x,y:pick.y,button:'left',clickCount:1});
+    await page.waitFor('app._shiftPhotoCompareContext.photos[0].blankBaseGradient.color===backgroundPickExpected','end color sampled from image');
+    const result=await page.evaluate(`(async()=>{
+        const photo=app._shiftPhotoCompareContext.photos[0];
+        const startUnchanged=photo.blankBaseColor==='#336699';
+        const inputUpdated=document.querySelector('.shift-photo-compare-blank-bg-end-color input').value===backgroundPickExpected;
+        app.cancelShiftPhotoCompareEyedropper();
+        const cleared=!document.querySelector('.shift-photo-compare-blank-bg-end-color').classList.contains('eyedropper-target-active');
+        app.undoShiftPhotoCompareMarkChange();const undo=JSON.stringify(app.captureImageEditSnapshot())===JSON.stringify(backgroundPickBefore);
+        app.redoShiftPhotoCompareMarkChange();const redo=photo.blankBaseGradient.color===backgroundPickExpected;
+        document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
+        document.querySelector('.shift-photo-compare-blank-bg-color .shift-photo-compare-eyedropper').click();
+        app.toggleShiftPhotoComparePickerPalette(true);
+        const swatch=document.querySelector('.shift-photo-compare-picker-swatch[data-color="#dc2626"]');
+        swatch.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true}));
+        const palette={start:photo.blankBaseColor,end:photo.blankBaseGradient.color};
+        app.cancelShiftPhotoCompareEyedropper();
+        app.applyShiftPhotoComparePickedColor('#abcdef','choose');
+        document.querySelector('#shift-photo-picked-color-menu button[onclick*=blankEnd]').click();
+        const chosen={start:photo.blankBaseColor,end:photo.blankBaseGradient.color};
+        const geometry={type:photo.blankBaseGradient.type,x:photo.blankBaseGradient.centerX,y:photo.blankBaseGradient.centerY};
+        await app.saveShiftPhotoCompare();const id=app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+        await app.closeShiftPhotoCompare();await app.openPhotoManagerBlankEdit(id);
+        return {startUnchanged,inputUpdated,cleared,undo,redo,palette,chosen,geometry,reopened:{start:app._shiftPhotoCompareContext.photos[0].blankBaseColor,end:app._shiftPhotoCompareContext.photos[0].blankBaseGradient.color}};
+    })()`);
+    assert.equal(result.startUnchanged,true);assert.equal(result.inputUpdated,true);assert.equal(result.cleared,true);assert.equal(result.undo,true);assert.equal(result.redo,true);
+    assert.deepEqual(result.palette,{start:'#dc2626',end:pick.expected});
+    assert.deepEqual(result.chosen,{start:'#dc2626',end:'#abcdef'});
+    assert.deepEqual(result.geometry,{type:'radial',x:25,y:75});
+    assert.deepEqual(result.reopened,result.chosen);
+    for(const [name,width,height] of [['desktop',1440,1000],['mobile',390,844]]){
+        await page.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+        await page.evaluate("document.querySelector('.shift-photo-compare-blank-bg-toggle').scrollIntoView({block:'center'});app.toggleShiftPhotoCompareBlankBackgroundPanel(true)");
+        const fits=await page.evaluate(`(()=>{const p=document.getElementById('shift-photo-compare-blank-bg-panel'),r=p.getBoundingClientRect(),b=p.querySelector('.shift-photo-compare-blank-bg-end-color button').getBoundingClientRect();return p.scrollWidth<=p.clientWidth&&r.left>=0&&r.right<=innerWidth&&b.width>0&&b.right<=r.right;})()`);
+        assert.equal(fits,true,name+' end eyedropper fits');
+        if(process.env.PHOTO_GRADIENT_SCREENSHOTS){const capture=await page.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(os.tmpdir(),'photo-eyedropper-'+name+'.png'),Buffer.from(capture.data,'base64'));}
+    }
+    await page.evaluate('app.closeShiftPhotoCompare()');
+});

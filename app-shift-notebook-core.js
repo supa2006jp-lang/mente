@@ -17093,10 +17093,10 @@
             <label class="shift-photo-compare-color shift-photo-compare-blank-bg-color" title="背景色・グラデーションの開始色">
                 <span>開始色</span>
                 <input type="color" value="${color}" aria-label="背景の開始色" onchange="app.setShiftPhotoCompareBlankBaseColor(this.value)">
-                <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('blank')" title="画面上から背景色を取得"><i class="fa-solid fa-eye-dropper"></i></button>
+                <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('blank')" title="開始色をスポイトで取得" aria-label="開始色をスポイトで取得"><i class="fa-solid fa-eye-dropper"></i></button>
             </label>
             <div class="shift-photo-compare-blank-bg-gradient-options"${gradient.enabled ? '' : ' hidden'}>
-                <div class="shift-photo-compare-blank-bg-color-row"><label class="shift-photo-compare-blank-bg-end-color" title="グラデーションの終了色"><span>終了色</span><input type="color" value="${gradient.color}" aria-label="背景の終了色" onchange="app.setShiftPhotoCompareBlankGradient({color:this.value})"></label>
+                <div class="shift-photo-compare-blank-bg-color-row"><label class="shift-photo-compare-blank-bg-end-color" title="グラデーションの終了色"><span>終了色</span><input type="color" value="${gradient.color}" aria-label="背景の終了色" onchange="app.setShiftPhotoCompareBlankGradient({color:this.value})"><button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('blankEnd')" title="終了色をスポイトで取得" aria-label="終了色をスポイトで取得"><i class="fa-solid fa-eye-dropper"></i></button></label>
                     <button type="button" class="shift-photo-compare-blank-bg-swap" onclick="app.swapShiftPhotoCompareBlankBackgroundColors()" title="開始色と終了色を入れ替え" aria-label="開始色と終了色を入れ替え"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
                 </div>
                 <div class="shift-photo-compare-blank-bg-mode" role="group" aria-label="グラデーションの形">
@@ -21829,7 +21829,7 @@
     }
 
     pickShiftPhotoCompareScreenColor(target = 'active') {
-        const safeTarget = ['active', 'blank', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
+        const safeTarget = ['active', 'blank', 'blankEnd', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
         this._shiftPhotoCompareEyedropperTarget = safeTarget;
         document.getElementById('shift-photo-compare-overlay')?.classList.add('eyedropper-picking');
         this.bindShiftPhotoCompareEyedropperPreview();
@@ -21854,7 +21854,7 @@
     applyShiftPhotoComparePickedColor(color = '', target = 'active', event = null) {
         if (!/^#[0-9a-f]{6}$/i.test(color || '')) return;
         const normalizedColor = color.toLowerCase();
-        const safeTarget = ['active', 'blank', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
+        const safeTarget = ['active', 'blank', 'blankEnd', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
         if (safeTarget === 'choose') {
             this.showShiftPhotoComparePickedColorMenu(normalizedColor, event);
             return;
@@ -21863,6 +21863,8 @@
             this.addShiftPhotoCompareFavoritePickerColor(normalizedColor);
         } else if (safeTarget === 'blank') {
             this.setShiftPhotoCompareBlankBaseColor(normalizedColor);
+        } else if (safeTarget === 'blankEnd') {
+            this.setShiftPhotoCompareBlankGradient({ color: normalizedColor });
         } else if (safeTarget === 'fill') {
             this.setShiftPhotoCompareCalloutFillColor(normalizedColor);
         } else if (safeTarget === 'text') {
@@ -21902,7 +21904,8 @@
                 <button type="button" class="restore" onclick="app.restoreShiftPhotoComparePickedColorMenuOriginal()" title="拾った直後の色に戻す"><i class="fa-solid fa-rotate-left"></i><span>元に戻す</span></button>
             </div>
             <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('mark')"><i class="fa-solid fa-shapes"></i><span>記号色に適用</span></button>
-            <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('blank')"><i class="fa-solid fa-fill-drip"></i><span>背景色に適用</span></button>
+            <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('blank')"><i class="fa-solid fa-fill-drip"></i><span>背景の開始色に適用</span></button>
+            ${this._shiftPhotoCompareContext?.photos?.some(photo => photo?.isBlankBase && photo.blankBaseGradient?.enabled) ? '<button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction(\'blankEnd\')"><i class="fa-solid fa-fill-drip"></i><span>背景の終了色に適用</span></button>' : ''}
             <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('favorite')"><i class="fa-solid fa-star"></i><span>よく使う色へ追加</span></button>
             <button type="button" onclick="app.applyShiftPhotoComparePickedColorMenuAction('markPreset')"><i class="fa-solid fa-plus"></i><span>記号色プリセットに追加</span></button>
         `;
@@ -21963,7 +21966,10 @@
         if (!/^#[0-9a-f]{6}$/i.test(color)) return;
         if (action === 'blank') {
             this.setShiftPhotoCompareBlankBaseColor(color);
-            this.showShiftPhotoCompareActionMessage?.(`背景色に ${color} を反映しました。`);
+            this.showShiftPhotoCompareActionMessage?.(`背景の開始色に ${color} を反映しました。`);
+        } else if (action === 'blankEnd') {
+            this.setShiftPhotoCompareBlankGradient({ color });
+            this.showShiftPhotoCompareActionMessage?.(`背景の終了色に ${color} を反映しました。`);
         } else if (action === 'favorite') {
             this.addShiftPhotoCompareFavoritePickerColor(color);
         } else if (action === 'markPreset') {
@@ -22230,10 +22236,11 @@
             fill: '.shift-photo-compare-fill-color',
             text: '.shift-photo-compare-callout-text-color',
             blank: '.shift-photo-compare-blank-bg-color',
+            blankEnd: '.shift-photo-compare-blank-bg-end-color',
             regionFill: '.shift-photo-compare-color',
             outline: '.shift-photo-compare-color'
         };
-        document.querySelectorAll('.shift-photo-compare-color, .shift-photo-compare-fill-color, .shift-photo-compare-callout-text-color, .shift-photo-compare-blank-bg-color, .shift-photo-compare-color-target').forEach(element => {
+        document.querySelectorAll('.shift-photo-compare-color, .shift-photo-compare-fill-color, .shift-photo-compare-callout-text-color, .shift-photo-compare-blank-bg-color, .shift-photo-compare-blank-bg-end-color, .shift-photo-compare-color-target').forEach(element => {
             element.classList.remove('eyedropper-target-active');
         });
         const selector = targetMap[target];
@@ -22253,7 +22260,8 @@
             border: '枠線',
             fill: '塗り',
             text: '文字',
-            blank: '白紙背景',
+            blank: '背景の開始色',
+            blankEnd: '背景の終了色',
             favorite: 'よく使う色へ登録',
             choose: '取得後に選択'
         };

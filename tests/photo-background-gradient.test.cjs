@@ -91,3 +91,19 @@ test('color swap changes both colors in one operation and keeps radial placement
     editor.swapShiftPhotoCompareBlankBackgroundColors();
     assert.equal(changes.length, 1);
 });
+
+test('eyedropper routes each background color without changing the other target', () => {
+    const editor = new MaintenanceApp();
+    const changes = [];
+    editor.setShiftPhotoCompareBlankBaseColor = color => changes.push(['start', color]);
+    editor.setShiftPhotoCompareBlankGradient = gradient => changes.push(['end', JSON.parse(JSON.stringify(gradient))]);
+    editor.setShiftPhotoCompareMarkColor = color => changes.push(['mark', color]);
+    editor.applyShiftPhotoComparePickedColor('#AABBCC', 'blankEnd');
+    editor.applyShiftPhotoComparePickedColor('#123456', 'blank');
+    editor.applyShiftPhotoComparePickedColor('invalid', 'blankEnd');
+    assert.deepEqual(changes, [['end', {color:'#aabbcc'}], ['start', '#123456']]);
+    editor._shiftPhotoCompareEyedropperTarget = 'blankEnd';
+    assert.equal(editor.getShiftPhotoComparePaletteEyedropperLabel(), '背景の終了色');
+    editor._shiftPhotoCompareEyedropperTarget = 'blank';
+    assert.equal(editor.getShiftPhotoComparePaletteEyedropperLabel(), '背景の開始色');
+});
