@@ -12,8 +12,9 @@ export const escapeDrawingText=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 export function dimensionLabel(d){
  if(d.review)return '要確認';
  const value=numberLabel(d);
- const bolt=d.kind==='thread'&&d.adjustedDiameter!==undefined?'（使用ボルトはM'+Number(d.nominalDiameter.toFixed(3))+'）':'';
- const nominal=d.kind==='thread'?'M'+value+bolt:d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
+ const adjusted=d.kind==='thread'&&d.adjustedDiameter!==undefined;
+ const bolt=adjusted?'（使用ボルトはM'+Number(d.nominalDiameter.toFixed(3))+'）':'';
+ const nominal=d.kind==='thread'?(adjusted?'Ø':'M')+value+bolt:d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
   (['diameter','radius'].includes(d.kind)?(d.count>1?d.count+'×':'')+(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
  const tolerance=d.tolerance===undefined?'':' ±'+d.tolerance+(d.kind==='angle'?'°':'');
  return nominal+tolerance+(d.note?' '+d.note:'');

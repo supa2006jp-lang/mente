@@ -110,7 +110,7 @@ test('a pull of minus 0.2 mm on an M10 hole preserves the bolt size for new and 
  assert.equal(rim.thread.id,prior.thread.id);
  const refs=captureDrawingReferences(previous,[selected]);
  const [updated]=reconcileDrawingDimensions(next,[selected],refs);
- const label='M10.4（使用ボルトはM10）';
+ const label='Ø10.4（使用ボルトはM10）';
  assert.equal(dimensionLabel(updated),label);
  assert.equal(updated.radius,5.2);
  assert.equal(dimensionLabel(reconcileDrawingDimensions(previous,[updated],refs)[0]),'M10');

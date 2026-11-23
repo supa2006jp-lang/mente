@@ -23,7 +23,7 @@ const boltAndNut=cad([],screw);
 const features=[plate,hole,cad([plate,hole],thread),boltAndNut];
 const targets=['plate','bolt','nut'];
 const [nutX,nutY]=boltAndNut.analysis.nut.position;
-const adjustedLabel='M10.4（使用ボルトはM10）',expected=['M6','M10',adjustedLabel];
+const adjustedLabel='Ø10.4（使用ボルトはM10）',expected=['M6','M10',adjustedLabel];
 const project={format:'forma-cad',version:1,features,drawing:{version:1,signature:drawingSignature(features),
  targets,targetMode:'visible',scale:2,hidden:true,comment:'',dimensions:[],
  options:{paper:'A4',orientation:'landscape',name:'ねじ寸法',material:'',date:'',frame:true,
@@ -106,7 +106,7 @@ try{
  await open({...saved,drawing});
  assert.deepEqual(await labels(),expected);
  assert.deepEqual(errors,[]);
- console.log('PASS normal M6 and M10 annotations and M10.4 with the M10 bolt note for an auto-pulled nut, including PDF preview and reopening a legacy drawing');
+ console.log('PASS normal M6 and M10 annotations and Ø10.4 with the M10 bolt note for an auto-pulled nut, including PDF preview and reopening a legacy drawing');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
