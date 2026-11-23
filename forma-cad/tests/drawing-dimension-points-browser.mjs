@@ -63,7 +63,7 @@ try{
   },at);
  }
  async function moveAt(at,view){await page.mouse.move(...await screen(at,view));}
- async function clickAt(at){await page.mouse.click(...await screen(at));}
+ async function clickAt(at,view){await page.mouse.click(...await screen(at,view));}
  async function labelBoxInFront(){
   return preview.locator('[data-dimension] rect').evaluate(rect=>{
    const front=rect.ownerSVGElement.querySelector('[data-view="front"] > g[transform]');
@@ -119,6 +119,7 @@ try{
  });
  await moveAt(arcPoint,top);
  assert.equal(await hover.getAttribute('data-dimension-hover'),'arc');
+ assert.equal(await field('snap-label').textContent(),'円周');
  await kind.hover();
  assert.equal(await hover.count(),0);
  const arcScreen=await screen(arcPoint,top);
@@ -328,30 +329,55 @@ try{
  const [custom]=await points();
  assert.ok(custom[0]>0&&custom[0]<5&&custom[1]===0);
 
- // Exercise both a plain bore and a modeled internal thread in the real editor.
+ // Point placement and dimension picking share centers on the actual B-rep.
  await field('close').click();
- const stock={...defaults,kind:'extrusion',id:'stock',name:'ガイドの検証用プレート',width:56,height:32,depth:12};
+ const block=R.makeBox([-28,-16,0],[28,16,12]);
+ const slotTool=R.draw([-6,-10]).lineTo([2,-10]).threePointsArcTo([2,-6],[4,-8])
+  .lineTo([-6,-6]).threePointsArcTo([-6,-10],[-8,-8]).close().sketchOnPlane('XY',-1).extrude(14);
+ const slotted=block.cut(slotTool);
+ const stock={kind:'cadop',id:'stock',name:'長穴付きのプレート',remove:[],outputs:[{
+  id:'stock',brep:slotted.serialize(),...cadMesh(slotted),cadCoordinatePrecision:true
+ }]};
+ for(const shape of [block,slotTool,slotted])shape.delete();
  const hole=(id,x)=>({...defaults,kind:'extrusion',id,name:'穴',profile:'circle',diameter:6,x,y:4,z:12,
   depth:-9,hole:true,operation:'cut',target:stock.id});
  const drilled=[stock,hole('round-hole',-12),hole('thread-hole',9)];
  const thread={type:'thread',target:stock.id,id:'thread',surfacePoint:[12,4,10],pitch:1,profile:'metric60',
   threadVersion:2,fullLength:true,leftHand:true};
- const threaded=[...drilled,{kind:'cadop',id:thread.id,name:'ねじ穴',spec:thread,...runOperation(drilled,thread)}];
+ const withThread=(features,spec=thread)=>[...features,{kind:'cadop',id:spec.id,name:'ねじ穴',spec,...runOperation(features,spec)}];
+ const threaded=withThread(drilled);
  await load({...project,features:threaded,drawing:{...project.drawing,signature:drawingSignature(threaded),targets:[stock.id]}});
  const centers=preview.locator('[data-dimension-center-guide]');
  assert.equal(await centers.count(),0);
+ const snapLabel=field('snap-label');
+ await kind.selectOption('horizontal');
+ await field('dimension-add').click();
+ assert.equal(await preview.locator('[data-dimension-center-guide="top"]').count(),3);
+ const ordinary=[-11.7,-4.23],slot=[-1.8,8.14],screw=[9.22,-3.82];
+ await moveAt(ordinary,top);
+ assert.equal(await snapLabel.isVisible(),true);
+ assert.equal(await snapLabel.textContent(),'穴中心 Ø6');
+ assert.equal(await hover.getAttribute('data-dimension-hover'),'center');
+ await clickAt(ordinary,top);
+ await moveAt(slot,top);
+ assert.equal(await snapLabel.textContent(),'長穴中心');
+ await clickAt(slot,top);
+ await clickAt([-5,20],top);
+ assert.deepEqual(await label.allTextContents(),['10']);
+ assert.equal(await snapLabel.isHidden(),true);
+
  await field('dimension-point-add').click();
- assert.equal(await centers.count(),2);
- assert.equal(await preview.locator('[data-dimension-center-guide="top"]').count(),2);
+ assert.equal(await preview.locator('[data-dimension-center-guide="top"]').count(),3);
  const symbol=centers.first().locator('path').last();
  const width=(await symbol.boundingBox()).width;
  await field('zoom-in').click();
  assert.ok(Math.abs((await symbol.boundingBox()).width-width)<.05);
  await field('zoom-fit').click();
- for(const position of [[-11.7,-4.23],[9.22,-3.82]]){
+ for(const [position,text] of [[ordinary,'穴中心 Ø6'],[screw,'ねじ穴中心 M6']]){
   const [x,y]=await screen(position,top);
   await page.mouse.move(x,y);
   assert.equal(await preview.locator('[data-action-preview]').count(),1);
+  assert.equal(await snapLabel.textContent(),text);
   await page.mouse.click(x,y);
  }
  assert.deepEqual(await manual.evaluateAll(marks=>marks.map(mark=>JSON.parse(mark.dataset.snapPoint))),[[-12,-4],[9,-4]]);
@@ -362,8 +388,29 @@ try{
  await field('dimension-cancel').click();
  assert.equal(await centers.count(),0);
 
+ await field('dimension-add').click();
+ await clickAt(ordinary,top);
+ await moveAt(screw,top);
+ assert.equal(await snapLabel.textContent(),'ねじ穴中心 M6');
+ await clickAt(screw,top);
+ await clickAt([0,-22],top);
+ assert.deepEqual(await label.allTextContents(),['10','21']);
+ await field('close').click();
+ const linked=JSON.parse(await download(page.locator('#save'))),drawing=readDrawingState(linked.drawing);
+ assert.equal(drawing.dimensionPoints[0].holeRef.sourceId,'round-hole');
+ assert.equal(drawing.dimensionPoints[1].holeRef.threadRef.id,'thread');
+ assert.deepEqual(drawing.dimensions[0].holeRefs,{a:{sourceId:'round-hole'}});
+ assert.deepEqual(drawing.dimensions[1].manualEndpoints,['a','b']);
+ assert.equal(drawing.dimensions[1].holeRefs.b.threadRef.id,'thread');
+ const moved=withThread([stock,hole('round-hole',-7),hole('thread-hole',13)],{...thread,surfacePoint:[16,4,10]});
+ await load({...linked,features:moved});
+ assert.deepEqual(await label.allTextContents(),['5','20']);
+ assert.equal(await field('review-list').isHidden(),true);
+ await field('dimension-point-add').click();
+ assert.deepEqual(await manual.evaluateAll(marks=>marks.map(mark=>JSON.parse(mark.dataset.snapPoint))),[[-7,-4],[13,-4]]);
+
  assert.deepEqual(errors,[]);
- console.log('PASS manual points, hole and thread center snapping, guides, clearance, value override, outside arrows, endpoint replacement, existing dimensions, undo, save and reload, SVG export, PDF preview, and fillet dimension targets');
+ console.log('PASS manual points, round/slot/thread centers and snap labels, linked dimensions after moving a modeled hole, guides, clearance, value override, endpoint replacement, undo, SVG export, PDF preview and fillet dimension targets');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

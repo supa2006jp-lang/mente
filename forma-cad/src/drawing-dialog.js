@@ -28,7 +28,7 @@ import {snapDrawingDragAxis,snapDrawingPlacement} from './drawing-placement-guid
 import {alignDrawingItems,drawingAlignmentActions} from './drawing-alignment.js';
 import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPointOmitted,moveDrawingBreakEdge} from './drawing-break.js';
 import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
-import {drawingHoleCandidates,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,unlistedDrawingHoles} from './drawing-hole-references.js';
+import {associateDrawingHoleSources,drawingHoleCandidates,drawingHoleCenterReference,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,resolveDrawingHoleCenter,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
 import {followSectionEdit} from './drawing-section-references.js';
 import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions} from './drawing-auto-dimensions.js';
@@ -36,8 +36,8 @@ import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,ke
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
 import {followDrawingFrontChange,planDrawingFrontChange,remapDrawingViewSettings} from './drawing-front-references.js';
-import {captureDrawingReferences,reconcileDrawingDimensions} from './drawing-dimension-references.js';
-import {drawingDimensionCenterGuides,drawingDimensionPointFits,maxDrawingDimensionPoints,snapDrawingDimensionPoint} from './drawing-dimension-points.js';
+import {captureDrawingReferences,reconcileDrawingDimensions,reconcileDrawingHolePoints} from './drawing-dimension-references.js';
+import {drawingDimensionCenterGuides,drawingDimensionPointFits,maxDrawingDimensionPoints,sameDrawingCenter,snapDrawingDimensionPoint} from './drawing-dimension-points.js';
 import {groupDrawingDimensions} from './drawing-dimension-groups.js';
 import {installDrawingDimensionList} from './drawing-dimension-list.js';
 const scales=[2,1,.5,.2,.1,.05,.02,.01];
@@ -93,10 +93,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  const viewportHost=$('drawing-preview');viewportHost.tabIndex=0;viewportHost.setAttribute('aria-label','図面。ホイールで拡大、ホイール押し込みまたはSpace＋ドラッグで移動');
  const dimensionKindInput=$('drawing-dimension-kind'),dimensionHint=$('drawing-dimension-hint');
  const pickGeometryCache=new WeakMap();
+ const holeCenterCache=new WeakMap();
+ const snapLabel=document.createElement('span');snapLabel.id='drawing-snap-label';snapLabel.hidden=true;
  let dimensionHover=null;
  let dimensionPoints=[];
  $('drawing-dimension-add').insertAdjacentHTML('afterend',
-  '<button id="drawing-dimension-point-add" type="button" aria-pressed="false" title="図をクリックして寸法点を置きます。十字は穴やねじ穴の中心です">寸法点を追加</button>');
+  '<button id="drawing-dimension-point-add" type="button" aria-pressed="false" title="紫の十字から穴・ねじ穴・長穴の中心に寸法点を置けます">寸法点を追加</button>');
  $('drawing-comment').closest('label').insertAdjacentHTML('afterend',
   '<div class="drawing-controls drawing-comment-style" role="group" aria-label="コメントの書式">'+
   '<label>コメントの文字色<input id="drawing-comment-color" type="color"></label>'+
@@ -1207,6 +1209,27 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   status('省略範囲 '+drag.next.map(n=>Number((n*100).toFixed(1))+'%').join(' ～ '));
  }
  const tableCandidates=view=>drawingHoleCandidates(data.views[view],view,features,targets,frontFrame);
+ const holeSourceView=name=>details.find(detail=>detail.id===name)?.view??name;
+ function centerHoles(name){
+  const source=holeSourceView(name),view=data?.views[source];
+  if(!view?.holeMachining?.length)return [];
+  if(!holeCenterCache.has(view)){
+   const guides=drawingDimensionCenterGuides(view,true).filter(guide=>guide.machining);
+   const holes=view.holeMachining.filter(hole=>guides.some(guide=>sameDrawingCenter(guide.point,hole.center)))
+    .map(machining=>({center:machining.center,radius:machining.radius,machining}));
+   holeCenterCache.set(view,associateDrawingHoleSources(holes,source,features,targets,frontFrame));
+  }
+  return holeCenterCache.get(view);
+ }
+ function referenceForCenter(name,guide){
+  if(!guide?.machining)return undefined;
+  const holes=centerHoles(name).filter(hole=>sameDrawingCenter(hole.center,guide.point));
+  return holes.length===1?drawingHoleCenterReference(holes[0]):undefined;
+ }
+ function followHoleCenter(name,ref){
+  const view=viewData(name),point=view&&resolveDrawingHoleCenter(centerHoles(name),ref);
+  return point&&drawingDimensionPointFits(view,point)?point:null;
+ }
  function threadHoles(view){
   const layout=sheet?.layout[view];
   if(!layout)return [];
@@ -1601,6 +1624,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(refresh&&!targetsChanged){
     for(const {view} of dimensions)if((view==='iso'||drawingProjectionNames.includes(view))&&!views.includes(view))views.push(view);
    }
+   if(refresh)for(const item of dimensionPoints){
+    const view=holeSourceView(item.view);
+    if(item.holeRef&&drawingProjectionNames.includes(view)&&!views.includes(view))views.push(view);
+   }
    const result=await worker.request({features,spec:{type:'orthographic',targets,sections,views,frontFrame,silhouettes:!!drawingBackgroundColor(backgrounds)}},300000);
    if(token!==revision)return;
    data=result;
@@ -1613,9 +1640,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     if(targetsChanged){
      markers=markers.filter(item=>item.review);
      leaders=leaders.filter(item=>item.review||item.threadRef);
-     dimensionPoints=dimensionPoints.filter(item=>item.review);
+     dimensionPoints=dimensionPoints.filter(item=>item.review||item.holeRef);
     }
-    dimensions=reconcileDrawingDimensions(withDetails(data,details),dimensions,dimensionReferences,{targetsChanged});
+    dimensionPoints=reconcileDrawingHolePoints(dimensionPoints,followHoleCenter);
+    dimensions=reconcileDrawingDimensions(withDetails(data,details),dimensions,dimensionReferences,{targetsChanged,resolveHoleCenter:followHoleCenter});
    }
    const scale=Number($('drawing-scale').value),settings=options();
    const overall=reconcileAutomaticOverallDimensions(data,dimensions,view=>drawingViewScale(view,scale,settings));
@@ -2146,7 +2174,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   detail:'拡大したい部分の中心をクリックし、次に範囲の半径を指定してください',
   holes:'正投影図で穴位置表の基準点をクリックしてください。右が＋X、上が＋Yです',
   leader:parameters.thread?'ねじを設定した穴の円または中心をクリックしてください':'図の中で矢印が指す箇所をクリックしてください',
-  dimensionPoint:'図をクリックして寸法点を追加します。十字は穴・ねじ穴の中心です。Altを押すと吸着を解除できます'
+  dimensionPoint:'図をクリックして寸法点を追加します。紫の十字は穴・ねじ穴・長穴の中心です。Altを押すと吸着を解除できます'
  }[kind]);};
  function beginReviewAction(kind,item){
   if(!item.review||busy)return;
@@ -2184,11 +2212,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const name of ordered){
    const v=sheet.layout[name],view=viewData(name),raw=local(name,[p.x,p.y]),radius=nearPaper/v.scale;
    if(!drawingDimensionPointFits(view,raw,snap?radius:0)||drawingPointOmitted(v,raw))continue;
-   const point=snap?snapDrawingDimensionPoint(view,raw,radius,{
+   const hit=snap?snapDrawingDimensionPoint(view,raw,radius,{
     hidden:showsHiddenLines(name),accept:value=>!drawingPointOmitted(v,value),
     guide:action?.guide?.view===name?action.guide.point:undefined
-   }):raw;
-   if(drawingDimensionPointFits(view,point)&&point.every(value=>Math.abs(value)<=1e6))return {name,point};
+   }):{point:raw,label:'自由点'};
+   if(drawingDimensionPointFits(view,hit.point)&&hit.point.every(value=>Math.abs(value)<=1e6))return {name,...hit};
   }
   return null;
  }
@@ -2200,7 +2228,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(action.replace){
    const point=selectedPoint?.point??hit?.point,view=selectedPoint?.view??hit?.name;
    if(!point)throw Error('寸法点を置く図の内側をクリックしてください');
-   dimensionPoints=placeAnnotation(dimensionPoints,'dimension-point',{point,view});
+   const holeRef=selectedPoint?.holeRef??referenceForCenter(view,hit);
+   dimensionPoints=placeAnnotation(dimensionPoints,'dimension-point',{point,view,...(holeRef?{holeRef}:{})});
    cancelPick();return;
   }
   if(selectedPoint){
@@ -2210,7 +2239,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   if(!hit)throw Error('寸法点を置く図の内側をクリックしてください');
   if(dimensionPoints.length>=maxDrawingDimensionPoints)throw Error('寸法点は'+maxDrawingDimensionPoints+'個までです');
-  const added={id:'dimension-point-'+crypto.randomUUID(),view:hit.name,point:hit.point};
+  const holeRef=referenceForCenter(hit.name,hit);
+  const added={id:'dimension-point-'+crypto.randomUUID(),view:hit.name,point:hit.point,...(holeRef?{holeRef}:{})};
   dimensionPoints.push(added);action.guide=added;
   selection=null;render();
   status('縦横のガイドに沿って次の点を置けます。Altを押すと吸着を解除できます');
@@ -2272,8 +2302,15 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  function actionPreview(e){const svg=$('drawing-preview').querySelector('svg');svg.querySelector('[data-action-preview]')?.remove();if(!action)return;let attrs;
  if(action.kind==='dimensionPoint'){
-  if(e.target.closest('[data-dimension-point]'))return;
+  const existing=e.target.closest('[data-dimension-point]');
+  if(existing){
+   const name=existing.dataset.snapView,point=JSON.parse(existing.dataset.snapPoint);
+   const center=drawingDimensionCenterGuides(viewData(name),showsHiddenLines(name)).find(guide=>sameDrawingCenter(point,guide.point));
+   showDimensionSnapLabel(e,center?.label??'手動の寸法点');
+   return;
+  }
   const hit=manualPointAt(e),matrix=svg.getScreenCTM();
+  showDimensionSnapLabel(e,hit?.label);
   if(hit&&matrix)drawPointMarker(svg,hit.name,hit.point,{
    r:5/Math.hypot(matrix.a,matrix.b),fill:'none',stroke:'#c46a15','stroke-width':1.5,
    'vector-effect':'non-scaling-stroke','pointer-events':'none','data-action-preview':'true'
@@ -2298,6 +2335,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const [x,y]=map(name,point),guide=document.createElementNS(svg.namespaceURI,'g');
   guide.setAttribute('transform','translate('+x+' '+y+')');
   guide.setAttribute('data-dimension-center-guide',name);
+  guide.setAttribute('data-center-point',JSON.stringify(point));
   guide.setAttribute('pointer-events','none');
   guide.setAttribute('aria-hidden','true');
   const cross='M -5 0 H 5 M 0 -5 V 5';
@@ -2333,13 +2371,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const name of picking?dimensionViews(picking.kind):names()){
    if(picking?.view&&picking.view!==name)continue;
    const view=viewData(name),v=sheet.layout[name];
-   const centers=pointMode?drawingDimensionCenterGuides(view,showsHiddenLines(name)).filter(p=>!drawingPointOmitted(v,p)):[];
+   const centers=name!=='iso'&&(pointMode||picking)?
+    drawingDimensionCenterGuides(view,showsHiddenLines(name)).filter(guide=>!drawingPointOmitted(v,guide.point)):[];
    const points=name==='iso'?view.dimensionVertices.map(vertex=>vertex.point):viewPoints(view);
    for(const p of points){
-    if(drawingPointOmitted(v,p)||centers.some(center=>Math.hypot(p[0]-center[0],p[1]-center[1])<1e-4))continue;
+    if(drawingPointOmitted(v,p)||centers.some(center=>sameDrawingCenter(p,center.point)))continue;
     drawPointMarker(svg,name,p,{fill:name==='iso'&&picking?.a===p?'#c46a15':'#008caf','data-snap-view':name,'data-snap-point':JSON.stringify(p)});
    }
-   for(const center of centers)drawDimensionCenterGuide(svg,name,center);
+   for(const center of centers)drawDimensionCenterGuide(svg,name,center.point);
    for(const item of dimensionPoints){
     const {id,point}=item;
     if(item.review||item.view!==name||!drawingDimensionPointFits(view,point)||drawingPointOmitted(v,point))continue;
@@ -2366,6 +2405,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   else if(picking.endpoint)text='オレンジの輪で示した端点の付け替え先を、同じ図でクリックします。';
   else if(picking.firstLine)text='同じ図で２本目の直線をクリックします。';
   else if(picking.a)text=picking.view==='iso'?'俯瞰図で２つ目の頂点をクリックします。':'同じ図で２点目の寸法点をクリックします。';
+  if(picking&&!picking.ready&&isLinearDimensionKind(kind)&&picking.view!=='iso'&&names().length)
+   text+=' 紫の十字から穴の中心を選べます。';
   if(!picking?.ready&&!picking?.view&&iso){
    if(kind!=='aligned')text+=' 俯瞰図の寸法は「２点間（直線距離）」で追加します。';
    else if(isoAvailable)text+=' 俯瞰図では頂点間の実寸を測れます。';
@@ -2473,10 +2514,16 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
      for(const vertex of view.dimensionVertices)test(vertex.point,{model:vertex.model});
      continue;
     }
+    const centers=picking?(geometry.centers??=drawingDimensionCenterGuides(view,showsHiddenLines(name))
+     .filter(guide=>!drawingPointOmitted(v,guide.point))):[];
     if(picking||action?.kind==='line')for(const item of dimensionPoints){
-     if(!item.review&&item.view===name&&drawingDimensionPointFits(view,item.point))test(item.point,{manual:item.id});
+     if(!item.review&&item.view===name&&drawingDimensionPointFits(view,item.point)){
+      const guide=centers.find(center=>sameDrawingCenter(item.point,center.point));
+      test(item.point,{manual:item.id,holeRef:item.holeRef,label:guide?.label??'手動の寸法点'});
+     }
     }
-    const points=geometry.points??=viewPoints(view);
+    for(const center of centers)test(center.point,{centerGuide:center,label:center.label});
+    const points=geometry.points??=viewPoints(view).filter(point=>!centers.some(center=>sameDrawingCenter(point,center.point)));
     for(const point of points)test(point,{});
     continue;
    }
@@ -2519,6 +2566,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    point:picking.view==='iso'||!names().length?'俯瞰図の頂点をクリックしてください':
     '寸法点をクリックしてください。必要な点がなければ「寸法点を追加」を使えます'
   }[targetKind]};
+  if(hit.centerGuide)hit.holeRef=referenceForCenter(hit.name,hit.centerGuide);
   if(picking.firstLine){
    try{return {...hit,angle:angleDimension(picking.firstLine,hit.line)};}
    catch(error){return {error:error.message};}
@@ -2532,25 +2580,40 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   return hit;
  }
  function clearDimensionHover(){
+  snapLabel.hidden=true;
   if(!dimensionHover)return;
   for(const node of dimensionHover.nodes){
-   if(node.localName==='circle')node.removeAttribute('data-dimension-hover');
+   if(node.localName==='circle'||node.hasAttribute('data-dimension-center-guide'))node.removeAttribute('data-dimension-hover');
    else node.remove();
   }
   dimensionHover=null;
+ }
+ function showDimensionSnapLabel(event,text){
+  snapLabel.hidden=!text;
+  if(!text)return;
+  if(snapLabel.textContent!==text)snapLabel.textContent=text;
+  const frame=viewportHost.getBoundingClientRect(),width=snapLabel.offsetWidth,height=snapLabel.offsetHeight;
+  const right=Math.min(frame.right,window.innerWidth),bottom=Math.min(frame.bottom,window.innerHeight);
+  const x=Math.max(4,frame.left+4,Math.min(event.clientX+12,right-width-4));
+  const below=event.clientY+12,y=below+height+4<=bottom?below:Math.max(frame.top+4,event.clientY-height-10);
+  snapLabel.style.left=x+'px';snapLabel.style.top=y+'px';
  }
  function previewDimensionTarget(e){
   const hit=dimensionTargetAt(e);
   if(hit.error){clearDimensionHover();return;}
   const target=hit.line??hit.arc??hit.point;
-  if(dimensionHover?.target===target&&dimensionHover.view===hit.name)return;
-  clearDimensionHover();
+  const same=dimensionHover?.target===target&&dimensionHover.view===hit.name;
+  if(!same)clearDimensionHover();
+  showDimensionSnapLabel(e,hit.label??(hit.arc?'円周':hit.line?'輪郭線':hit.model?'頂点':'寸法点'));
+  if(same)return;
   const svg=viewportHost.querySelector('svg'),viewName=CSS.escape(hit.name);
   if(!hit.line&&!hit.arc){
-   const marker=hit.manual?svg.querySelector('[data-dimension-point="'+CSS.escape(hit.manual)+'"]'):
-    svg.querySelector('[data-snap-view="'+viewName+'"][data-snap-point="'+JSON.stringify(hit.point)+'"]');
+   const selector=hit.manual?'[data-dimension-point="'+CSS.escape(hit.manual)+'"]':hit.centerGuide?
+    '[data-dimension-center-guide="'+viewName+'"][data-center-point="'+JSON.stringify(hit.point)+'"]':
+    '[data-snap-view="'+viewName+'"][data-snap-point="'+JSON.stringify(hit.point)+'"]';
+   const marker=svg.querySelector(selector);
    if(!marker)return;
-   marker.setAttribute('data-dimension-hover','point');
+   marker.setAttribute('data-dimension-hover',hit.centerGuide?'center':'point');
    dimensionHover={target,view:hit.name,nodes:[marker]};
    return;
   }
@@ -2621,11 +2684,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    picking.view=hit.name;picking.a=hit.point;
    if(hit.model)picking.modelA=hit.model;
    if(hit.manual)picking.manualEndpoints=['a'];
+   if(hit.holeRef)picking.holeRefs={a:hit.holeRef};
    render();status('２点目を選択してください');return;
   }
   picking.b=hit.point;
   if(hit.model)picking.modelB=hit.model;
   if(hit.manual)(picking.manualEndpoints??=[]).push('b');
+  if(hit.holeRef)(picking.holeRefs??={}).b=hit.holeRef;
   picking.ready=true;
  }
  syncDimensionHint();status('寸法 '+Number(dimensionValue(picking).toFixed(3))+(picking.kind==='angle'?'°':' mm')+'：配置位置をクリックしてください');}catch(err){status(err.message);}};
@@ -3069,6 +3134,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    status(d.hidden?'非表示の寸法 '+(index+1)+' を薄く仮表示しています。SVG・PDFには出ません':placement?'寸法 '+(index+1)+'（'+dimensionLabel(d)+'）を選択しました':'この寸法のビューを表示すると図中で確認できます');}
  });
  const workspace=installDrawingWorkspace(dialog,inlineScales.element);
+ dialog.append(snapLabel);
  dialog.addEventListener('click',event=>{
   if(!inlineScales.element.contains(event.target))inlineScales.close();
  });
@@ -3095,6 +3161,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function clearTransient(){
   const d=drag;drag=null;inspectedHole=null;
   inlineScales.sync(null,{});
+  clearDimensionHover();
   if(d){restorePaperDrag(d);if(host.hasPointerCapture(d.pointerId))host.releasePointerCapture(d.pointerId);}
   picking=null;action=null;selection=null;extraTarget='';suppressClick=false;$('drawing-layout-mode').checked=false;if(d)render(false);controls();$('drawing-preview').style.cursor='';$('drawing-preview').querySelector('[data-action-preview]')?.remove();
  }

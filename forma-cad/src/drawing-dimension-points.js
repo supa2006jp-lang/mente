@@ -1,6 +1,7 @@
 import {drawingCurves} from './drawing-curves.js';
 import {pathEndpoints} from './drawing-dimensions.js';
 import {completeDrawingCircles} from './drawing-auto-dimensions.js';
+import {drawingSlotCenters} from './drawing-slot-centers.js';
 
 export const maxDrawingDimensionPoints=500;
 
@@ -21,7 +22,8 @@ function curves(paths){
 }
 
 const centerTolerance=1e-4,centerCache=new WeakMap();
-const sameCenter=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1])<centerTolerance;
+export const sameDrawingCenter=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1])<centerTolerance;
+const diameterText=radius=>Number((2*radius).toFixed(3));
 
 export function drawingDimensionCenterGuides(view,hidden=false){
  const {visible,holeMachining}=view;
@@ -32,20 +34,28 @@ export function drawingDimensionCenterGuides(view,hidden=false){
  }
  const key=hidden&&view.hidden?.length?'withHidden':'visible';
  if(!cache[key]){
-  const visibleArcs=curves(visible).arcs;
-  const arcs=key==='withHidden'?[...visibleArcs,...curves(view.hidden).arcs]:visibleArcs;
+  const shown=curves(visible),covered=key==='withHidden'?curves(view.hidden):null;
+  const arcs=covered?[...shown.arcs,...covered.arcs]:shown.arcs;
+  const lines=covered?[...shown.lines,...covered.lines]:shown.lines;
   const centers=[];
-  const add=point=>{if(!centers.some(center=>sameCenter(center,point)))centers.push(point);};
+  const add=(point,label,machining)=>{
+   if(!centers.some(center=>sameDrawingCenter(center.point,point)))centers.push({point,label,machining});
+  };
   // Prefer the exact machining center when a bore or counterbore rim is shown.
   for(const hole of holeMachining??[]){
-   if(arcs.some(arc=>sameCenter(arc.center,hole.center)&&
+   if(arcs.some(arc=>sameDrawingCenter(arc.center,hole.center)&&
     (Math.abs(arc.radius-hole.radius)<centerTolerance||
-     hole.counterbore&&Math.abs(arc.radius-hole.counterbore.radius)<centerTolerance)))add(hole.center);
+     hole.counterbore&&Math.abs(arc.radius-hole.counterbore.radius)<centerTolerance))){
+    const label=hole.thread?'ねじ穴中心 M'+hole.thread.diameter:'穴中心 Ø'+diameterText(hole.radius);
+    add(hole.center,label,hole);
+   }
   }
-  for(const {center} of completeDrawingCircles(view,arcs))add(center);
+  const circles=completeDrawingCircles(view,arcs);
+  for(const {center,radius} of circles)add(center,'円中心 Ø'+diameterText(radius));
+  for(const center of drawingSlotCenters(arcs,lines,circles))add(center,'長穴中心');
   cache[key]=centers;
  }
- return cache[key].filter(point=>drawingDimensionPointFits(view,point));
+ return cache[key].filter(center=>drawingDimensionPointFits(view,center.point));
 }
 
 function segmentIntersection(a,b){
@@ -65,17 +75,17 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
  const guideAxes=guide?[0,1].filter(axis=>Math.abs(point[axis]-guide[axis])<=radius)
   .sort((a,b)=>Math.abs(point[a]-guide[a])-Math.abs(point[b]-guide[b])):[];
  const usable=p=>drawingDimensionPointFits(view,p)&&accept(p);
- const tryVertex=p=>{
+ const tryVertex=(p,label='端点')=>{
   const d=distance(p);
-  if(d<=vertexDistance&&usable(p)){vertex=p;vertexDistance=d;}
+  if(d<=vertexDistance&&usable(p)){vertex={point:p,label};vertexDistance=d;}
  };
- const tryEdge=(p,d)=>{
-  if(d<=edgeDistance&&usable(p)){edge=p;edgeDistance=d;}
+ const tryEdge=(p,d,label)=>{
+  if(d<=edgeDistance&&usable(p)){edge={point:p,label};edgeDistance=d;}
  };
- const tryCrossing=p=>{
+ const tryCrossing=(p,label)=>{
   const d=distance(p);
   if(d<=crossingDistance&&usable(p)&&Math.hypot(p[0]-guide[0],p[1]-guide[1])>=1e-5){
-   crossing=p;crossingDistance=d;
+   crossing={point:p,label};crossingDistance=d;
   }
  };
  const sources=[curves(view.visible)];
@@ -88,7 +98,7 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
    if(d>radius)continue;
    if(vertices.has(a.join(',')))tryVertex(a);
    if(vertices.has(b.join(',')))tryVertex(b);
-   tryEdge(projected,d);
+   tryEdge(projected,d,'輪郭線');
    found.push({line,d});
    const delta=[dx,dy];
    for(const axis of guideAxes){
@@ -96,7 +106,7 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
     if(!(t>=0&&t<=1))continue;
     const intersection=[a[0]+dx*t,a[1]+dy*t];
     intersection[axis]=guide[axis];
-    tryCrossing(intersection);
+    tryCrossing(intersection,'ガイドと輪郭線の交点');
    }
   }
   for(const arc of arcs){
@@ -108,7 +118,7 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
    const onArc=t=>along(t)<=along(end)+1e-9;
    if(onArc(angle)){
     const projected=[x+arc.radius*Math.cos(angle),y+arc.radius*Math.sin(angle)];
-    tryEdge(projected,distance(projected));
+    tryEdge(projected,distance(projected),'円周');
    }
    for(const axis of guideAxes){
     const offset=guide[axis]-arc.center[axis],other=1-axis;
@@ -118,7 +128,7 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
      const intersection=[...arc.center];
      intersection[axis]=guide[axis];
      intersection[other]+=side*half;
-     if(onArc(Math.atan2(intersection[1]-y,intersection[0]-x)))tryCrossing(intersection);
+     if(onArc(Math.atan2(intersection[1]-y,intersection[0]-x)))tryCrossing(intersection,'ガイドと円周の交点');
     }
    }
   }
@@ -127,19 +137,19 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
  const nearby=found.sort((a,b)=>a.d-b.d).slice(0,24);
  for(let i=0;i<nearby.length;i++)for(let j=i+1;j<nearby.length;j++){
   const crossing=segmentIntersection(nearby[i].line,nearby[j].line);
-  if(crossing)tryVertex(crossing);
+  if(crossing)tryVertex(crossing,'輪郭線の交点');
  }
- const outlinePoint=crossing??vertex??edge;
- let center=null,centerDistance=outlinePoint?distance(outlinePoint):radius;
- for(const point of drawingDimensionCenterGuides(view,hidden)){
-  const d=distance(point);
-  if(d<=centerDistance&&accept(point)){center=point;centerDistance=d;}
+ const outline=crossing??vertex??edge;
+ let center=null,centerDistance=outline?distance(outline.point):radius;
+ for(const guide of drawingDimensionCenterGuides(view,hidden)){
+  const d=distance(guide.point);
+  if(d<=centerDistance&&accept(guide.point)){center=guide;centerDistance=d;}
  }
  // Keep a point on the drawing geometry if the alignment guide cannot reach it nearby.
- if(center||outlinePoint)return center??outlinePoint;
+ if(center||outline)return center??outline;
  for(const axis of guideAxes){
   const aligned=[...point];aligned[axis]=guide[axis];
-  if(usable(aligned))return aligned;
+  if(usable(aligned))return {point:aligned,label:axis===0?'縦ガイド':'横ガイド'};
  }
- return point;
+ return {point,label:'自由点'};
 }

@@ -27,8 +27,10 @@ test('modeled thread settings follow the numbered hole and callout through repla
  const original=op(base,spec),first=project(original),bore=first.views.top.holeMachining[0];
  assert.equal(bore.depth,9);
  assert.deepEqual(bore.thread,{id:'thread',bodyId:'block',end:'high',diameter:6,pitch:1,length:9,leftHand:true});
- assert.deepEqual(drawingDimensionCenterGuides(first.views.top),[bore.center]);
- assert.deepEqual(snapDrawingDimensionPoint(first.views.top,[.2,-.35],1),bore.center);
+ assert.deepEqual(drawingDimensionCenterGuides(first.views.top).map(guide=>guide.point),[bore.center]);
+ const center=snapDrawingDimensionPoint(first.views.top,[.2,-.35],1);
+ assert.deepEqual(center.point,bore.center);
+ assert.equal(center.label,'ねじ穴中心 M6');
  const table={view:'top',origin:[-20,15],holes:drawingHoleCandidates(first.views.top,'top',original,targets).map((row,i)=>({number:i+1,...holeAnchor(row)}))};
  assert.equal(table.holes[0].sourceId,'hole');
  const originalNote={id:'leader-test',...drawingThreadLeader('top',bore,[34,32])};

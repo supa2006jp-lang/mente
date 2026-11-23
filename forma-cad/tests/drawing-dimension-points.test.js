@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {drawingDimensionCenterGuides,drawingDimensionPointFits,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
+import {drawingDimensionCenterGuides,drawingDimensionPointFits,snapDrawingDimensionPoint as snapTarget} from '../src/drawing-dimension-points.js';
 import {dimensionLabel,dimensionValue,drawingDimensionGeometry,pathEndpoints} from '../src/drawing-dimensions.js';
 import {viewPoints} from '../src/drawing-annotations.js';
-import {replaceDrawingDimensionEndpoint} from '../src/drawing-linear-dimensions.js';
-import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
+import {drawingDimensionBetween,replaceDrawingDimensionEndpoint} from '../src/drawing-linear-dimensions.js';
+import {captureDrawingReferences,reconcileDrawingDimensions,reconcileDrawingHolePoints} from '../src/drawing-dimension-references.js';
+import {resolveDrawingHoleCenter} from '../src/drawing-hole-references.js';
 import {followSectionEdit} from '../src/drawing-section-references.js';
 import {readDrawingState} from '../src/drawing-state.js';
 
 const view={viewBox:[0,0,50,30],visible:['M 10 2 L 10 23'],hidden:['M 3 8 L 41 8']};
+const snapDrawingDimensionPoint=(...args)=>snapTarget(...args).point;
+const centerPoints=(...args)=>drawingDimensionCenterGuides(...args).map(guide=>guide.point);
 
 test('dimension targets keep straight-run ends, junctions and arc anchors when a radius projects to many segments',()=>{
  const visible=[
@@ -58,9 +61,10 @@ test('center guides deduplicate concentric rounds, prefer machining coordinates 
   hidden:[ring(33,22,1),'M 38 12 A 2 2 0 0 1 42 12'],
   holeMachining:[{center:bore,radius:2,counterbore:{radius:4}},{center:[33,22],radius:1},{center:[15,22],radius:1}],
  };
- assert.deepEqual(drawingDimensionCenterGuides(source),[bore,[8,10]]);
- assert.deepEqual(drawingDimensionCenterGuides(source,true),[bore,[33,22],[8,10],[40,12]]);
- assert.deepEqual(drawingDimensionCenterGuides({...source,clip:{center:[20,10],radius:5}},true),[bore]);
+ assert.deepEqual(centerPoints(source),[bore,[8,10]]);
+ assert.deepEqual(centerPoints(source,true),[bore,[33,22],[8,10],[40,12]]);
+ assert.deepEqual(centerPoints({...source,clip:{center:[20,10],radius:5}},true),[bore]);
+ assert.deepEqual(drawingDimensionCenterGuides(source).map(guide=>guide.label),['穴中心 Ø4','円中心 Ø4']);
 });
 
 test('a manual point snaps to the hole center or the nearby rim according to cursor position',()=>{
@@ -72,6 +76,56 @@ test('a manual point snaps to the hole center or the nearby rim according to cur
  const hidden={...small,visible:[],hidden:small.visible};
  assert.deepEqual(snapDrawingDimensionPoint(hidden,[20.21,10.16],1),[20.21,10.16]);
  assert.deepEqual(snapDrawingDimensionPoint(hidden,[20.21,10.16],1,{hidden:true}),[20,10]);
+ assert.equal(snapTarget(small,[20.21,10.16],1).label,'円中心 Ø2');
+ assert.equal(snapTarget(small,[20,10.92],.4).label,'円周');
+ assert.equal(snapTarget(small,[10,10.92],.4).label,'自由点');
+});
+
+test('a slot center comes from two facing semicircles joined by both straight sides',()=>{
+ const caps=['M 22 7 A 3 3 0 0 1 22 13','M 10 13 A 3 3 0 0 1 10 7'];
+ const firstSide='M 10 7 L 15 7 L 22 7',secondSide='M 10 13 L 22 13';
+ const slot={viewBox:[0,0,45,25],visible:[...caps,firstSide,secondSide,ring(33,10,2)]};
+ assert.deepEqual(centerPoints(slot),[[33,10],[16,10]]);
+ const {point,label}=snapTarget(slot,[16.2,9.8],1);
+ assert.deepEqual({point,label},{point:[16,10],label:'長穴中心'});
+ assert.deepEqual(centerPoints({...slot,visible:[...caps,firstSide]}),[]);
+ assert.deepEqual(centerPoints({...slot,visible:[ring(10,10,3),ring(22,10,3),firstSide,secondSide]}),[[10,10],[22,10]]);
+ const partial={...slot,visible:[...caps,firstSide],hidden:[secondSide]};
+ assert.deepEqual(centerPoints(partial),[]);
+ assert.deepEqual(centerPoints(partial,true),[[16,10]]);
+ const angle=.37,rotate=(x,y)=>[(x*Math.cos(angle)-y*Math.sin(angle)).toFixed(5),(x*Math.sin(angle)+y*Math.cos(angle)).toFixed(5)].join(' ');
+ const slanted={viewBox:[-2,-2,80,40],visible:[`M ${rotate(0,-.1)} L ${rotate(75,-.1)} A .1 .1 0 0 1 ${rotate(75,.1)} L ${rotate(0,.1)} A .1 .1 0 0 1 ${rotate(0,-.1)} Z`]};
+ const [center]=centerPoints(slanted);
+ assert.ok(Math.hypot(center[0]-37.5*Math.cos(angle),center[1]-37.5*Math.sin(angle))<1e-4);
+});
+
+test('hole point and dimension endpoints follow operation IDs, including swapped holes, while missing sources require review',()=>{
+ const sourceId={sourceId:'bore-a'},threadRef={threadRef:{id:'thread',bodyId:'part',end:'high'}};
+ const original={id:'dimension-point-hole',view:'top',point:[10,8],holeRef:sourceId};
+ const measure=drawingDimensionBetween('horizontal','top',{point:original.point,manual:true,holeRef:sourceId},{point:[24,9],holeRef:threadRef});
+ const d={...measure,at:[18,21],pdfPlacement:{at:[18,23]},lineColor:'#765390'};
+ const data={views:{top:{viewBox:[0,0,45,25],visible:[]}},bounds:[[0,-25,0],[45,0,8]]};
+ const moved=[
+  {center:[24,12],sourceId:'bore-a'},
+  {center:[10,8],sourceId:'neighbor'},
+  {center:[31,9],machining:{thread:threadRef.threadRef}},
+ ];
+ const resolve=(name,ref)=>name==='top'?resolveDrawingHoleCenter(moved,ref):null;
+ const [point]=reconcileDrawingHolePoints([original],resolve);
+ assert.deepEqual(point,{...original,point:[24,12]});
+ const [current]=reconcileDrawingDimensions(data,[d],{},{resolveHoleCenter:resolve});
+ assert.deepEqual(current,{...d,a:[24,12],b:[31,9],at:[28.5,23],pdfPlacement:{at:[28.5,25]}});
+ assert.equal(dimensionLabel(current),'7');
+ const deleted=(name,ref)=>resolveDrawingHoleCenter(moved.slice(1),ref);
+ const [orphan]=reconcileDrawingHolePoints([point],deleted);
+ const [warning]=reconcileDrawingDimensions(data,[current],{},{resolveHoleCenter:deleted});
+ assert.deepEqual(orphan,{...point,review:true});
+ assert.equal(dimensionLabel(warning),'要確認');
+ assert.deepEqual(reconcileDrawingHolePoints([orphan],resolve),[point]);
+ assert.deepEqual(reconcileDrawingDimensions(data,[warning],{},{resolveHoleCenter:resolve}),[current]);
+ const changed=replaceDrawingDimensionEndpoint(current,'a',{point:[21,12]});
+ assert.deepEqual(changed.holeRefs,{b:threadRef});
+ assert.equal(changed.manualEndpoints,undefined);
 });
 
 test('guide snapping aligns one coordinate and intersects nearby straight and round edges',()=>{

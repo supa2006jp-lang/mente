@@ -2,7 +2,7 @@ import {circles,insideView} from './drawing-annotations.js';
 import {drawingCurves} from './drawing-curves.js';
 import {dimensionValue,pathEndpoints} from './drawing-dimensions.js';
 import {drawingProjectedFrame,drawingProjections} from './drawing-view-preferences.js';
-import {drawingDimensionPointFits} from './drawing-dimension-points.js';
+import {drawingDimensionCenterGuides,drawingDimensionPointFits} from './drawing-dimension-points.js';
 
 const epsilon=1e-4;
 export const drawingReferenceCircleLimit=256;
@@ -59,13 +59,13 @@ function atBound(value,box,axis){
  if(near(value,box[axis]+box[axis+2]))return 1;
  return null;
 }
-function followPoint(point,{points,round,follow},reference,box){
+function followPoint(point,{points,round,follow},reference,box,view){
  const oldCenters=reference?.circles?.filter(c=>samePoint(c.center,point))||[];
  if(oldCenters.length){
   const matches=oldCenters.map(follow);
   return matches.every(c=>c&&samePoint(c.center,matches[0]?.center))?matches[0].center:null;
  }
- const exact=points.find(p=>samePoint(p,point));
+ const exact=points.find(p=>samePoint(p,point))??drawingDimensionCenterGuides(view,true).find(guide=>samePoint(guide.point,point))?.point;
  if(exact)return exact;
  if(!reference)return round.find(c=>samePoint(c.center,point))?.center??null;
  const sides=point.map((x,i)=>atBound(x,reference.box,i));
@@ -139,7 +139,17 @@ export function followIsometricDimension(d,view){
  const a=first.point,b=second.point;
  return {...d,a,b,modelA:first.model,modelB:second.model,at:translate(d.at,midpoint(d.a,d.b),midpoint(a,b))};
 }
-export function reconcileDrawingDimensions(data,dimensions,references,{targetsChanged=false}={}){
+export function reconcileDrawingHolePoints(points,resolveHoleCenter){
+ return points.map(item=>{
+  if(!item.holeRef)return item;
+  const point=resolveHoleCenter(item.view,item.holeRef);
+  if(!point)return {...item,review:true};
+  const {review,...current}=item;
+  return {...current,point};
+ });
+}
+
+export function reconcileDrawingDimensions(data,dimensions,references,{targetsChanged=false,resolveHoleCenter}={}){
  const contexts=new Map();
  const context=(name,view,reference)=>{
   if(!contexts.has(name)){
@@ -149,7 +159,7 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
   return contexts.get(name);
  };
  return dimensions.map(d=>{
-  if(d.review)return d;
+  if(d.review&&(!d.holeRefs||d.unplaced||!resolveHoleCenter))return d;
   const view=data.views[d.view],box=frame(data,d.view),reference=references[d.view];
   let updated;
   if(view&&!targetsChanged){
@@ -161,10 +171,17 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
    else if(d.automatic&&d.feature!=='profile-edge')updated=followLocation(d,context(d.view,view,reference),reference,box);
    else{
     const shape=context(d.view,view,reference);
-    const endpoint=key=>d.manualEndpoints?.includes(key)?
-     (drawingDimensionPointFits(view,d[key])?d[key]:null):followPoint(d[key],shape,reference,box);
+    const endpoint=key=>{
+     if(d.holeRefs?.[key])return resolveHoleCenter?.(d.view,d.holeRefs[key]);
+     if(d.manualEndpoints?.includes(key))return drawingDimensionPointFits(view,d[key])?d[key]:null;
+     return followPoint(d[key],shape,reference,box,view);
+    };
     const a=endpoint('a'),b=endpoint('b');
-    if(a&&b)updated={...d,a,b,at:translate(d.at,midpoint(d.a,d.b),midpoint(a,b))};
+    if(a&&b){
+     const {review,...current}=d,previous=midpoint(d.a,d.b),next=midpoint(a,b);
+     updated={...current,a,b,at:translate(d.at,previous,next)};
+     if(d.holeRefs&&d.pdfPlacement)updated.pdfPlacement={...d.pdfPlacement,at:translate(d.pdfPlacement.at,previous,next)};
+    }
    }
   }
   return updated&&dimensionValue(updated)>epsilon?updated:{...d,review:true};

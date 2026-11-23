@@ -2,7 +2,7 @@ import {basisFor} from './frames.js';
 import {drawingProjections} from './drawing-view-preferences.js';
 import {drawingTableHoles} from './drawing-hole-table.js';
 import {machiningSuppressed} from './machining-suppression.js';
-import {drawingThreadReference,sameDrawingThread} from './drawing-thread-annotations.js';
+import {drawingThreadReference,sameDrawingThread,validDrawingThreadReference} from './drawing-thread-annotations.js';
 
 const epsilon=1e-4;
 const distance=(a,b)=>Math.hypot(a.center[0]-b.center[0],a.center[1]-b.center[1]);
@@ -22,7 +22,13 @@ export function unlistedDrawingHoles(table,candidates){
 
 export function drawingHoleCandidates(view,name,features,targets,frontFrame){
  if(!view)return [];
- const holes=drawingTableHoles(view),projection=drawingProjections[name],sources=new Map();
+ return associateDrawingHoleSources(drawingTableHoles(view),name,features,targets,frontFrame);
+}
+
+export function associateDrawingHoleSources(holes,name,features,targets,frontFrame){
+ const projection=drawingProjections[name];
+ if(!holes.length||!projection)return holes;
+ const sources=new Map();
  const drawingPoint=p=>frontFrame?[dot(p,frontFrame.u),dot(p,frontFrame.v),dot(p,frontFrame.n)]:p;
  for(const f of features){
   if(f.kind!=='extrusion'||f.profile!=='circle'||f.operation!=='cut'||machiningSuppressed(f)||f.symmetric||f.taperAngle||!targets.includes(f.target)||
@@ -39,6 +45,35 @@ export function drawingHoleCandidates(view,name,features,targets,frontFrame){
   if(match.length===1)sources.set(match[0],sources.has(match[0])?null:f.id);
  }
  return holes.map(h=>sources.get(h)?{...h,sourceId:sources.get(h)}:h);
+}
+
+const validSourceId=id=>typeof id==='string'&&id.length>0&&id.length<=200;
+export function validDrawingHoleCenterReference(ref){
+ return !!ref&&!Array.isArray(ref)&&Object.keys(ref).every(key=>key==='sourceId'||key==='threadRef')&&
+  (ref.sourceId!==undefined||ref.threadRef!==undefined)&&
+  (ref.sourceId===undefined||validSourceId(ref.sourceId))&&validDrawingThreadReference(ref.threadRef);
+}
+
+export function drawingHoleCenterReference(hole){
+ const ref={};
+ if(validSourceId(hole.sourceId))ref.sourceId=hole.sourceId;
+ if(hole.machining?.thread){
+  const thread=drawingThreadReference(hole.machining.thread);
+  if(validDrawingThreadReference(thread))ref.threadRef=thread;
+ }
+ return ref.sourceId||ref.threadRef?ref:undefined;
+}
+
+export function resolveDrawingHoleCenter(candidates,ref){
+ const bySource=ref.sourceId?candidates.filter(hole=>hole.sourceId===ref.sourceId):[];
+ if(bySource.length===1)return bySource[0].center;
+ const byThread=ref.threadRef?candidates.filter(hole=>sameDrawingThread(ref.threadRef,hole.machining?.thread)):[];
+ return byThread.length===1?byThread[0].center:null;
+}
+
+export function sameDrawingHoleCenterReference(a,b){
+ if(!a||!b)return a===b;
+ return a.sourceId===b.sourceId&&(!a.threadRef&&!b.threadRef||sameDrawingThread(a.threadRef,b.threadRef));
 }
 
 // Feature identity takes precedence over positions, including when equal-sized holes swap places.

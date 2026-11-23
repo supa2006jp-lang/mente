@@ -6,7 +6,7 @@ import {drawingReferenceCircleLimit} from './drawing-dimension-references.js';
 import {hasDrawingCommentFont,validCommentWidth} from './drawing-comments.js';
 import {validDrawingPrintPalette} from './drawing-print-palette.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
-import {holeReferenceLimit} from './drawing-hole-references.js';
+import {holeReferenceLimit,validDrawingHoleCenterReference} from './drawing-hole-references.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
 import {validDrawingThreadReference} from './drawing-thread-annotations.js';
 import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
@@ -107,7 +107,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   const pointIds=new Set();
   for(const item of s.dimensionPoints){
    if(!item||typeof item.id!=='string'||!/^dimension-point-[a-zA-Z0-9-]{1,60}$/.test(item.id)||
-    pointIds.has(item.id)||!viewNames.has(item.view)||!point(item.point)||!validReview(item))fail();
+    pointIds.has(item.id)||!viewNames.has(item.view)||!point(item.point)||!validReview(item)||
+    item.holeRef!==undefined&&!validDrawingHoleCenterReference(item.holeRef))fail();
    pointIds.add(item.id);
   }
  }
@@ -174,6 +175,9 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(d.manualEndpoints!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||!Array.isArray(d.manualEndpoints)||
    !d.manualEndpoints.length||d.manualEndpoints.length>2||new Set(d.manualEndpoints).size!==d.manualEndpoints.length||
    d.manualEndpoints.some(key=>key!=='a'&&key!=='b')))fail();
+  if(d.holeRefs!==undefined&&(d.view==='iso'||!['horizontal','vertical','aligned'].includes(d.kind)||
+   !d.holeRefs||typeof d.holeRefs!=='object'||Array.isArray(d.holeRefs)||!Object.keys(d.holeRefs).length||
+   Object.entries(d.holeRefs).some(([key,ref])=>key!=='a'&&key!=='b'||!validDrawingHoleCenterReference(ref))))fail();
   if(d.alongOffset!==undefined&&(!['horizontal','vertical','aligned'].includes(d.kind)||
    !Number.isFinite(d.alongOffset)||Math.abs(d.alongOffset)>1e6))fail();
   if(d.arcPoint!==undefined&&(d.kind!=='radius'||!point(d.arcPoint)))fail();

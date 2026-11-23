@@ -1,8 +1,10 @@
 import {dimensionValue} from './drawing-dimensions.js';
+import {sameDrawingHoleCenterReference} from './drawing-hole-references.js';
 
 export const isLinearDimensionKind=kind=>['horizontal','vertical','aligned'].includes(kind);
 export const drawingDimensionEndpoint=(d,end)=>({
  point:d[end],model:end==='a'?d.modelA:d.modelB,manual:d.manualEndpoints?.includes(end),
+ holeRef:d.holeRefs?.[end],
 });
 
 export function drawingDimensionBetween(kind,view,first,second){
@@ -15,6 +17,9 @@ export function drawingDimensionBetween(kind,view,first,second){
   if(first.manual)manualEndpoints.push('a');
   if(second.manual)manualEndpoints.push('b');
   if(manualEndpoints.length)d.manualEndpoints=manualEndpoints;
+  if(first.holeRef||second.holeRef)d.holeRefs={
+   ...(first.holeRef?{a:first.holeRef}:{}),...(second.holeRef?{b:second.holeRef}:{})
+  };
  }
  return dimensionValue(d)>=1e-6?d:null;
 }
@@ -23,11 +28,12 @@ export function replaceDrawingDimensionEndpoint(d,end,point){
  const first=drawingDimensionEndpoint(d,'a'),second=drawingDimensionEndpoint(d,'b');
  const previous=end==='a'?first:second;
  if(previous.point.every((value,i)=>value===point.point[i])&&!!previous.manual===!!point.manual&&
+  sameDrawingHoleCenterReference(previous.holeRef,point.holeRef)&&
   (!previous.model||previous.model.every((value,i)=>value===point.model?.[i])))return d;
  const span=drawingDimensionBetween(d.kind,d.view,end==='a'?point:first,end==='b'?point:second);
  if(!span)return null;
  const next={...d};
  // These fields describe the original measurement. Preserve its presentation and placement.
- for(const key of ['displayValue','overall','automatic','feature','repeat','manualEndpoints'])delete next[key];
+ for(const key of ['displayValue','overall','automatic','feature','repeat','manualEndpoints','holeRefs'])delete next[key];
  return {...next,...span};
 }
