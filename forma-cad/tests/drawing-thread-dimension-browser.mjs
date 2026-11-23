@@ -21,14 +21,17 @@ const screw={type:'freeScrew',id:'bolt',origin:[40,5,0],diameter:10,pitch:1.5,le
  nut:{id:'nut',shape:'round',height:4,wall:2.5,autoPull:true,clearance:.2}};
 const cad=(features,spec)=>({kind:'cadop',name:spec.id,id:spec.id,spec,...runOperation(features,spec)});
 const boltAndNut=cad([],screw);
-const features=[plate,hole,smallHole,cad([plate,hole,smallHole],thread),boltAndNut];
-const targets=['plate','bolt','nut'];
+const move={type:'move',id:'nut-copy',target:'nut',copy:true,x:-30,y:25,z:0,angle:0,axis:'Z'};
+const duplicateNut=cad([boltAndNut],move);
+const features=[plate,hole,smallHole,cad([plate,hole,smallHole],thread),boltAndNut,duplicateNut];
+const targets=['plate','bolt','nut','nut-copy'];
 const [nutX,nutY]=boltAndNut.analysis.nut.position;
-const adjustedLabel='Ø10.4（使用ボルトはM10）',expected=['M6','M10',adjustedLabel];
+const adjustedLabel='Ø10.4（使用ボルトはM10）',groupedLabel='2×'+adjustedLabel;
+const expected=['M6','M10',adjustedLabel],merged=['M6','M10',groupedLabel];
 const project={format:'forma-cad',version:1,features,drawing:{version:1,signature:drawingSignature(features),
  targets,targetMode:'visible',scale:2,hidden:true,comment:'',dimensions:[],
  options:{paper:'A3',orientation:'landscape',name:'ねじ寸法',material:'',date:'',frame:true,
-  viewSelection:['top','front','right'],isoMode:'hidden',positions:{top:[45,42],front:[45,150],right:[280,150],holeTable:[280,42]}}}};
+  viewSelection:['top','front','right'],isoMode:'hidden',positions:{top:[45,42],front:[45,171],right:[280,171],holeTable:[280,42]}}}};
 
 const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
 const server=http.createServer(async(req,res)=>{
@@ -95,8 +98,8 @@ try{
  await open(project);
  await field('dimension-auto').click();
  const automatic=await labels();
- assert.equal(automatic.filter(label=>label===adjustedLabel).length,1);
- assert.ok(automatic.includes('Ø15'));
+ assert.equal(automatic.filter(label=>label===groupedLabel).length,1);
+ assert.ok(automatic.includes('2×Ø15'));
  assert.ok(!automatic.includes('Ø10.4'));
  const omitted=field('omitted-hole');
  const small=await omitted.locator('option').filter({hasText:/TOP.*Ø0\.6/}).getAttribute('value');
@@ -124,7 +127,7 @@ try{
  assert(await link.isChecked());
  await field('pdf-preview-open').click();
  const pdf=await field('pdf-preview-host').locator('[data-dimension] text').allTextContents();
- assert.equal(pdf.filter(label=>label===adjustedLabel).length,1);
+ assert.equal(pdf.filter(label=>label===groupedLabel).length,1);
  await field('pdf-preview-close').click();
  const corner=preview.locator('[data-view-resize="right"]');
  await corner.scrollIntoViewIfNeeded();
@@ -154,22 +157,43 @@ try{
  assert.deepEqual(await labels(),expected.slice(0,2));
  await field('redo').click();
  assert.deepEqual(await labels(),expected);
+ await add([nutX+move.x+5.2,-nutY-move.y],[nutX+move.x,-nutY-move.y+13],adjustedLabel);
+ await field('dimension-group').click();
+ assert.deepEqual(await labels(),merged);
+ await field('undo').click();
+ assert.deepEqual(await labels(),[...expected,adjustedLabel]);
+ await field('redo').click();
+ assert.deepEqual(await labels(),merged);
  await field('thread-leader-start').click();
  await page.mouse.click(...await screen([nutX,-nutY]));
  await page.mouse.click(...await screen([nutX+21,-nutY+18]));
  await field('hole-start').click();
  await page.mouse.click(...await screen([-18,-15]));
- await page.mouse.click(...await screen([nutX,-nutY]));
+ const filter=field('hole-filter'),candidates=preview.locator('[data-hole-candidate]');
+ await filter.selectOption('thread');
+ assert.equal(await candidates.count(),3);
+ await filter.selectOption('through');
+ assert.equal(await candidates.count(),2);
+ await field('hole-all').click();
+ assert.equal(await preview.locator('[data-hole-candidate-selected="true"]').count(),2);
+ await filter.selectOption('blind');
+ assert.equal(await candidates.count(),2);
+ assert.match(await field('status').textContent(),/表示外 2 件/);
+ await field('hole-clear-selection').click();
+ assert(await field('hole-add').isDisabled());
+ await filter.selectOption('through');
+ await field('hole-all').click();
  await field('hole-add').click();
  async function assertThreadNotes(host){
-  for(const selector of ['[data-leader] text','[data-hole-row="H1"] text']){
+  assert.equal(await host.locator('[data-hole-row]').count(),2);
+  for(const selector of ['[data-leader] text','[data-hole-row="H1"] text','[data-hole-row="H2"] text']){
    const lines=await host.locator(selector).allTextContents();
    assert.ok(lines.includes(adjustedLabel),lines.join(' / '));
   }
  }
  await assertThreadNotes(preview);
  await field('pdf-preview-open').click();
- assert.deepEqual(await field('pdf-preview-host').locator('[data-dimension] text').allTextContents(),expected);
+ assert.deepEqual(await field('pdf-preview-host').locator('[data-dimension] text').allTextContents(),merged);
  await assertThreadNotes(field('pdf-preview-host'));
  await field('pdf-preview-close').click();
  await link.check();
@@ -181,14 +205,14 @@ try{
  assert.deepEqual(drawing.dimensions.map(d=>[d.kind,d.nominalDiameter,d.threadRim]),
   [['thread',6,'bore'],['thread',10,'shaft'],['thread',10,'bore']]);
  assert.equal(drawing.dimensions[2].adjustedDiameter,10.4);
- const {nominalDiameter,adjustedDiameter,threadRef,threadRim,...legacy}=drawing.dimensions[2];
- drawing.dimensions[2]=legacy;
+ assert.equal(drawing.dimensions[2].count,2);
+ assert.deepEqual(drawing.dimensions[2].threadRefs.map(ref=>ref.bodyId),['nut','nut-copy']);
  await open({...saved,drawing});
- assert.deepEqual(await labels(),expected);
+ assert.deepEqual(await labels(),merged);
  await assertThreadNotes(preview);
  assert(await link.isChecked());
  assert.deepEqual(errors,[]);
- console.log('PASS skipped-hole selection and insertion, adjusted thread dimensions and notes, linked scales, PDF preview and reopening');
+ console.log('PASS grouped thread dimensions, filtered hole table, PDF preview, linked scales and reopening');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

@@ -5,7 +5,7 @@ import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {orthographicProjection} from '../src/orthographic.js';
 import {drawingFrontFrame} from '../src/drawing-front.js';
-import {drawingTableHoles,resolveDrawingHoleTable} from '../src/drawing-hole-table.js';
+import {drawingHolesInFilter,drawingTableHoles,resolveDrawingHoleTable} from '../src/drawing-hole-table.js';
 import {drawingFileStem,drawingSheet} from '../src/drawing-sheet.js';
 import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {readDrawingState} from '../src/drawing-state.js';
@@ -27,10 +27,17 @@ test('the final solid distinguishes equal-diameter through, blind and counterbor
  const part=plate(),bodies=new Map([['plate',part]]);
  try{
   const data=orthographicProjection(bodies,['plate'],[],['top','bottom']);
-  const rows=drawingTableHoles(data.views.top).map(hole=>hole.machining);
+  const holes=drawingTableHoles(data.views.top),rows=holes.map(hole=>hole.machining);
   assert.deepEqual(rows.map(({center,radius,through,depth,counterbore})=>[center[0],radius*2,through??depth,counterbore?.depth]),[
    [8,5,true,undefined],[20,5,8,undefined],[32,5,9,3],[45,5,true,4]]);
   assert.equal(rows[2].counterbore.radius*2,9);
+  const indexes=filter=>drawingHolesInFilter([...holes,{center:[58,-12],radius:1}],filter).map(({index})=>index);
+  assert.deepEqual(indexes('all'),[0,1,2,3,4]);
+  assert.deepEqual(indexes('machined'),[0,1,2,3]);
+  assert.deepEqual(indexes('through'),[0,3]);
+  assert.deepEqual(indexes('blind'),[1,2]);
+  assert.deepEqual(indexes('counterbore'),[2,3]);
+  assert.deepEqual(indexes('thread'),[]);
   const bottom=drawingTableHoles(data.views.bottom);
   assert.deepEqual(bottom.map(hole=>hole.center[0]),[8,45]);
   assert.ok(bottom.every(hole=>hole.machining.through&&!hole.machining.counterbore));

@@ -27,7 +27,7 @@ import {drawingPrintPalettes,drawingPrintSVG,validDrawingPrintPalette} from './d
 import {snapDrawingDragAxis,snapDrawingPlacement} from './drawing-placement-guides.js';
 import {alignDrawingItems,drawingAlignmentActions} from './drawing-alignment.js';
 import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPointOmitted,moveDrawingBreakEdge} from './drawing-break.js';
-import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
+import {addDrawingHoleHitAreas,drawingHoleFilters,drawingHolesInFilter,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {associateDrawingHoleSources,drawingHoleCandidates,drawingHoleCenterReference,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,resolveDrawingHoleCenter,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
 import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from './drawing-thread-dimensions.js';
@@ -182,10 +182,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-undo').closest('.drawing-controls').classList.add('drawing-history-controls');
  $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" class="accent" type="button" title="図の配置と縮尺を保ったまま、外形・円形部・俯瞰図の寸法を追加します">寸法を自動入力</button>');
  $('drawing-dimension-auto').insertAdjacentHTML('afterend','<button id="drawing-dimension-arrange" title="既存の寸法を重なりにくい位置へ移動します">寸法を自動配置</button>');
- $('drawing-dimension-arrange').insertAdjacentHTML('afterend','<button type="button" id="drawing-dimension-group" title="同じ図・実寸法・書式のRや穴径を数量付きの表記にまとめます">同じR・穴径をまとめる</button>');
+ $('drawing-dimension-arrange').insertAdjacentHTML('afterend','<button type="button" id="drawing-dimension-group" title="同じ図・実寸法・書式のRや穴径、同じ仕様のねじ寸法を数量付きでまとめます">同じR・穴径・ねじ寸法をまとめる</button>');
  $('drawing-dimension-arrange').insertAdjacentHTML('afterend',
   '<button id="drawing-hole-start" title="図で基準点をクリックし、表に載せる円を選びます">穴位置表を作成</button>'+
-  '<button id="drawing-hole-all" hidden>候補をすべて選択</button><button id="drawing-hole-add" hidden>穴位置表を確定</button>'+
+  '<label id="drawing-hole-filter-label" hidden>穴の種類<select id="drawing-hole-filter">'+
+  Object.entries(drawingHoleFilters).map(([value,{label}])=>'<option value="'+value+'">'+label+'</option>').join('')+
+  '</select></label><button type="button" id="drawing-hole-all" hidden>候補をすべて選択</button>'+
+  '<button type="button" id="drawing-hole-clear-selection" hidden>選択をクリア</button><button id="drawing-hole-add" hidden>穴位置表を確定</button>'+
   '<button id="drawing-hole-delete" hidden>穴位置表を削除</button><span id="drawing-hole-review" hidden>'+
   '<label>要確認の穴<select id="drawing-hole-row"></select></label> <button type="button" id="drawing-hole-relink">図上で穴を再指定</button> '+
   '<button type="button" id="drawing-hole-remove-row">この行を削除</button></span>');
@@ -200,7 +203,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   [...drawingProjectionNames,'iso'].map(view=>'<fieldset data-auto-dimension-view="'+view+'"><legend>'+(drawingProjections[view]?.label??'俯瞰図 (ISO)')+'</legend>'+
    Object.entries(autoDimensionViewTypes(view)).map(([key,label])=>'<label><input type="checkbox" value="'+key+'">'+label+'</label>').join('')+
   '</fieldset>').join('')+'</details></div>');
- $('drawing-auto-dimension-views').before(Object.assign(document.createElement('div'),{id:'drawing-auto-dimension-types',className:'drawing-controls',innerHTML:'<strong>自動入力する種類</strong>'+[['outline','外形寸法'],['diameter','円・穴径'],['radius','R寸法'],['spacing','中心位置・間隔']].map(([key,label])=>'<label><input type="checkbox" data-auto-type="'+key+'" checked>'+label+'</label>').join('')+'<label><input type="checkbox" id="drawing-auto-group" checked>同じR・穴径をまとめる</label><small>これから自動追加する寸法に適用します。図ごとの設定は「ビュー別の自動寸法」から変更できます。</small>'}));
+ $('drawing-auto-dimension-views').before(Object.assign(document.createElement('div'),{id:'drawing-auto-dimension-types',className:'drawing-controls',innerHTML:'<strong>自動入力する種類</strong>'+[['outline','外形寸法'],['diameter','円・穴径'],['radius','R寸法'],['spacing','中心位置・間隔']].map(([key,label])=>'<label><input type="checkbox" data-auto-type="'+key+'" checked>'+label+'</label>').join('')+'<label><input type="checkbox" id="drawing-auto-group" checked>同じR・穴径・ねじ寸法をまとめる</label><small>これから自動追加する寸法に適用します。図ごとの設定は「ビュー別の自動寸法」から変更できます。</small>'}));
  $('drawing-auto-group').closest('label').insertAdjacentHTML('afterend','<label><input type="checkbox" id="drawing-auto-unique-overall">外形寸法を幅・奥行き・高さに各1つ</label>');
  const omittedHolePanel=document.createElement('details');
  omittedHolePanel.id='drawing-omitted-holes';omittedHolePanel.hidden=true;
@@ -1106,8 +1109,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   holeStart.textContent=holeTable?.originReview?'穴位置表の基準点を選び直す':holeTable?'この表に穴を追加':'穴位置表を作成';
   holeStart.title=holeTable&&!holeTable.originReview?'同じ基準点と穴番号を保ち、表に載せる穴を追加します':'図で基準点をクリックし、表に載せる円を選びます';
   holeStart.disabled=!ready||!viewSelection.length||!!holeTable&&!holeTable.originReview&&(!sheet?.layout[holeTable.view]||!holeCapacity());
-  $('drawing-hole-all').hidden=$('drawing-hole-add').hidden=!choosingHoles;
-  $('drawing-hole-all').disabled=!ready||!choosingHoles||action.candidates.length>holeCapacity();
+  $('drawing-hole-filter-label').hidden=$('drawing-hole-all').hidden=$('drawing-hole-clear-selection').hidden=$('drawing-hole-add').hidden=!choosingHoles;
+  const holeFilter=choosingHoles?action.filter??'all':'all';
+  $('drawing-hole-filter').value=holeFilter;
+  $('drawing-hole-filter').disabled=!ready||!choosingHoles;
+  const additional=choosingHoles?drawingHolesInFilter(action.candidates,holeFilter).filter(({index})=>!action.selected.has(index)).length:0;
+  $('drawing-hole-all').textContent=holeFilter==='all'?'候補をすべて選択':'絞り込んだ候補を選択';
+  $('drawing-hole-all').disabled=!ready||!additional||action.selected.size+additional>holeCapacity();
+  $('drawing-hole-clear-selection').disabled=!ready||!choosingHoles||!action.selected.size;
   $('drawing-hole-add').textContent=action?.append?'選んだ穴を追加':'穴位置表を確定';
   $('drawing-hole-add').disabled=!ready||!choosingHoles||!action.selected.size;
   $('drawing-hole-delete').hidden=!holeTable||action?.kind==='holes';
@@ -1158,7 +1167,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const input of typeInputs){input.checked=typeKeys(input.dataset.autoType).every(key=>autoDimensionTypesEnabled.includes(key));input.disabled=!ready;}
   $('drawing-auto-group').checked=groupRepeatedDimensions;$('drawing-auto-group').disabled=!ready;
   $('drawing-auto-unique-overall').checked=uniqueOverallDimensions;$('drawing-auto-unique-overall').disabled=!ready;
-  $('drawing-dimension-group').disabled=!editable||!dimensions.some(d=>!d.review&&['radius','diameter'].includes(d.kind));
+  $('drawing-dimension-group').disabled=!editable||!dimensions.some(d=>!d.review&&isCircularDimensionKind(d.kind)&&
+   (d.kind!=='thread'||d.threadRef&&d.threadRim!=='shaft'));
   dimensionList?.sync();
   for(const id of ['drawing-dimension-point-add','drawing-center-add','drawing-center-line','drawing-centers-all','drawing-detail-add'])$(id).disabled=!editable;
   $('drawing-target').disabled=busy;
@@ -1302,7 +1312,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    }
    Object.assign(state,{view,origin:point,candidates,selected:new Set()});
   }else{
-   const hit=nearestHole(e,state.view,state.candidates,hole=>hole.machining),closest=state.candidates.indexOf(hit);
+   const visible=drawingHolesInFilter(state.candidates,state.filter).map(({hole})=>hole);
+   const hit=nearestHole(e,state.view,visible,hole=>hole.machining),closest=state.candidates.indexOf(hit);
    if(closest<0)throw Error('円の輪郭または中心付近をクリックしてください');
    if(state.rowIndex!==undefined){
     const index=state.rowIndex;
@@ -1319,8 +1330,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   updateHoleSelection();
  }
  function updateHoleSelection(){
+  const {candidates,selected,filter}=action;
+  const visible=drawingHolesInFilter(candidates,filter);
+  const hiddenSelection=selected.size-visible.filter(({index})=>selected.has(index)).length;
   render(false);
-  status('円をクリックして選択・解除し、「'+$('drawing-hole-add').textContent+'」を押してください（'+action.selected.size+' 件選択）');
+  const counts='表示 '+visible.length+' 件 ／ 選択 '+selected.size+' 件'+(hiddenSelection?'（表示外 '+hiddenSelection+' 件）':'');
+  status((visible.length?'円をクリックして選択できます。':'該当する穴がありません。')+counts);
  }
  function drawHoleSelection(){
   if(action?.kind!=='holes'||!action.candidates||!sheet.layout[action.view])return;
@@ -1333,12 +1348,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   };
   const [x,y]=map(action.view,action.origin);
   add('path',{d:'M '+(x-2)+' '+y+' h 4 M '+x+' '+(y-2)+' v 4',stroke:'#008a9e','stroke-width':.5});
-  action.candidates.forEach((hole,i)=>{
-   const [cx,cy]=map(action.view,hole.center),selected=action.selected.has(i);
+  for(const {hole,index} of drawingHolesInFilter(action.candidates,action.filter)){
+   const [cx,cy]=map(action.view,hole.center),selected=action.selected.has(index);
    const radii=hole.machining?.counterbore?[hole.radius,hole.machining.counterbore.radius]:[hole.radius];
-   for(const radius of radii)add('circle',{cx,cy,r:radius*v.scale,fill:selected?'#008a9e25':'none',stroke:selected?'#008a9e':'#4384a0',
+   for(const radius of radii)add('circle',{cx,cy,r:radius*v.scale,'data-hole-candidate':index,'data-hole-candidate-selected':selected,
+    fill:selected?'#008a9e25':'none',stroke:selected?'#008a9e':'#4384a0',
     'stroke-width':selected?.5:.3,'stroke-dasharray':selected?'none':'1 1'});
-  });
+  }
   svg.append(group);
  }
  function syncCommentStyle(ready){
@@ -1749,9 +1765,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   action={kind:'holes',append:true,view,origin,candidates,selected:new Set()};
   updateHoleSelection();
  };
+ $('drawing-hole-filter').onchange=()=>{
+  if(busy||action?.kind!=='holes'||!action.candidates||action.rowIndex!==undefined)return;
+  action.filter=$('drawing-hole-filter').value;updateHoleSelection();
+ };
  $('drawing-hole-all').onclick=()=>{
-  if(action?.kind!=='holes'||!action.candidates||action.candidates.length>holeCapacity())return;
-  action.selected=new Set(action.candidates.keys());updateHoleSelection();
+  if($('drawing-hole-all').disabled)return;
+  for(const {index} of drawingHolesInFilter(action.candidates,action.filter))action.selected.add(index);
+  updateHoleSelection();
+ };
+ $('drawing-hole-clear-selection').onclick=()=>{
+  if($('drawing-hole-clear-selection').disabled)return;
+  action.selected.clear();updateHoleSelection();
  };
  $('drawing-hole-add').onclick=()=>{
   if(action?.kind!=='holes'||!action.selected?.size||action.selected.size>holeCapacity())return;
@@ -2557,7 +2582,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(clipped)messages.push('用紙をはみ出した寸法 '+clipped+' 個は赤枠から調整できます。');
   status(messages.join(' '));
  };
- $('drawing-dimension-group').onclick=()=>{if(!sheet||busy)return;const grouped=groupDrawingDimensions(dimensions),removed=dimensions.length-grouped.length;if(!removed){status('まとめられる同じR・穴径はありません。同じ図・実寸法・書式の寸法だけをまとめます');return;}dimensions=grouped;selection=null;picking=null;action=null;render(true,{reflowDimensions:true});status('同じR・穴径をまとめ、寸法表示を '+removed+' 件減らしました。元に戻すで取り消せます');};
+ $('drawing-dimension-group').onclick=()=>{
+  if(!sheet||busy)return;
+  const grouped=groupDrawingDimensions(dimensions,withDetails(data,details).views),removed=dimensions.length-grouped.length;
+  if(!removed){status('同じ図でまとめられるR・穴径・ねじ寸法がありません');return;}
+  dimensions=grouped;selection=null;picking=null;action=null;
+  render(true,{reflowDimensions:true});
+  status('同じ寸法をまとめ、表示を '+removed+' 件減らしました。元に戻すで取り消せます');
+ };
  $('drawing-dimension-arrange').onclick=()=>{
   if(!data||!sheet||busy||!dimensions.length)return;
   picking=null;action=null;selection=null;

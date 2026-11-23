@@ -8,7 +8,7 @@ import {validDrawingPrintPalette} from './drawing-print-palette.js';
 import {maxDrawingTableHoles} from './drawing-hole-table.js';
 import {holeReferenceLimit,validDrawingHoleCenterReference} from './drawing-hole-references.js';
 import {maxDrawingLeaders,maxDrawingLeaderText} from './drawing-leaders.js';
-import {validDrawingThreadReference} from './drawing-thread-annotations.js';
+import {sameDrawingThread,validDrawingThreadReference} from './drawing-thread-annotations.js';
 import {drawingThreadRimKinds} from './drawing-thread-dimensions.js';
 import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
@@ -191,7 +191,20 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(d.tolerance!==undefined&&(!Number.isFinite(d.tolerance)||d.tolerance<0||d.tolerance>1e6))fail();
   if(d.note!==undefined&&(typeof d.note!=='string'||d.note.length>60||/[\u0000-\u001f]/.test(d.note)))fail();
   if(['lineColor','textColor'].some(key=>d[key]!==undefined&&!validDimensionColor(d[key])))fail();
-  if(d.count!=null||d.centers!=null){if(!['diameter','radius'].includes(d.kind)||!Number.isInteger(d.count)||d.count<2||d.count>200||!Array.isArray(d.centers)||d.centers.length!==d.count||d.centers.some(p=>!point(p)))fail();const ids=new Set(d.centers.map(p=>p.map(n=>Number(n.toFixed(5))).join(',')));if(ids.size!==d.count||!d.centers.some(p=>Math.hypot(p[0]-d.center[0],p[1]-d.center[1])<1e-5))fail();}
+  if(d.count!=null||d.centers!=null){
+   if(!isCircularDimensionKind(d.kind)||!Number.isInteger(d.count)||d.count<2||d.count>200||
+    !Array.isArray(d.centers)||d.centers.length!==d.count||d.centers.some(p=>!point(p)))fail();
+   const ids=new Set(d.centers.map(p=>p.map(n=>Number(n.toFixed(5))).join(',')));
+   const sameCenter=p=>Math.hypot(p[0]-d.center[0],p[1]-d.center[1])<1e-5;
+   if(ids.size!==d.count||!d.centers.some(sameCenter)||d.kind==='thread'&&!sameCenter(d.centers[0]))fail();
+  }
+  if(d.threadRefs!==undefined||d.kind==='thread'&&d.count!=null){
+   const refs=d.threadRefs;
+   if(d.kind!=='thread'||!d.threadRef||d.threadRim==='shaft'||!Array.isArray(d.centers)||
+    !Array.isArray(refs)||refs.length!==d.count||refs.some(ref=>!ref||!validDrawingThreadReference(ref))||
+    !sameDrawingThread(d.threadRef,refs[0]))fail();
+   if(new Set(refs.map(({id,bodyId,end})=>JSON.stringify([id,bodyId,end]))).size!==refs.length)fail();
+  }
   if(d.repeat!=null){const r=d.repeat;if(!['horizontal','vertical','aligned'].includes(d.kind)||!r||!Number.isInteger(r.count)||r.count<2||r.count>199||!Number.isFinite(r.pitch)||r.pitch<=0||Math.abs(dimensionValue(d)-r.count*r.pitch)>1e-5*Math.max(1,dimensionValue(d)))fail();}
  }
  return s;

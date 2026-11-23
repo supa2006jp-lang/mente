@@ -13,10 +13,11 @@ export const adjustedDrawingThreadLabel=(diameter,nominal)=>'Ø'+diameter+'（�
 export function dimensionLabel(d){
  if(d.review)return '要確認';
  const value=numberLabel(d);
+ const quantity=d.count>1?d.count+'×':'';
  const nominal=d.kind==='thread'?(d.adjustedDiameter===undefined?'M'+value:adjustedDrawingThreadLabel(value,d.nominalDiameter)):d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
-  (['diameter','radius'].includes(d.kind)?(d.count>1?d.count+'×':'')+(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
+  (['diameter','radius'].includes(d.kind)?(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
  const tolerance=d.tolerance===undefined?'':' ±'+d.tolerance+(d.kind==='angle'?'°':'');
- return nominal+tolerance+(d.note?' '+d.note:'');
+ return quantity+nominal+tolerance+(d.note?' '+d.note:'');
 }
 export function dimensionLabelWidth(label,font){
  return [...label].reduce((width,char)=>width+(char.codePointAt(0)>0xff?1:.6)*font,2);

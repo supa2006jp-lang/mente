@@ -3,7 +3,7 @@ import {drawingCurves} from './drawing-curves.js';
 import {dimensionValue,isCircularDimensionKind,pathEndpoints} from './drawing-dimensions.js';
 import {drawingProjectedFrame,drawingProjections} from './drawing-view-preferences.js';
 import {drawingDimensionCenterGuides,drawingDimensionPointFits} from './drawing-dimension-points.js';
-import {sameProjectedThreadRim} from './drawing-thread-dimensions.js';
+import {projectedDrawingThreadRims,sameDrawingThreadHoleSpec} from './drawing-thread-dimensions.js';
 
 const epsilon=1e-4;
 export const drawingReferenceCircleLimit=256;
@@ -84,15 +84,26 @@ function overall(d,box,reference){
  }
  return {...d,a,b,at};
 }
-function followCircleDimension(d,follow){
- const hits=(d.centers??[d.center]).map(center=>follow({center,radius:d.radius}));
- if(hits.some(hit=>!hit)||new Set(hits).size!==hits.length||hits.some(hit=>!near(hit.radius,hits[0].radius)))return null;
+function followCircleDimension(d,hits){
+ if(!hits.length||hits.some(hit=>!hit)||new Set(hits).size!==hits.length||hits.some(hit=>!near(hit.radius,hits[0].radius)))return null;
  const {center,radius}=hits[0];
  const at=translate(d.at,d.center,center);
  const ray=at.map((n,i)=>n-center[i]),length=Math.hypot(...ray);
  if(length)for(let i=0;i<2;i++)at[i]+=ray[i]/length*(radius-d.radius);
  const arcPoint=d.arcPoint?.map((value,i)=>center[i]+(value-d.center[i])*radius/d.radius);
  return {...d,center,radius,at,...(arcPoint?{arcPoint}:{}),...(d.centers?{centers:hits.map(c=>c.center)}:{})};
+}
+function followThreadDimension(d,view){
+ const rims=projectedDrawingThreadRims(view,d),primary=rims[0];
+ if(d.threadRefs&&rims.some(rim=>!sameDrawingThreadHoleSpec(primary,rim)))return null;
+ const followed=followCircleDimension(d,rims);
+ if(!followed)return null;
+ const {review,adjustedDiameter,...updated}=followed;
+ const {diameter,adjustedDiameter:actual}=primary.thread;
+ updated.nominalDiameter=diameter;
+ if(actual!==undefined)updated.adjustedDiameter=actual;
+ if(d.pdfPlacement)updated.pdfPlacement={...d.pdfPlacement,at:translate(d.pdfPlacement.at,d.at,updated.at)};
+ return updated;
 }
 function followLocation(d,{round,follow},reference,box){
  const axis=d.kind==='horizontal'?0:1,side=1-axis;
@@ -166,18 +177,11 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
   if(view&&!targetsChanged){
    if(d.view==='iso')updated=followIsometricDimension(d,view);
    else if(['horizontal','vertical'].includes(d.kind)&&d.overall===d.view+d.kind)updated=overall(d,box,reference);
-   else if(d.kind==='thread'&&d.threadRef){
-    const rim=sameProjectedThreadRim(view,d);
-    if(rim){
-     updated=followCircleDimension(d,()=>rim);
-     updated.nominalDiameter=rim.thread.diameter;
-     if(rim.thread.adjustedDiameter===undefined)delete updated.adjustedDiameter;
-     else updated.adjustedDiameter=rim.thread.adjustedDiameter;
-     if(d.pdfPlacement)updated.pdfPlacement={...d.pdfPlacement,at:translate(d.pdfPlacement.at,d.at,updated.at)};
-     delete updated.review;
-    }
+   else if(d.kind==='thread'&&d.threadRef)updated=followThreadDimension(d,view);
+   else if(isCircularDimensionKind(d.kind)){
+    const {follow}=context(d.view,view,reference);
+    updated=followCircleDimension(d,(d.centers??[d.center]).map(center=>follow({center,radius:d.radius})));
    }
-   else if(isCircularDimensionKind(d.kind))updated=followCircleDimension(d,context(d.view,view,reference).follow);
    else if(d.kind==='angle')updated=unchangedAngle(d,view)?d:null;
    else if(d.feature==='pitch')updated=followPitch(d,context(d.view,view,reference),reference);
    else if(d.automatic&&d.feature!=='profile-edge')updated=followLocation(d,context(d.view,view,reference),reference,box);

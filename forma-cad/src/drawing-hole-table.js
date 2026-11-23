@@ -5,6 +5,18 @@ import {escapeDrawingText} from './drawing-dimensions.js';
 import {drawingThreadTableText} from './drawing-thread-annotations.js';
 
 export const maxDrawingTableHoles=48;
+export const drawingHoleFilters={
+ all:{label:'すべて',matches:()=>true},
+ machined:{label:'加工穴',matches:hole=>!!hole},
+ thread:{label:'ねじ穴',matches:hole=>!!hole?.thread},
+ through:{label:'貫通穴',matches:hole=>hole?.through===true},
+ blind:{label:'止まり穴',matches:hole=>hole?.through!==true&&Number.isFinite(hole?.depth)&&hole.depth>0},
+ counterbore:{label:'座ぐり穴',matches:hole=>!!hole?.counterbore},
+};
+export function drawingHolesInFilter(holes,filter){
+ const {matches}=drawingHoleFilters[filter]??drawingHoleFilters.all;
+ return holes.flatMap((hole,index)=>matches(hole.machining)?[{hole,index}]:[]);
+}
 const rowsPerBlock=24,baseColumns=[7,11.5,11.5,9,10,11.5,13.5];
 function tableColumns(table){
  const thread=table.holes.some(hole=>hole.machining?.thread);

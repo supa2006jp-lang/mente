@@ -8,7 +8,7 @@ function threadRims(view){
  const bores=(view.holeMachining??[]).flatMap(hole=>{
   if(!hole.thread)return [];
   const {center,radius,thread,counterbore}=hole;
-  const bore={center,radius,thread,kind:'bore'};
+  const bore={center,radius,thread,kind:'bore',hole};
   return counterbore?[bore,{...bore,radius:counterbore.radius,kind:'counterbore'}]:[bore];
  });
  return [...bores,...shafts];
@@ -54,8 +54,29 @@ export function drawingThreadDimensionTarget(view,{arc,threadShaft,point}){
 }
 
 export function sameProjectedThreadRim(view,d){
- const matches=threadRims(view).filter(rim=>rim.kind===d.threadRim&&sameDrawingThread(d.threadRef,rim.thread));
- return matches.length===1?matches[0]:null;
+ return projectedDrawingThreadRims(view,{threadRef:d.threadRef,threadRim:d.threadRim})[0]??null;
+}
+
+export const drawingThreadDimensionRefs=d=>d.threadRefs??(d.threadRef?[d.threadRef]:[]);
+
+export function projectedDrawingThreadRims(view,d){
+ if(!view||!d.threadRef)return [];
+ const rims=threadRims(view).filter(rim=>rim.kind===d.threadRim);
+ return drawingThreadDimensionRefs(d).map(ref=>{
+  const matches=rims.filter(rim=>sameDrawingThread(ref,rim.thread));
+  return matches.length===1?matches[0]:null;
+ });
+}
+
+const specificationTolerance=1e-5;
+const equalMeasure=(a,b)=>a===b||Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<specificationTolerance;
+export function sameDrawingThreadHoleSpec(a,b){
+ if(!a?.hole||!b?.hole)return false;
+ const first=a.thread,second=b.thread;
+ if(![first.diameter,first.pitch,first.length,second.diameter,second.pitch,second.length].every(value=>Number.isFinite(value)&&value>0))return false;
+ return ['diameter','pitch','length','adjustedDiameter'].every(key=>equalMeasure(first[key],second[key]))&&
+  equalMeasure(first.offset??0,second.offset??0)&&!!first.leftHand===!!second.leftHand&&
+  !!a.hole.through===!!b.hole.through&&equalMeasure(a.hole.depth,b.hole.depth)&&equalMeasure(a.hole.radius,b.hole.radius);
 }
 
 export function restoreAdjustedThreadDimensions(views,dimensions){

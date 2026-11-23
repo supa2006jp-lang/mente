@@ -6,7 +6,7 @@ import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawin
 import {drawingDimensionVisible,fullDrawingSpan} from './drawing-break.js';
 import {insideView,withDetails} from './drawing-annotations.js';
 import {groupDrawingDimensions} from './drawing-dimension-groups.js';
-import {drawingThreadBoreDimension} from './drawing-thread-dimensions.js';
+import {drawingThreadBoreDimension,drawingThreadDimensionRefs} from './drawing-thread-dimensions.js';
 
 export const autoDimensionTypes={horizontal:'横寸法',vertical:'縦寸法',diameter:'円・穴径',spacing:'中心位置・間隔',radius:'角の半径 R'};
 export const autoDimensionKeys=Object.keys(autoDimensionTypes);
@@ -74,7 +74,12 @@ function diameterGroup(d,centers){
 }
 function covered(d){
  if(['diameter','radius'].includes(d.kind)&&d.centers)return d.centers.map(center=>key({...d,center}));
- return d.kind==='thread'&&d.threadRim==='bore'?[key(d),key({...d,kind:'diameter'})]:[key(d)];
+ if(d.kind!=='thread'||!d.threadRef||d.threadRim==='shaft')return [key(d)];
+ return drawingThreadDimensionRefs(d).flatMap((threadRef,i)=>{
+  const bore=key({...d,threadRef,threadRim:'bore'});
+  return d.threadRim==='counterbore'?[bore,key({...d,threadRef})]:
+   [bore,key({...d,kind:'diameter',center:d.centers?.[i]??d.center})];
+ });
 }
 const circleMeasured=(dimension,keys)=>covered(dimension).some(id=>keys.has(id));
 export function unmeasuredDrawingHoles(entries,dimensions){
@@ -90,24 +95,26 @@ export function drawingDiameterDraftPosition(d,placement){
  return [x+d.radius+7/s,y-(drawingProjectionNames.includes(d.view)?3/s:0)];
 }
 
-// Reuse the placement of existing automatic dimensions when adding bolt sizes.
+// Reuse the placement of saved automatic dimensions when identifying threaded holes.
 // If the old diameter grouped several circles, keep the ordinary ones together.
-function updateAutomaticBoreDimensions(existing,views,sheet,enabled,limit){
- const updates=new Map(),split=[],annotated=new Set(existing.filter(d=>d.kind==='thread'&&!d.review).map(key));
+function updateAutomaticBoreDimensions(existing,views,sheet,enabled,limit,groupRepeated){
+ const updates=new Map(),split=[],annotated=new Set(existing.filter(d=>d.kind==='thread'&&!d.review).flatMap(covered));
  for(const [index,d] of existing.entries()){
   const shape=views[d.view],placement=sheet.layout[d.view];
   if(!d.automatic||d.kind!=='diameter'||d.review||!shape||!placement||!enabled(d.view,'diameter'))continue;
   const {centers,count,...format}=d,plain=[],bores=[];
   for(const center of centers??[d.center]){
    const circle={...format,center},size=drawingThreadBoreDimension(shape,circle);
-   const bore=size?.adjustedDiameter===undefined?null:{...circle,...size};
-   if(bore&&!annotated.has(key(bore))&&drawingDiameterCandidateVisible(circle,shape,placement))bores.push(bore);
+   const bore=size&&{...circle,...size};
+   if(bore&&!circleMeasured(bore,annotated)&&drawingDiameterCandidateVisible(circle,shape,placement))bores.push(bore);
    else plain.push(center);
   }
-  if(!bores.length||split.length+bores.length-Number(!plain.length)>limit)continue;
-  for(const bore of bores)annotated.add(key(bore));
-  updates.set(index,plain.length?diameterGroup(format,plain):bores.shift());
-  for(const {pinned,pdfPlacement,...bore} of bores){
+  if(!bores.length)continue;
+  const replacements=groupRepeated?groupDrawingDimensions(bores,views):bores;
+  if(split.length+replacements.length-Number(!plain.length)>limit)continue;
+  for(const bore of bores)for(const id of covered(bore))annotated.add(id);
+  updates.set(index,plain.length?diameterGroup(format,plain):replacements.shift());
+  for(const {pinned,pdfPlacement,...bore} of replacements){
    split.push({...bore,at:drawingDiameterDraftPosition(bore,placement)});
   }
  }
@@ -273,7 +280,7 @@ export function completeDrawingCircles(view,arcs=drawingCurves(view.visible).arc
 export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},types=autoDimensionKeys,groupRepeated=true,uniqueAxes=false,fontSize,details=[],placed=existing}={}){
  const enabled=(view,type)=>types.includes(type)&&(views[view]?.includes(type)??true);
  const projected=withDetails(data,details).views,limit=500-existing.length;
- const {updates,split:added}=updateAutomaticBoreDimensions(existing,projected,sheet,enabled,limit);
+ const {updates,split:added}=updateAutomaticBoreDimensions(existing,projected,sheet,enabled,limit,groupRepeated);
  const current=updates.size?existing.map((d,i)=>updates.get(i)??d):existing;
  const locked=updates.size?placed.map((d,i)=>{
   const index=placed===existing?i:sheet.dimensionIndices?.[i]??i,updated=updates.get(index);
@@ -284,7 +291,7 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
  const candidates=[];
  const considerCircle=(view,shape,c,placement)=>{
   const thread=drawingThreadBoreDimension(shape,c);
-  const dimension={view,kind:'diameter',...c,...(thread?.adjustedDiameter===undefined?{}:thread)};
+  const dimension={view,kind:'diameter',...c,...thread};
   const candidate={dimension,threaded:!!thread,reason:c.radius*placement.scale<.75?'small':'limit'};
   candidates.push(candidate);
   return candidate;
@@ -342,7 +349,7 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
    const members=diameterDrafts(group.members.sort(prioritizeThreads),v);
    if(groupRepeated){
     const plain=members.filter(d=>d.kind==='diameter');
-    for(const d of members)if(d.kind==='thread')push(d);
+    for(const d of groupDrawingDimensions(members.filter(d=>d.kind==='thread'),projected))push(d);
     if(plain.length)push(diameterGroup(plain[0],plain.map(d=>d.center)));
    }else for(const d of members.slice(0,8))push(d);
    if(!spacing)continue;
@@ -361,7 +368,7 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
    const selected=all.filter(c=>drawingDiameterCandidateVisible(c,shape,v))
     .map(c=>considerCircle(view,shape,c,v)).filter(c=>c.reason!=='small').sort(prioritizeThreads).slice(0,4);
    const round=diameterDrafts(selected,v);
-   for(const d of groupRepeated?groupDrawingDimensions(round):round)push(d);
+   for(const d of groupRepeated?groupDrawingDimensions(round,projected):round)push(d);
   }
  }
  const layout=arrangeDrawingDimensions(added,sheet,locked,{keepOnPaper:true});

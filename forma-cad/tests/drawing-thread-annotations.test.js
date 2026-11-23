@@ -14,6 +14,8 @@ import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from '../s
 import {dimensionLabel,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 import {autoDrawingDimensions,unmeasuredDrawingHoles} from '../src/drawing-auto-dimensions.js';
+import {groupDrawingDimensions} from '../src/drawing-dimension-groups.js';
+import {readDrawingState} from '../src/drawing-state.js';
 
 before(async()=>R.setOC(await init({wasmBinary:await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url))})));
 
@@ -194,7 +196,7 @@ test('automatic dimensions prioritize threaded openings across views and list th
  const result=autoDrawingDimensions(data,1,[],sheet,settings);
  assert.equal(result.dimensions.length,8);
  assert(result.dimensions.some(d=>d.kind==='thread'&&dimensionLabel(d)==='Ø3.2（使用ボルトはM3）'));
- assert(result.dimensions.some(d=>d.view==='right'&&dimensionLabel(d)==='Ø3'));
+ assert(result.dimensions.some(d=>d.view==='right'&&dimensionLabel(d)==='M3'));
  assert.deepEqual(result.omitted.map(({dimension:d,reason})=>[d.view,dimensionLabel(d),reason]),
   [['top','Ø4','limit'],['top','Ø0.6','small'],['front','Ø4','limit']]);
  const recovered={...result.omitted[0].dimension,at:[54,-40]};
@@ -203,4 +205,52 @@ test('automatic dimensions prioritize threaded openings across views and list th
  const again=autoDrawingDimensions(data,1,dimensions,sheet,settings);
  assert.deepEqual(again.dimensions,[]);
  assert.deepEqual(again.omitted,result.omitted.slice(1));
+});
+
+test('thread dimensions group only matching machining specifications and keep each reference',()=>{
+ const specification={diameter:10,adjustedDiameter:10.4,pitch:1.5,length:5,leftHand:false};
+ const variants=[{},{},{},{},{pitch:1.25},{length:4},{leftHand:true},{diameter:9.5},{adjustedDiameter:10.6}];
+ const holes=variants.map((variant,i)=>{
+  const thread={...specification,...variant,id:'tap-'+i,bodyId:'block',end:'high'};
+  return {center:[12+(i%5)*18,-12-Math.floor(i/5)*18],radius:thread.adjustedDiameter/2,depth:8,thread};
+ });
+ const circle=({center:[x,y],radius:r})=>`M ${x-r} ${y} A ${r} ${r} 0 0 1 ${x+r} ${y} A ${r} ${r} 0 0 1 ${x-r} ${y}`;
+ const top={viewBox:[0,-42,100,42],visible:['M 0 0 L 100 0 L 100 -42 L 0 -42 Z',...holes.map(circle)],hidden:[],holeMachining:holes};
+ const data={bounds:[[0,0,0],[100,42,10]],views:{top}};
+ const manual=holes.map(h=>{
+  const [x,y]=h.center;
+  return {kind:'thread',view:'top',at:[x,y+15],...drawingThreadDimensionTarget(top,{arc:h,point:[x+h.radius,y]})};
+ });
+ const grouped=groupDrawingDimensions(manual,data.views),[group]=grouped,label='4×Ø10.4（使用ボルトはM10）';
+ assert.equal(grouped.length,6);
+ assert.equal(dimensionLabel(group),label);
+ assert.deepEqual(group.centers,holes.slice(0,4).map(h=>h.center));
+ assert.deepEqual(group.threadRefs.map(ref=>ref.id),['tap-0','tap-1','tap-2','tap-3']);
+ assert.ok(grouped.slice(1).every(d=>d.count===undefined));
+ assert.equal(groupDrawingDimensions([manual[0],manual[0]],data.views).length,2);
+ assert.deepEqual(groupDrawingDimensions(grouped,data.views),grouped);
+
+ const sheet=drawingSheet(data,1,true,[],'',options),settings={types:['diameter']};
+ const generated=autoDrawingDimensions(data,1,[],sheet,settings);
+ assert.deepEqual(generated.dimensions.map(dimensionLabel).sort(),grouped.map(dimensionLabel).sort());
+ assert.equal(autoDrawingDimensions(data,1,generated.dimensions,sheet,settings).dimensions.length,0);
+ const individual=autoDrawingDimensions(data,1,[],sheet,{...settings,groupRepeated:false}).dimensions;
+ assert.equal(individual.length,holes.length);
+ assert.ok(individual.every(d=>!d.count));
+ const state={version:1,signature:'fixture',targets:['block'],targetMode:'visible',scale:1,hidden:true,comment:'',options,dimensions:grouped};
+ assert.deepEqual(readDrawingState(JSON.parse(JSON.stringify(state))).dimensions,grouped);
+ assert.throws(()=>readDrawingState({...state,dimensions:[{...group,threadRefs:group.threadRefs.map(()=>group.threadRef)}]}));
+ assert.ok(drawingPDFPages(data,1,true,grouped,'',options).some(page=>page.svg.includes(label)));
+
+ const refs=captureDrawingReferences(data,grouped);
+ const moved=holes.map(h=>({...h,center:h.center.map(value=>value+1)}));
+ const movedData={...data,views:{top:{...top,holeMachining:moved}}};
+ const [updated]=reconcileDrawingDimensions(movedData,grouped,refs);
+ assert.equal(dimensionLabel(updated),label);
+ assert.deepEqual(updated.centers,moved.slice(0,4).map(h=>h.center));
+ const changed=[...moved];
+ changed[1]={...changed[1],thread:{...changed[1].thread,pitch:1.25}};
+ const [review]=reconcileDrawingDimensions({...data,views:{top:{...top,holeMachining:changed}}},[updated],refs);
+ assert.equal(dimensionLabel(review),'要確認');
+ assert.equal(dimensionLabel(reconcileDrawingDimensions(movedData,[review],refs)[0]),label);
 });
