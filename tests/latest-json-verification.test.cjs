@@ -32,7 +32,7 @@ function backup(history = []) {
             currentDepartmentId: 'dept_default',
             departments: [{ id: 'dept_default', name: '部署' }],
             deptData: { dept_default: { machines: [], tasks: [], history } },
-            settings: { lastSuccessfulSaveAt: '2026-11-15T00:00:00.000Z' }
+            settings: { lastSuccessfulSaveAt: new Date().toISOString() }
         },
         embeddedMedia: { version: 1, entries: [] }
     };
@@ -45,10 +45,11 @@ function fileOf(value) {
 
 test('saved latest.json is read and validated before recording a verified time', async () => {
     const page = makePage();
-    const verified = await page.app.verifyLatestJsonBackupFile(fileOf(backup([{ id: 'history-1', photos: [] }])));
+    const value = backup([{ id: 'history-1', photos: [] }]);
+    const verified = await page.app.verifyLatestJsonBackupFile(fileOf(value));
     assert.equal(verified.fileName, 'latest.json');
     assert.equal(verified.kind, 'complete');
-    assert.equal(verified.savedAt, '2026-11-15T00:00:00.000Z');
+    assert.equal(verified.savedAt, value.mainData.settings.lastSuccessfulSaveAt);
     assert.ok(Date.parse(verified.at));
     assert.equal(page.values.get('maintenance_latest_json_verified_v1'), JSON.stringify(verified));
     assert.equal(page.app.getLatestJsonVerificationState().needsAction, false);
