@@ -20965,7 +20965,8 @@ select.history-assist-copied-value {
     background-size: 100% 100%;
 }
 
-#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-gradient-options {
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-gradient-options,
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-foil-options {
     display: grid;
     gap: 10px;
 }
@@ -21008,7 +21009,8 @@ select.history-assist-copied-value {
     cursor: pointer;
 }
 
-#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-direction {
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-direction,
+#shift-photo-compare-blank-bg-panel [data-bg-foil-pattern] {
     width: 100%;
     min-height: 28px;
     padding: 2px 4px;
@@ -21026,6 +21028,20 @@ select.history-assist-copied-value {
     gap: 8px;
     margin: 0;
     min-height: 28px;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-foil-options label {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) 38px;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    min-height: 28px;
+}
+
+#shift-photo-compare-blank-bg-panel [data-bg-foil-pattern] {
+    grid-column: 2 / -1;
+    min-width: 0;
 }
 
 #shift-photo-compare-blank-bg-panel input[type="range"] {

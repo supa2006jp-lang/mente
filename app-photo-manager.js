@@ -5078,7 +5078,7 @@
             if (!edit || edit.type !== 'blank') return false;
             const baseColor = String(edit.blankBaseColor || '#ffffff').toLowerCase();
             const hasMarks = Array.isArray(edit.marks) && edit.marks.length > 0;
-            return hasMarks || edit.blankBaseGradient?.enabled === true || (baseColor && baseColor !== '#ffffff');
+            return hasMarks || edit.blankBaseGradient?.enabled === true || edit.blankBaseGradient?.foil?.enabled === true || (baseColor && baseColor !== '#ffffff');
         }
 
         getPhotoManagerBlankEditName(edit = null) {

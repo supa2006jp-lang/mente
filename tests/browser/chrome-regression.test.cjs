@@ -1570,6 +1570,83 @@ test('photo background radial: panel, center preview, swap, export and saved sta
     await page.evaluate('app.closeShiftPhotoCompare()');
 });
 
+test('photo background foil: patterns, preview, export, undo, save and templates', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close()); const { page } = harness;
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    const result = await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        await app.openShiftPhotoCompareWithPhotos([], {source:'photoManagerBlank',title:'キラ背景'});
+        document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
+        document.querySelector('[data-bg-mode="foil"]').click();
+        const panel = document.getElementById('shift-photo-compare-blank-bg-panel');
+        const photo = app._shiftPhotoCompareContext.photos[0];
+        const selected = panel.querySelector('[data-bg-mode="foil"]').getAttribute('aria-pressed') === 'true';
+        const slider = panel.querySelector('[data-bg-foil="strength"]');
+        const before = JSON.stringify(app.captureImageEditSnapshot()), count = app._shiftPhotoCompareUndoStack.length;
+        slider.value = '95'; slider.dispatchEvent(new Event('input', {bubbles:true}));
+        const previewOnly = photo.blankBaseGradient.foil.strength === 80 && app._shiftPhotoCompareUndoStack.length === count;
+        const previewChanged = decodeURIComponent(panel.querySelector('.shift-photo-compare-blank-bg-preview').style.backgroundImage).includes('opacity="0.95"');
+        slider.dispatchEvent(new Event('change', {bubbles:true}));
+        const once = app._shiftPhotoCompareUndoStack.length === count + 1;
+        app.undoShiftPhotoCompareMarkChange(); const undone = JSON.stringify(app.captureImageEditSnapshot()) === before;
+        app.redoShiftPhotoCompareMarkChange(); const redone = photo.blankBaseGradient.foil.strength === 95;
+        const wrap = document.querySelector('.shift-photo-compare-image-wrap'), image = wrap.querySelector(':scope > img');
+        const patterns = [], samples = [];
+        for (const pattern of ['prism','diamond','crystal']) {
+            const select = panel.querySelector('[data-bg-foil-pattern]'); select.value = pattern; select.dispatchEvent(new Event('change',{bubbles:true}));
+            await image.decode(); const canvas = await app.renderShiftPhotoCompareWrapToCanvas(wrap, 800), c = canvas.getContext('2d');
+            const pixels = []; for(let y=20;y<canvas.height;y+=23) for(let x=20;x<canvas.width;x+=29) pixels.push([...c.getImageData(x,y,1,1).data]);
+            const colors = new Set(pixels.map(p=>p.slice(0,3).map(v=>Math.round(v/16)).join(','))).size;
+            const opaque = pixels.every(p=>p[3]===255);
+            patterns.push({pattern,colors,opaque,signature:pixels.slice(0,100).map(p=>p.join(',')).join(';')});
+            samples.push(canvas.toDataURL());
+        }
+        window.foilPatternImages = samples;
+        const angle = panel.querySelector('[data-bg-foil="angle"]'); angle.value='70'; angle.dispatchEvent(new Event('change',{bubbles:true}));
+        const scale = panel.querySelector('[data-bg-foil="scale"]'); scale.value='110'; scale.dispatchEvent(new Event('change',{bubbles:true}));
+        app.setShiftPhotoCompareBlankFoil({strength:0}); app.setShiftPhotoCompareBlankBaseColor('#123456');
+        await image.decode(); const zero = await app.renderShiftPhotoCompareWrapToCanvas(wrap, 800);
+        const zeroPixel = [...zero.getContext('2d').getImageData(100,100,1,1).data];
+        app.setShiftPhotoCompareBlankBaseColor('#ffffff'); app.setShiftPhotoCompareBlankFoil({strength:95});
+        const expected = JSON.parse(JSON.stringify(photo.blankBaseGradient));
+        document.querySelector('[data-bg-mode="solid"]').click(); const disabled = !photo.blankBaseGradient.foil.enabled;
+        document.querySelector('[data-bg-mode="foil"]').click(); const retained = JSON.stringify(photo.blankBaseGradient) === JSON.stringify(expected);
+        const saved = await app.saveShiftPhotoCompare(); window.foilTestId = app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+        await app.closeShiftPhotoCompare();
+        return {selected,previewOnly,previewChanged,once,undone,redone,patterns,zeroPixel,disabled,retained,saved,expected};
+    })()`);
+    assert.equal(result.selected,true); assert.equal(result.previewOnly,true); assert.equal(result.previewChanged,true);
+    assert.equal(result.once,true); assert.equal(result.undone,true); assert.equal(result.redone,true);
+    assert.ok(result.patterns.every(p=>p.colors>30 && p.opaque));
+    assert.equal(new Set(result.patterns.map(p=>p.signature)).size,3);
+    assert.deepEqual(result.zeroPixel,[18,52,86,255]);
+    assert.equal(result.disabled,true); assert.equal(result.retained,true); assert.equal(result.saved,true);
+    if (process.env.PHOTO_FOIL_SCREENSHOTS) {
+        const samples = await page.evaluate('foilPatternImages');
+        for (let i=0;i<samples.length;i++) fs.writeFileSync(path.join(os.tmpdir(), 'photo-foil-'+['prism','diamond','crystal'][i]+'.png'), Buffer.from(samples[i].split(',')[1],'base64'));
+    }
+    await reloadApp(page, 'foil reload');
+    const reopened = await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        const item = app.getPhotoManagerLibrary().find(p=>p.photoCompareBlankEdit?.blankBaseGradient?.foil?.enabled);
+        await app.openPhotoManagerBlankEdit(item.id);
+        const gradient = JSON.parse(JSON.stringify(app._shiftPhotoCompareContext.photos[0].blankBaseGradient));
+        app.savePhotoManagerBlankTemplate(item.id); await app.closeShiftPhotoCompare();
+        app.openPhotoManagerBlankTemplate(app.getPhotoManagerBlankTemplates()[0].id);
+        await document.querySelector('.shift-photo-compare-image-wrap > img').decode();
+        return {gradient,template:app._shiftPhotoCompareContext.photos[0].blankBaseGradient};
+    })()`);
+    assert.deepEqual(reopened.gradient,result.expected); assert.deepEqual(reopened.template,result.expected);
+    for (const [name,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
+        await page.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+        await page.evaluate("document.querySelector('.shift-photo-compare-blank-bg-toggle').scrollIntoView({block:'center'});app.toggleShiftPhotoCompareBlankBackgroundPanel(true)");
+        const fits = await page.evaluate(`(()=>{const p=document.getElementById('shift-photo-compare-blank-bg-panel'),r=p.getBoundingClientRect();return !p.innerText.includes('undefined')&&p.scrollWidth<=p.clientWidth&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&[...p.querySelectorAll('button,select,input')].filter(e=>e.getClientRects().length).every(e=>e.scrollWidth<=e.clientWidth);})()`);
+        assert.equal(fits,true,name+' foil controls fit');
+        if(process.env.PHOTO_FOIL_SCREENSHOTS){const capture=await page.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(os.tmpdir(),'photo-foil-'+name+'.png'),Buffer.from(capture.data,'base64'));}
+    }
+    await page.evaluate('app.closeShiftPhotoCompare()');
+});
+
 test('photo background eyedropper: independent endpoints, image and palette picking, undo and save', { timeout: 180000 }, async t => {
     const harness = await launchHarness(); t.after(() => harness.close()); const { page } = harness;
     await page.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});

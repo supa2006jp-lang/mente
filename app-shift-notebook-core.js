@@ -16986,8 +16986,45 @@
             direction: ['vertical', 'horizontal', 'diagonal', 'diagonalReverse'].includes(gradient?.direction) ? gradient.direction : 'vertical',
             type: gradient?.type === 'radial' ? 'radial' : 'linear',
             centerX: position(gradient?.centerX),
-            centerY: position(gradient?.centerY)
+            centerY: position(gradient?.centerY),
+            ...(gradient?.foil ? { foil: this.normalizeShiftPhotoCompareBlankFoil(gradient.foil) } : {})
         };
+    }
+
+    normalizeShiftPhotoCompareBlankFoil(foil = null) {
+        const number = (value, fallback, min, max) => value == null || value === '' || !Number.isFinite(Number(value)) ? fallback : Math.max(min, Math.min(max, Math.round(Number(value))));
+        return {
+            enabled: foil?.enabled === true,
+            pattern: ['prism', 'diamond', 'crystal'].includes(foil?.pattern) ? foil.pattern : 'prism',
+            strength: number(foil?.strength, 80, 0, 100),
+            scale: number(foil?.scale, 80, 40, 160),
+            angle: number(foil?.angle, 30, 0, 180)
+        };
+    }
+
+    createShiftPhotoCompareBlankFoilSvg(settings) {
+        const foil = this.normalizeShiftPhotoCompareBlankFoil(settings);
+        if (!foil.enabled || foil.strength === 0) return '';
+        const size = foil.scale * .8;
+        const cells = [], gradients = [];
+        // Fixed facets keep the preview, undo, saved image and export identical.
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                const id = row * 4 + col, hue = (id * 53 + foil.angle * 2) % 360;
+                gradients.push(`<linearGradient id="foil-cell-${id}" gradientTransform="rotate(${foil.angle + id * 31} .5 .5)"><stop stop-color="#f5f9ff"/><stop offset=".2" stop-color="hsl(${hue},90%,76%)"/><stop offset=".42" stop-color="#ffffff"/><stop offset=".49" stop-color="#748696"/><stop offset=".58" stop-color="hsl(${(hue + 85) % 360},80%,64%)"/><stop offset=".82" stop-color="#eaf5ff"/><stop offset="1" stop-color="hsl(${(hue + 180) % 360},90%,82%)"/></linearGradient>`);
+                const faces = foil.pattern === 'crystal'
+                    ? '<path d="M0 0H100L32 38Z" fill="#fff" opacity=".3"/><path d="M100 0V100L32 38Z" fill="#102537" opacity=".2"/><path d="M0 100L32 38L100 100Z" fill="#fff" opacity=".48"/><path d="M0 0L32 38L0 100Z" fill="#fff" opacity=".1"/>'
+                    : '<path d="M0 0H100L50 50Z" fill="#fff" opacity=".42"/><path d="M100 0V100L50 50Z" fill="#102537" opacity=".18"/><path d="M0 100H100L50 50Z" fill="#fff" opacity=".12"/>';
+                cells.push(`<g transform="translate(${col * size} ${row * size}) scale(${size / 100})"><rect width="100" height="100" fill="url(#foil-cell-${id})"/>${faces}<path d="M0 0H100V100" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width=".8"/></g>`);
+            }
+        }
+        const rotation = foil.pattern === 'diamond' ? 45 : 0;
+        return `<defs>${gradients.join('')}
+            <pattern id="foil-facets" patternUnits="userSpaceOnUse" width="${size * 4}" height="${size * 4}" patternTransform="rotate(${rotation})">${cells.join('')}</pattern>
+            <linearGradient id="foil-spectrum" gradientUnits="userSpaceOnUse" x2="720" y2="0" spreadMethod="reflect" gradientTransform="rotate(${foil.angle} 800 500)"><stop stop-color="#f19fd1"/><stop offset=".17" stop-color="#b5a2f1"/><stop offset=".34" stop-color="#80d6ef"/><stop offset=".51" stop-color="#a8edce"/><stop offset=".68" stop-color="#f5ec9a"/><stop offset=".85" stop-color="#f7b58c"/><stop offset="1" stop-color="#f19fd1"/></linearGradient>
+            <linearGradient id="foil-shine" gradientUnits="userSpaceOnUse" x2="520" y2="0" spreadMethod="reflect" gradientTransform="rotate(${foil.angle + 30} 800 500)"><stop stop-color="#fff" stop-opacity="0"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".49" stop-color="#fff" stop-opacity=".7"/><stop offset=".53" stop-color="#fff" stop-opacity=".1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+            <pattern id="foil-lines" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(${foil.angle})"><path d="M0 0H4" stroke="#fff" stroke-opacity=".18" stroke-width="1"/></pattern>
+        </defs><g opacity="${foil.strength / 100}" data-foil-pattern="${foil.pattern}"><rect width="1600" height="1000" fill="url(#foil-facets)"/><rect width="1600" height="1000" fill="url(#foil-spectrum)" opacity=".3"/><rect width="1600" height="1000" fill="url(#foil-shine)"/><rect width="1600" height="1000" fill="url(#foil-lines)"/></g>`;
     }
 
     createShiftPhotoCompareBlankBaseSrc(color = '#ffffff', gradient = null) {
@@ -17006,7 +17043,7 @@
             ? `<radialGradient id="background" gradientUnits="userSpaceOnUse" cx="${cx}" cy="${cy}" r="${radius}">${stops}</radialGradient>`
             : `<linearGradient id="background" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops}</linearGradient>`;
         const defs = background.enabled ? `<defs>${definition}</defs>` : '';
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">${defs}<rect width="1600" height="1000" fill="${background.enabled ? 'url(#background)' : safeColor}"/></svg>`;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">${defs}<rect width="1600" height="1000" fill="${background.enabled ? 'url(#background)' : safeColor}"/>${this.createShiftPhotoCompareBlankFoilSvg(background.foil)}</svg>`;
         return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
     }
 
@@ -17037,6 +17074,21 @@
         const photo = this._shiftPhotoCompareContext?.photos?.find(item => item?.isBlankBase);
         const gradient = { ...this.normalizeShiftPhotoCompareBlankGradient(photo?.blankBaseGradient), ...changes };
         this.setShiftPhotoCompareBlankBackground({ gradient });
+    }
+
+    setShiftPhotoCompareBlankBackgroundMode(mode) {
+        if (!['solid', 'gradient', 'foil'].includes(mode)) return;
+        const photo = this._shiftPhotoCompareContext?.photos?.find(item => item?.isBlankBase);
+        const changes = { enabled: mode === 'gradient' };
+        if (photo?.blankBaseGradient?.foil || mode === 'foil') {
+            changes.foil = { ...this.normalizeShiftPhotoCompareBlankFoil(photo?.blankBaseGradient?.foil), enabled: mode === 'foil' };
+        }
+        this.setShiftPhotoCompareBlankGradient(changes);
+    }
+
+    setShiftPhotoCompareBlankFoil(changes = {}) {
+        const photo = this._shiftPhotoCompareContext?.photos?.find(item => item?.isBlankBase);
+        this.setShiftPhotoCompareBlankGradient({ foil: { ...this.normalizeShiftPhotoCompareBlankFoil(photo?.blankBaseGradient?.foil), ...changes } });
     }
 
     swapShiftPhotoCompareBlankBackgroundColors() {
@@ -17070,7 +17122,7 @@
             if (img) img.src = src;
         });
         this.refreshShiftPhotoCompareBlankBackgroundControls();
-        this.showShiftPhotoCompareActionMessage?.(background.enabled ? '背景をグラデーションに変更しました。' : '白紙の背景色を変更しました。');
+        this.showShiftPhotoCompareActionMessage?.(background.foil?.enabled ? '背景をキラに変更しました。' : background.enabled ? '背景をグラデーションに変更しました。' : '白紙の背景色を変更しました。');
         this.syncShiftPhotoCompareContext?.();
     }
 
@@ -17078,6 +17130,8 @@
         if (!photo?.isBlankBase) return '';
         const color = /^#[0-9a-f]{6}$/i.test(photo.blankBaseColor || '') ? photo.blankBaseColor : '#ffffff';
         const gradient = this.normalizeShiftPhotoCompareBlankGradient(photo.blankBaseGradient);
+        const foil = this.normalizeShiftPhotoCompareBlankFoil(gradient.foil);
+        const mode = foil.enabled ? 'foil' : gradient.enabled ? 'gradient' : 'solid';
         const src = this.createShiftPhotoCompareBlankBaseSrc(color, gradient);
         return `<div class="shift-photo-compare-blank-background-controls">
             <button type="button" class="shift-photo-compare-blank-bg-toggle" aria-expanded="false" aria-haspopup="dialog" aria-controls="shift-photo-compare-blank-bg-panel" popovertarget="shift-photo-compare-blank-bg-panel" onclick="app.refreshShiftPhotoCompareBlankBackgroundControls()" title="背景設定">
@@ -17087,15 +17141,16 @@
             <div class="shift-photo-compare-blank-bg-head"><strong>背景</strong><button type="button" onclick="app.toggleShiftPhotoCompareBlankBackgroundPanel(false)" aria-label="背景設定を閉じる" title="閉じる"><i class="fa-solid fa-xmark"></i></button></div>
             <div class="shift-photo-compare-blank-bg-preview" role="img" aria-label="背景プレビュー" style="background-image:url('${src}')"></div>
             <div class="shift-photo-compare-blank-bg-mode" role="group" aria-label="背景の種類">
-                <button type="button" data-bg-mode="solid" aria-pressed="${!gradient.enabled}" onclick="app.setShiftPhotoCompareBlankGradient({enabled:false})">単色</button>
-                <button type="button" data-bg-mode="gradient" aria-pressed="${gradient.enabled}" onclick="app.setShiftPhotoCompareBlankGradient({enabled:true})">グラデーション</button>
+                <button type="button" data-bg-mode="solid" aria-pressed="${mode === 'solid'}" onclick="app.setShiftPhotoCompareBlankBackgroundMode('solid')">単色</button>
+                <button type="button" data-bg-mode="gradient" aria-pressed="${mode === 'gradient'}" onclick="app.setShiftPhotoCompareBlankBackgroundMode('gradient')">グラデーション</button>
+                <button type="button" data-bg-mode="foil" aria-pressed="${mode === 'foil'}" onclick="app.setShiftPhotoCompareBlankBackgroundMode('foil')"><i class="fa-solid fa-wand-magic-sparkles"></i> キラ</button>
             </div>
             <label class="shift-photo-compare-color shift-photo-compare-blank-bg-color" title="背景色・グラデーションの開始色">
-                <span>開始色</span>
+                <span data-bg-start-label>${foil.enabled ? '地色' : '開始色'}</span>
                 <input type="color" value="${color}" aria-label="背景の開始色" onchange="app.setShiftPhotoCompareBlankBaseColor(this.value)">
                 <button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('blank')" title="開始色をスポイトで取得" aria-label="開始色をスポイトで取得"><i class="fa-solid fa-eye-dropper"></i></button>
             </label>
-            <div class="shift-photo-compare-blank-bg-gradient-options"${gradient.enabled ? '' : ' hidden'}>
+            <div class="shift-photo-compare-blank-bg-gradient-options"${mode === 'gradient' ? '' : ' hidden'}>
                 <div class="shift-photo-compare-blank-bg-color-row"><label class="shift-photo-compare-blank-bg-end-color" title="グラデーションの終了色"><span>終了色</span><input type="color" value="${gradient.color}" aria-label="背景の終了色" onchange="app.setShiftPhotoCompareBlankGradient({color:this.value})"><button type="button" class="shift-photo-compare-eyedropper" onclick="app.pickShiftPhotoCompareScreenColor('blankEnd')" title="終了色をスポイトで取得" aria-label="終了色をスポイトで取得"><i class="fa-solid fa-eye-dropper"></i></button></label>
                     <button type="button" class="shift-photo-compare-blank-bg-swap" onclick="app.swapShiftPhotoCompareBlankBackgroundColors()" title="開始色と終了色を入れ替え" aria-label="開始色と終了色を入れ替え"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
                 </div>
@@ -17109,6 +17164,10 @@
                 <div class="shift-photo-compare-blank-bg-center"${gradient.type === 'radial' ? '' : ' hidden'}>
                     ${[['centerX', '中心 横'], ['centerY', '中心 縦']].map(([key, label]) => `<label><span>${label}</span><input type="range" min="0" max="100" step="1" value="${gradient[key]}" data-bg-center="${key}" aria-label="${label}" oninput="app.previewShiftPhotoCompareBlankGradientCenter()" onchange="app.setShiftPhotoCompareBlankGradient({${key}:Number(this.value)})"><output>${gradient[key]}%</output></label>`).join('')}
                 </div>
+            </div>
+            <div class="shift-photo-compare-blank-bg-foil-options"${foil.enabled ? '' : ' hidden'}>
+                <label><span>模様</span><select data-bg-foil-pattern aria-label="キラの模様" onchange="app.setShiftPhotoCompareBlankFoil({pattern:this.value})">${[['prism', '角プリズム'], ['diamond', 'ダイヤ'], ['crystal', '結晶']].map(([value, label]) => `<option value="${value}"${foil.pattern === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+                ${[['strength', '輝き', 0, 100, '%'], ['scale', '粒の大きさ', 40, 160, '%'], ['angle', '光の角度', 0, 180, '°']].map(([key, label, min, max, unit]) => `<label><span>${label}</span><input type="range" min="${min}" max="${max}" step="1" value="${foil[key]}" data-bg-foil="${key}" data-unit="${unit}" aria-label="キラの${label}" oninput="app.previewShiftPhotoCompareBlankFoil()" onchange="app.setShiftPhotoCompareBlankFoil({${key}:Number(this.value)})"><output>${foil[key]}${unit}</output></label>`).join('')}
             </div>
             <div class="shift-photo-compare-color-presets shift-photo-compare-blank-bg-presets" title="開始色プリセット">
                 <div class="shift-photo-compare-blank-bg-preset-list">${this.getShiftPhotoCompareBlankBgPresetsHtml(color)}</div>
@@ -17171,15 +17230,37 @@
         panel.querySelector('.shift-photo-compare-blank-bg-preview').style.backgroundImage = `url("${this.createShiftPhotoCompareBlankBaseSrc(this.getShiftPhotoCompareBlankBaseColor(), gradient)}")`;
     }
 
+    previewShiftPhotoCompareBlankFoil() {
+        const panel = document.getElementById('shift-photo-compare-blank-bg-panel');
+        const photo = this._shiftPhotoCompareContext?.photos?.find(item => item?.isBlankBase);
+        if (!panel || !photo) return;
+        const gradient = this.normalizeShiftPhotoCompareBlankGradient(photo.blankBaseGradient);
+        gradient.foil = this.normalizeShiftPhotoCompareBlankFoil(gradient.foil);
+        panel.querySelectorAll('[data-bg-foil]').forEach(input => {
+            gradient.foil[input.dataset.bgFoil] = Number(input.value);
+            input.parentElement.querySelector('output').textContent = `${input.value}${input.dataset.unit}`;
+        });
+        panel.querySelector('.shift-photo-compare-blank-bg-preview').style.backgroundImage = `url("${this.createShiftPhotoCompareBlankBaseSrc(this.getShiftPhotoCompareBlankBaseColor(), gradient)}")`;
+    }
+
     refreshShiftPhotoCompareBlankBackgroundControls() {
         const photo = this._shiftPhotoCompareContext?.photos?.find(item => item?.isBlankBase);
         if (!photo) return;
         const gradient = this.normalizeShiftPhotoCompareBlankGradient(photo.blankBaseGradient);
+        const foil = this.normalizeShiftPhotoCompareBlankFoil(gradient.foil);
+        const mode = foil.enabled ? 'foil' : gradient.enabled ? 'gradient' : 'solid';
         document.querySelectorAll('.shift-photo-compare-blank-bg-color input[type="color"]').forEach(input => { input.value = photo.blankBaseColor || '#ffffff'; });
         document.querySelectorAll('.shift-photo-compare-blank-bg-mode [data-bg-mode]').forEach(button => {
-            button.setAttribute('aria-pressed', String((button.dataset.bgMode === 'gradient') === gradient.enabled));
+            button.setAttribute('aria-pressed', String(button.dataset.bgMode === mode));
         });
-        document.querySelectorAll('.shift-photo-compare-blank-bg-gradient-options').forEach(options => { options.hidden = !gradient.enabled; });
+        document.querySelectorAll('[data-bg-start-label]').forEach(label => { label.textContent = foil.enabled ? '地色' : '開始色'; });
+        document.querySelectorAll('.shift-photo-compare-blank-bg-gradient-options').forEach(options => { options.hidden = mode !== 'gradient'; });
+        document.querySelectorAll('.shift-photo-compare-blank-bg-foil-options').forEach(options => { options.hidden = !foil.enabled; });
+        document.querySelectorAll('[data-bg-foil-pattern]').forEach(select => { select.value = foil.pattern; });
+        document.querySelectorAll('[data-bg-foil]').forEach(input => {
+            input.value = foil[input.dataset.bgFoil];
+            input.parentElement.querySelector('output').textContent = `${input.value}${input.dataset.unit}`;
+        });
         document.querySelectorAll('.shift-photo-compare-blank-bg-end-color input').forEach(input => { input.value = gradient.color; });
         document.querySelectorAll('.shift-photo-compare-blank-bg-direction').forEach(select => { select.value = gradient.direction; });
         document.querySelectorAll('[data-bg-type]').forEach(button => { button.setAttribute('aria-pressed', String(button.dataset.bgType === gradient.type)); });

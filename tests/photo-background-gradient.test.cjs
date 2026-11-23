@@ -107,3 +107,66 @@ test('eyedropper routes each background color without changing the other target'
     editor._shiftPhotoCompareEyedropperTarget = 'blank';
     assert.equal(editor.getShiftPhotoComparePaletteEyedropperLabel(), '背景の開始色');
 });
+
+test('foil validates persisted settings and leaves old backgrounds unchanged', () => {
+    const normalize = value => JSON.parse(JSON.stringify(app.normalizeShiftPhotoCompareBlankFoil(value)));
+    assert.deepEqual(normalize(null), { enabled: false, pattern: 'prism', strength: 80, scale: 80, angle: 30 });
+    assert.deepEqual(normalize({ enabled: 1, pattern: '<script>', strength: 1000, scale: -5, angle: Infinity }), { enabled: false, pattern: 'prism', strength: 100, scale: 40, angle: 30 });
+    assert.equal(normalize({ strength: '', scale: null, angle: 999 }).angle, 180);
+    assert.equal(normalize({ strength: '', scale: null }).scale, 80);
+    assert.equal(normalize({ strength: '53.5', angle: -2 }).strength, 54);
+    assert.equal(normalize({ angle: -2 }).angle, 0);
+    assert.equal('foil' in app.normalizeShiftPhotoCompareBlankGradient(null), false);
+    assert.doesNotMatch(svg('#123456'), /foil/);
+});
+
+test('foil patterns are deterministic, bounded and exportable without external assets', () => {
+    const outputs = [];
+    for (const pattern of ['prism', 'diamond', 'crystal']) {
+        const gradient = { foil: { enabled: true, pattern, strength: 75, scale: 90, angle: 45 } };
+        const output = svg('#123456', gradient);
+        assert.equal(output, svg('#123456', gradient));
+        assert.match(output, new RegExp(`data-foil-pattern="${pattern}"`));
+        assert.match(output, /opacity="0.75"/);
+        assert.match(output, /width="288" height="288"/);
+        assert.ok(output.length < 20000);
+        assert.doesNotMatch(output, /<script|<image|<animate|<foreignObject/);
+        outputs.push(output);
+    }
+    assert.equal(new Set(outputs).size, 3);
+    assert.doesNotMatch(svg('#123456', { foil: { enabled: true, strength: 0 } }), /foil-facets/);
+    assert.doesNotMatch(svg('#123456', { foil: { enabled: false } }), /foil-facets/);
+    assert.doesNotMatch(svg('#123456', { foil: { enabled: true, pattern: '<script>', angle: '" onload="bad' } }), /script|onload/);
+});
+
+test('foil mode retains its settings across modes and saves independent metadata', () => {
+    const editor = new MaintenanceApp();
+    const source = { enabled: true, color: '#abcdef', type: 'radial', foil: { enabled: false, pattern: 'diamond', strength: 65, scale: 120, angle: 75 } };
+    const photo = editor.createShiftPhotoCompareBlankBasePhoto('#123456', source);
+    editor._shiftPhotoCompareContext = { photos: [photo] };
+    editor.setShiftPhotoCompareBlankBackground = ({ gradient }) => { photo.blankBaseGradient = editor.normalizeShiftPhotoCompareBlankGradient(gradient); };
+    editor.setShiftPhotoCompareBlankBackgroundMode('foil');
+    assert.equal(photo.blankBaseGradient.foil.enabled, true);
+    assert.equal(photo.blankBaseGradient.enabled, false);
+    editor.setShiftPhotoCompareBlankBackgroundMode('gradient');
+    assert.equal(photo.blankBaseGradient.enabled, true);
+    assert.equal(photo.blankBaseGradient.foil.enabled, false);
+    assert.equal(photo.blankBaseGradient.color, '#abcdef');
+    editor.setShiftPhotoCompareBlankBackgroundMode('foil');
+    editor.setShiftPhotoCompareBlankFoil({ angle: 35 });
+    assert.equal(photo.blankBaseGradient.foil.pattern, 'diamond');
+    assert.equal(photo.blankBaseGradient.foil.strength, 65);
+    assert.equal(source.foil.angle, 75);
+    const html = editor.getShiftPhotoCompareBlankBackgroundControlsHtml(photo);
+    assert.match(html, /data-bg-mode="foil" aria-pressed="true"/);
+    assert.match(html, /gradient-options" hidden/);
+    assert.match(html, /foil-options">/);
+    assert.match(html, /data-bg-foil="angle"/);
+    editor.getShiftPhotoComparePhotoByWrap = () => photo;
+    editor.syncShiftPhotoCompareMarks = () => {};
+    editor.compactShiftPhotoCompareMarkImages = marks => marks;
+    const edit = editor.getShiftPhotoCompareBlankEditData({});
+    assert.equal(edit.blankBaseGradient.foil.angle, 35);
+    edit.blankBaseGradient.foil.pattern = 'crystal';
+    assert.equal(photo.blankBaseGradient.foil.pattern, 'diamond');
+});
