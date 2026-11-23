@@ -1,10 +1,21 @@
+import {adjustedDrawingThreadLabel} from './drawing-dimensions.js';
+
 const mm=value=>Number(value.toFixed(4));
 const designation=thread=>'M'+mm(thread.diameter)+'×'+mm(thread.pitch);
 const hand=thread=>thread.leftHand?'左ねじ':'右ねじ';
+const pitch=thread=>'ピッチ '+mm(thread.pitch)+' mm';
+const adjustedBore=thread=>thread.adjustedDiameter===undefined?'':adjustedDrawingThreadLabel(
+ Number(thread.adjustedDiameter.toFixed(3)),thread.diameter);
 
-export const drawingThreadTableText=thread=>designation(thread)+' / '+mm(thread.length)+' mm / '+hand(thread);
-export const drawingThreadNoteText=thread=>designation(thread)+'\nねじ深さ '+mm(thread.length)+' mm · '+hand(thread)+
- (thread.offset?'\n入口から '+mm(thread.offset)+' mm':'');
+export function drawingThreadTableText(thread){
+ const bore=adjustedBore(thread);
+ return (bore?bore+'\n'+pitch(thread):designation(thread))+' / '+mm(thread.length)+' mm / '+hand(thread);
+}
+export function drawingThreadNoteText(thread){
+ const bore=adjustedBore(thread),size=bore?bore+'\n'+pitch(thread):designation(thread);
+ return size+'\nねじ深さ '+mm(thread.length)+' mm · '+hand(thread)+
+  (thread.offset?'\n入口から '+mm(thread.offset)+' mm':'');
+}
 
 export function drawingThreadReference({id,bodyId,end}){
  return {id,bodyId,end};

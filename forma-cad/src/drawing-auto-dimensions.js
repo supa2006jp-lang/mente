@@ -6,7 +6,7 @@ import {drawingProjectionNames,drawingProjections,defaultDrawingViewOrder,drawin
 import {drawingDimensionVisible,fullDrawingSpan} from './drawing-break.js';
 import {insideView,withDetails} from './drawing-annotations.js';
 import {groupDrawingDimensions} from './drawing-dimension-groups.js';
-import {adjustedDrawingBoreDimension} from './drawing-thread-dimensions.js';
+import {drawingThreadBoreDimension} from './drawing-thread-dimensions.js';
 
 export const autoDimensionTypes={horizontal:'横寸法',vertical:'縦寸法',diameter:'円・穴径',spacing:'中心位置・間隔',radius:'角の半径 R'};
 export const autoDimensionKeys=Object.keys(autoDimensionTypes);
@@ -72,7 +72,23 @@ function diameterGroup(d,centers){
  const center=centers.find(p=>p.every((n,i)=>close(n,d.center[i])))??centers[0];
  return {...d,center,...(centers.length>1?{count:centers.length,centers}:{})};
 }
-const circleInsideView=(c,shape)=>!shape.clip||Math.hypot(c.center[0]-shape.clip.center[0],c.center[1]-shape.clip.center[1])+c.radius<=shape.clip.radius+1e-6;
+function covered(d){
+ if(['diameter','radius'].includes(d.kind)&&d.centers)return d.centers.map(center=>key({...d,center}));
+ return d.kind==='thread'&&d.threadRim==='bore'?[key(d),key({...d,kind:'diameter'})]:[key(d)];
+}
+const circleMeasured=(dimension,keys)=>covered(dimension).some(id=>keys.has(id));
+export function unmeasuredDrawingHoles(entries,dimensions){
+ const keys=new Set(dimensions.filter(d=>!d.review).flatMap(covered));
+ return entries.filter(({dimension})=>!circleMeasured(dimension,keys));
+}
+export function drawingDiameterCandidateVisible(c,shape,placement){
+ if(!shape||!placement||!drawingDimensionVisible(c,placement))return false;
+ return !shape.clip||Math.hypot(c.center[0]-shape.clip.center[0],c.center[1]-shape.clip.center[1])+c.radius<=shape.clip.radius+1e-6;
+}
+export function drawingDiameterDraftPosition(d,placement){
+ const [x,y]=d.center,s=placement.scale;
+ return [x+d.radius+7/s,y-(drawingProjectionNames.includes(d.view)?3/s:0)];
+}
 
 // Reuse the placement of existing automatic dimensions when adding bolt sizes.
 // If the old diameter grouped several circles, keep the ordinary ones together.
@@ -83,16 +99,16 @@ function updateAutomaticBoreDimensions(existing,views,sheet,enabled,limit){
   if(!d.automatic||d.kind!=='diameter'||d.review||!shape||!placement||!enabled(d.view,'diameter'))continue;
   const {centers,count,...format}=d,plain=[],bores=[];
   for(const center of centers??[d.center]){
-   const circle={...format,center},size=adjustedDrawingBoreDimension(shape,circle),bore=size&&{...circle,...size};
-   if(bore&&!annotated.has(key(bore))&&drawingDimensionVisible(circle,placement)&&circleInsideView(circle,shape))bores.push(bore);
+   const circle={...format,center},size=drawingThreadBoreDimension(shape,circle);
+   const bore=size?.adjustedDiameter===undefined?null:{...circle,...size};
+   if(bore&&!annotated.has(key(bore))&&drawingDiameterCandidateVisible(circle,shape,placement))bores.push(bore);
    else plain.push(center);
   }
   if(!bores.length||split.length+bores.length-Number(!plain.length)>limit)continue;
   for(const bore of bores)annotated.add(key(bore));
   updates.set(index,plain.length?diameterGroup(format,plain):bores.shift());
   for(const {pinned,pdfPlacement,...bore} of bores){
-   const [x,y]=bore.center,s=placement.scale;
-   split.push({...bore,at:[x+bore.radius+7/s,y-3/s]});
+   split.push({...bore,at:drawingDiameterDraftPosition(bore,placement)});
   }
  }
  return {updates,split};
@@ -263,16 +279,21 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
   const index=placed===existing?i:sheet.dimensionIndices?.[i]??i,updated=updates.get(index);
   return updated?{...updated,at:d.at}:d;
  }):placed;
- const keys=new Set(),s=scale,covered=d=>['diameter','radius'].includes(d.kind)&&d.centers?d.centers.map(center=>key({...d,center})):[key(d)];
- for(const d of [...current,...added])if(!d.review)for(const k of covered(d))keys.add(k);
+ const keys=new Set([...current,...added,...(sheet.inheritedDimensions??[])].filter(d=>!d.review).flatMap(covered));
  const push=d=>{const ids=covered(d);if(added.length>=limit||ids.every(id=>keys.has(id))||dimensionValue(d)<1e-6)return false;ids.forEach(id=>keys.add(id));added.push({...d,automatic:true,...(fontSize===undefined?{}:{fontSize})});return true;};
- const circleDimension=(d,shape)=>{
-  if(keys.has(key(d)))return null;
-  const dimension={...d,...adjustedDrawingBoreDimension(shape,d)};
-  return keys.has(key(dimension))?null:dimension;
+ const candidates=[];
+ const considerCircle=(view,shape,c,placement)=>{
+  const thread=drawingThreadBoreDimension(shape,c);
+  const dimension={view,kind:'diameter',...c,...(thread?.adjustedDiameter===undefined?{}:thread)};
+  const candidate={dimension,threaded:!!thread,reason:c.radius*placement.scale<.75?'small':'limit'};
+  candidates.push(candidate);
+  return candidate;
  };
+ const prioritizeThreads=(a,b)=>Number(b.threaded)-Number(a.threaded);
+ const diameterDrafts=(items,placement)=>items.filter(({dimension})=>!circleMeasured(dimension,keys))
+  .map(({dimension})=>({...dimension,at:drawingDiameterDraftPosition(dimension,placement)}));
  const axes=uniqueAxes?new Set(current.map(d=>visibleOverallAxis(d,sheet))):null;
- for(const d of overallDrawingDimensions(data,s,sheet)){
+ for(const d of overallDrawingDimensions(data,scale,sheet)){
   if(!enabled(d.view,d.kind))continue;
   const axis=overallAxis(d);
   if(axes?.has(axis))continue;
@@ -289,24 +310,41 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
    if(dimension)push(dimension);
   }
  }
- let remaining=8,skipped=0;
- for(const view of drawingProjectionNames){const v=sheet.layout[view],s=v?.scale??scale,diameter=enabled(view,'diameter'),spacing=enabled(view,'spacing'),radius=enabled(view,'radius');if(!v||!data.views[view]||!diameter&&!spacing&&!radius)continue;
+ let skipped=0;
+ const projections=[];
+ for(const view of drawingProjectionNames){const v=sheet.layout[view],diameter=enabled(view,'diameter'),spacing=enabled(view,'spacing'),radius=enabled(view,'radius');if(!v||!data.views[view]||!diameter&&!spacing&&!radius)continue;
   const shape=data.views[view],curves=drawingCurves(shape.visible),all=completeDrawingCircles(shape,curves.arcs).sort((a,b)=>b.radius-a.radius||a.center[0]-b.center[0]||a.center[1]-b.center[1]),groups=[];
   if(radius){const radii=filletDimensions(view,curves,all,v).filter(d=>!keys.has(key(d)));for(const d of (groupRepeated?groupDrawingDimensions(radii):radii).slice(0,4))push(d);}
   if(!diameter&&!spacing)continue;
-  for(const c of all){if(c.radius*s<.75||!drawingDimensionVisible(c,v)){skipped++;continue;}const group=groups.find(g=>close(g.radius,c.radius));if(group)group.centers.push(c.center);else groups.push({radius:c.radius,centers:[c.center]});}
-  const selected=groups.filter(g=>g.centers.length<=200).slice(0,Math.min(4,remaining));remaining-=selected.length;skipped+=groups.filter(g=>!selected.includes(g)).reduce((n,g)=>n+g.centers.length,0);
-  const centers=[];
-  for(const group of selected){
+  for(const c of all){
+   if(!drawingDiameterCandidateVisible(c,shape,v)){skipped++;continue;}
+   if(c.radius*v.scale<.75){if(diameter)considerCircle(view,shape,c,v);skipped++;continue;}
+   let group=groups.find(g=>close(g.radius,c.radius));
+   if(!group){group={view,radius:c.radius,centers:[],members:[],threaded:false};groups.push(group);}
+   group.centers.push(c.center);
    if(diameter){
-    const {radius}=group;
-    const members=group.centers.map(center=>circleDimension({view,kind:'diameter',center,radius,at:[center[0]+radius+7/s,center[1]-3/s]},shape)).filter(Boolean);
-    if(groupRepeated){
-     const plain=members.filter(d=>d.kind==='diameter');
-     for(const d of members)if(d.kind==='thread')push(d);
-     if(plain.length)push(diameterGroup(plain[0],plain.map(d=>d.center)));
-    }else for(const d of members.slice(0,8))push(d);
+    const member=considerCircle(view,shape,{...c,radius:group.radius},v);
+    group.members.push(member);group.threaded||=member.threaded;
    }
+  }
+  projections.push({view,v,spacing,groups});
+ }
+ const chosen=new Set(),viewCounts=new Map();
+ for(const group of projections.flatMap(({groups})=>groups).sort(prioritizeThreads)){
+  const count=viewCounts.get(group.view)??0;
+  if(chosen.size>=8||count>=4||group.centers.length>200){skipped+=group.centers.length;continue;}
+  chosen.add(group);viewCounts.set(group.view,count+1);
+ }
+ for(const {view,v,spacing,groups} of projections){
+  const s=v.scale;
+  const centers=[];
+  for(const group of groups.filter(g=>chosen.has(g)).sort(prioritizeThreads)){
+   const members=diameterDrafts(group.members.sort(prioritizeThreads),v);
+   if(groupRepeated){
+    const plain=members.filter(d=>d.kind==='diameter');
+    for(const d of members)if(d.kind==='thread')push(d);
+    if(plain.length)push(diameterGroup(plain[0],plain.map(d=>d.center)));
+   }else for(const d of members.slice(0,8))push(d);
    if(!spacing)continue;
    const pattern=circlePatternDimensions(group.centers,view,v);if(pattern){for(const d of pattern.dimensions)push(d);centers.push(pattern.anchor);}else centers.push(...group.centers);
   }
@@ -319,10 +357,14 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
   const curves=drawingCurves(shape.visible),all=completeDrawingCircles(shape,curves.arcs);
   if(enabled(view,'horizontal')||enabled(view,'vertical'))for(const d of extraLinearDimensions(view,shape,curves.lines,v))if(enabled(view,d.kind))push(d);
   if(enabled(view,'radius')){const radii=filletDimensions(view,curves,all,v,shape).filter(d=>!keys.has(key(d)));for(const d of (groupRepeated?groupDrawingDimensions(radii):radii).slice(0,4))push(d);}
-  if(enabled(view,'diameter')){const round=[];for(const {center,radius} of all.filter(c=>c.radius*v.scale>=.75&&circleInsideView(c,shape)).slice(0,4)){
-   const d=circleDimension({view,kind:'diameter',center,radius,at:[center[0]+radius+7/v.scale,center[1]]},shape);if(d)round.push(d);
-  }for(const d of groupRepeated?groupDrawingDimensions(round):round)push(d);}
+  if(enabled(view,'diameter')){
+   const selected=all.filter(c=>drawingDiameterCandidateVisible(c,shape,v))
+    .map(c=>considerCircle(view,shape,c,v)).filter(c=>c.reason!=='small').sort(prioritizeThreads).slice(0,4);
+   const round=diameterDrafts(selected,v);
+   for(const d of groupRepeated?groupDrawingDimensions(round):round)push(d);
+  }
  }
  const layout=arrangeDrawingDimensions(added,sheet,locked,{keepOnPaper:true});
- return {dimensions:layout.dimensions,existing:current,updated:updates.size,skipped,layoutWarnings:layout.unresolved.length};
+ const omitted=candidates.filter(({dimension})=>!circleMeasured(dimension,keys));
+ return {dimensions:layout.dimensions,existing:current,updated:updates.size,skipped,omitted,layoutWarnings:layout.unresolved.length};
 }

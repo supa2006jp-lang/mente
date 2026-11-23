@@ -35,10 +35,11 @@ function threadDimensionSize(rim){
   ...(validDrawingThreadReference(ref)?{threadRef:ref,threadRim:rim.kind}:{})};
 }
 
-export function adjustedDrawingBoreDimension(view,circle){
- if(!view.holeMachining?.some(hole=>hole.thread?.adjustedDiameter!==undefined))return;
+export function drawingThreadBoreDimension(view,circle){
+ if(!view.holeMachining?.some(hole=>hole.thread&&Math.abs(hole.radius-circle.radius)<tolerance&&
+  Math.hypot(hole.center[0]-circle.center[0],hole.center[1]-circle.center[1])<tolerance))return;
  const rim=matchedRim(view,circle);
- if(rim?.kind==='bore'&&rim.thread.adjustedDiameter!==undefined&&Math.abs(rim.radius-circle.radius)<tolerance){
+ if(rim?.kind==='bore'&&Math.abs(rim.radius-circle.radius)<tolerance){
   return {kind:'thread',...threadDimensionSize(rim)};
  }
 }

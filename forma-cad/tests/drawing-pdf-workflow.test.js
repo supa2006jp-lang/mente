@@ -353,6 +353,22 @@ test('automatic placement prefers the projection order at the already fitted sca
   assert(iso.x>Math.max(f.x+f.width,t.x+t.width,r.x+r.width));
   assert.deepEqual(drawingViewOverlaps(sheet),[]);
  }
+ const settings={...options,orientation:'landscape',sections:[],isoMode:'full'};
+ const input={options:settings,isoOnRight:true,spreadViews:true};
+ const compact=optimizeDrawingLayout(data,input);
+ const ordered=optimizeDrawingLayout(data,{...input,preferProjectionOrder:true});
+ assert.equal(ordered.scale,compact.scale);
+ assert.ok(ordered.autoIsoScale<compact.autoIsoScale);
+ const sheet=drawingSheet(data,ordered.scale,true,[],'',{...settings,layout:'compact',positions:ordered.positions,
+  autoIsoScale:ordered.autoIsoScale});
+ const {front:f,top:t,right:r,iso}=sheet.layout;
+ assert(t.y+t.height<f.y&&r.x>f.x+f.width);
+ assert(iso.x>Math.max(f.x+f.width,t.x+t.width,r.x+r.width));
+ assert.deepEqual(drawingViewOverlaps(sheet),[]);
+ const linked=optimizeDrawingLayout(data,{...input,scale:ordered.scale,
+  options:{...settings,linkedProjections:true,autoIsoScale:ordered.autoIsoScale}});
+ assert.equal(linked.scale,ordered.scale);
+ assert.equal(linked.autoIsoScale,ordered.autoIsoScale);
 });
 
 test('right-column sizing reduces only ISO and respects a manually specified scale',()=>{

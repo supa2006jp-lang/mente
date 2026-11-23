@@ -13,6 +13,7 @@ R.setOC(await init({wasmBinary:await readFile('node_modules/replicad-opencascade
 const plate={...defaults,kind:'extrusion',name:'プレート',id:'plate',width:44,height:38,depth:12};
 const hole={...defaults,kind:'extrusion',name:'下穴',id:'hole',target:'plate',hole:true,
  profile:'circle',operation:'cut',diameter:6,z:12,depth:-5};
+const smallHole={...hole,name:'小径穴',id:'small-hole',diameter:.6,x:-10,y:-9};
 const thread={type:'thread',id:'tapped',target:'plate',profile:'metric60',threadVersion:2,
  surfacePoint:[3,0,9],pitch:1,fullLength:true};
 const screw={type:'freeScrew',id:'bolt',origin:[40,5,0],diameter:10,pitch:1.5,length:5,
@@ -20,14 +21,14 @@ const screw={type:'freeScrew',id:'bolt',origin:[40,5,0],diameter:10,pitch:1.5,le
  nut:{id:'nut',shape:'round',height:4,wall:2.5,autoPull:true,clearance:.2}};
 const cad=(features,spec)=>({kind:'cadop',name:spec.id,id:spec.id,spec,...runOperation(features,spec)});
 const boltAndNut=cad([],screw);
-const features=[plate,hole,cad([plate,hole],thread),boltAndNut];
+const features=[plate,hole,smallHole,cad([plate,hole,smallHole],thread),boltAndNut];
 const targets=['plate','bolt','nut'];
 const [nutX,nutY]=boltAndNut.analysis.nut.position;
 const adjustedLabel='Ø10.4（使用ボルトはM10）',expected=['M6','M10',adjustedLabel];
 const project={format:'forma-cad',version:1,features,drawing:{version:1,signature:drawingSignature(features),
  targets,targetMode:'visible',scale:2,hidden:true,comment:'',dimensions:[],
  options:{paper:'A3',orientation:'landscape',name:'ねじ寸法',material:'',date:'',frame:true,
-  viewSelection:['top','front','right'],isoMode:'hidden',positions:{top:[45,42],front:[45,150],right:[280,150]}}}};
+  viewSelection:['top','front','right'],isoMode:'hidden',positions:{top:[45,42],front:[45,150],right:[280,150],holeTable:[280,42]}}}};
 
 const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
 const server=http.createServer(async(req,res)=>{
@@ -61,7 +62,12 @@ try{
   await $('project-preview-open').click();
   await $('project-load-preview').waitFor({state:'hidden'});
   await field('tool').click();
-  await page.waitForFunction(()=>document.getElementById('drawing-dialog').open&&!document.getElementById('drawing-generate').disabled);
+  try{
+   await page.waitForFunction(()=>document.getElementById('drawing-dialog').open&&!document.getElementById('drawing-generate').disabled);
+  }catch(error){
+   const status=await field('status').textContent({timeout:3000}).catch(()=>null);
+   throw Error([status,...errors].filter(Boolean).join(' / ')||'Drawing did not finish loading',{cause:error});
+  }
   assert.equal(await view.count(),1,await field('status').textContent());
   await view.waitFor();
  }
@@ -92,6 +98,17 @@ try{
  assert.equal(automatic.filter(label=>label===adjustedLabel).length,1);
  assert.ok(automatic.includes('Ø15'));
  assert.ok(!automatic.includes('Ø10.4'));
+ const omitted=field('omitted-hole');
+ const small=await omitted.locator('option').filter({hasText:/TOP.*Ø0\.6/}).getAttribute('value');
+ await omitted.selectOption(small);
+ assert.equal(await preview.locator('[data-omitted-hole-highlight]').count(),1);
+ await field('omitted-hole-add').click();
+ assert.equal((await labels()).filter(label=>label==='Ø0.6').length,1);
+ assert.equal(await omitted.locator('option').filter({hasText:/TOP.*Ø0\.6/}).count(),0);
+ await field('undo').click();
+ await field('zoom-fit').click();
+ assert.deepEqual(await labels(),automatic);
+ assert.equal(await omitted.locator('option').filter({hasText:/TOP.*Ø0\.6/}).count(),1);
  await field('dimension-auto').click();
  assert.deepEqual(await labels(),automatic);
  const link=field('link-scales');
@@ -137,8 +154,23 @@ try{
  assert.deepEqual(await labels(),expected.slice(0,2));
  await field('redo').click();
  assert.deepEqual(await labels(),expected);
+ await field('thread-leader-start').click();
+ await page.mouse.click(...await screen([nutX,-nutY]));
+ await page.mouse.click(...await screen([nutX+21,-nutY+18]));
+ await field('hole-start').click();
+ await page.mouse.click(...await screen([-18,-15]));
+ await page.mouse.click(...await screen([nutX,-nutY]));
+ await field('hole-add').click();
+ async function assertThreadNotes(host){
+  for(const selector of ['[data-leader] text','[data-hole-row="H1"] text']){
+   const lines=await host.locator(selector).allTextContents();
+   assert.ok(lines.includes(adjustedLabel),lines.join(' / '));
+  }
+ }
+ await assertThreadNotes(preview);
  await field('pdf-preview-open').click();
  assert.deepEqual(await field('pdf-preview-host').locator('[data-dimension] text').allTextContents(),expected);
+ await assertThreadNotes(field('pdf-preview-host'));
  await field('pdf-preview-close').click();
  await link.check();
  await field('close').click();
@@ -153,9 +185,10 @@ try{
  drawing.dimensions[2]=legacy;
  await open({...saved,drawing});
  assert.deepEqual(await labels(),expected);
+ await assertThreadNotes(preview);
  assert(await link.isChecked());
  assert.deepEqual(errors,[]);
- console.log('PASS automatic and manual adjusted thread dimensions, linked projection scales, PDF preview and reopening saved drawings');
+ console.log('PASS skipped-hole selection and insertion, adjusted thread dimensions and notes, linked scales, PDF preview and reopening');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

@@ -13,7 +13,7 @@ import {drawingDimensionCenterGuides,snapDrawingDimensionPoint} from '../src/dra
 import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from '../src/drawing-thread-dimensions.js';
 import {dimensionLabel,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
-import {autoDrawingDimensions} from '../src/drawing-auto-dimensions.js';
+import {autoDrawingDimensions,unmeasuredDrawingHoles} from '../src/drawing-auto-dimensions.js';
 
 before(async()=>R.setOC(await init({wasmBinary:await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url))})));
 
@@ -127,8 +127,18 @@ test('a pull of minus 0.2 mm on an M10 hole preserves the bolt size for new and 
  const automatic=autoDrawingDimensions(next,1,[],sheet,{types:['diameter']}).dimensions;
  assert.deepEqual(automatic.map(dimensionLabel),[label]);
  assert.deepEqual(automatic[0].threadRef,updated.threadRef);
- const pages=drawingPDFPages(next,1,true,automatic,'',options);
- assert.ok(pages.some(page=>page.svg.includes(label)));
+ const oldLeader={id:'leader-pull',...drawingThreadLeader('top',prior,[21,20])};
+ const [leader]=reconcileDrawingThreadLeaders([oldLeader],next.views);
+ assert.equal(leader.text.split('\n')[0],label);
+ const holes=drawingHoleCandidates(next.views.top,'top',adjusted,targets).map((row,i)=>({number:i+1,...holeAnchor(row)}));
+ const annotated={...options,leaders:[leader],holeTable:{view:'top',origin:[-10,10],holes}};
+ const rendered=drawingSheet(next,1,true,automatic,'',annotated);
+ const pages=drawingPDFPages(next,1,true,automatic,'',annotated);
+ for(const outputs of [[rendered],pages]){
+  const table=outputs.find(({holeBox})=>holeBox)?.svg.split('data-hole-table="true"')[1]??'';
+  assert.ok(table.includes(label)&&table.includes('ピッチ 1.5 mm'));
+  assert.ok(outputs.some(({svg})=>/data-leader="leader-pull"[^]*?Ø10\.4（使用ボルトはM10）[^]*?ねじ深さ/.test(svg)));
+ }
  assert.equal(autoDrawingDimensions(next,1,[updated],sheet,{types:['diameter']}).dimensions.length,0);
 });
 
@@ -164,4 +174,33 @@ test('automatic dimensions distinguish adjusted bores from same-size plain circl
  const detail=autoDrawingDimensions(data,1,[],detailSheet,{...settings,views:{top:[]},details}).dimensions;
  assert.deepEqual(labels(detail),['Ø14',m10].sort());
  assert.ok(detail.every(d=>d.view==='detail-a'));
+});
+
+test('automatic dimensions prioritize threaded openings across views and list the remaining visible circles',()=>{
+ const radii=[5,4,3,2];
+ const circle=([x,y],r)=>`M ${x-r} ${y} A ${r} ${r} 0 0 1 ${x+r} ${y} A ${r} ${r} 0 0 1 ${x-r} ${y}`;
+ const regular=radii.map((radius,i)=>circle([12+i*16,-10],radius));
+ const adjustedCenter=[62,-23],normalCenter=[14,-14];
+ const view=(width,paths,holeMachining=[])=>({hidden:[],visible:[`M 0 0 L ${width} 0 L ${width} -32 L 0 -32 Z`,...paths],holeMachining});
+ const threaded=(center,radius,diameter,adjustedDiameter)=>({center,radius,
+  thread:{id:'thread',bodyId:'plate',end:'high',diameter,pitch:.5,adjustedDiameter}});
+ const data={bounds:[[0,0,0],[72,32,32]],views:{
+  top:view(72,[...regular,circle(adjustedCenter,1.6),circle([21,-23],.3)],[threaded(adjustedCenter,1.6,3,3.2)]),
+  front:view(72,regular),
+  right:view(32,[circle(normalCenter,1.5)],[threaded(normalCenter,1.5,3)]),
+ }};
+ const sheet=drawingSheet(data,1,true,[],'',{frame:true,isoMode:'hidden'});
+ const settings={types:['diameter']};
+ const result=autoDrawingDimensions(data,1,[],sheet,settings);
+ assert.equal(result.dimensions.length,8);
+ assert(result.dimensions.some(d=>d.kind==='thread'&&dimensionLabel(d)==='Ø3.2（使用ボルトはM3）'));
+ assert(result.dimensions.some(d=>d.view==='right'&&dimensionLabel(d)==='Ø3'));
+ assert.deepEqual(result.omitted.map(({dimension:d,reason})=>[d.view,dimensionLabel(d),reason]),
+  [['top','Ø4','limit'],['top','Ø0.6','small'],['front','Ø4','limit']]);
+ const recovered={...result.omitted[0].dimension,at:[54,-40]};
+ const dimensions=[...result.dimensions,recovered];
+ assert.deepEqual(unmeasuredDrawingHoles(result.omitted,dimensions),result.omitted.slice(1));
+ const again=autoDrawingDimensions(data,1,dimensions,sheet,settings);
+ assert.deepEqual(again.dimensions,[]);
+ assert.deepEqual(again.omitted,result.omitted.slice(1));
 });

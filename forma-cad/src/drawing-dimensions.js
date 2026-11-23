@@ -9,12 +9,11 @@ function numberLabel(d){
  return d.displayValue===undefined?String(Number(value.toFixed(3))):String(value);
 }
 export const escapeDrawingText=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+export const adjustedDrawingThreadLabel=(diameter,nominal)=>'Ø'+diameter+'（使用ボルトはM'+Number(nominal.toFixed(3))+'）';
 export function dimensionLabel(d){
  if(d.review)return '要確認';
  const value=numberLabel(d);
- const adjusted=d.kind==='thread'&&d.adjustedDiameter!==undefined;
- const bolt=adjusted?'（使用ボルトはM'+Number(d.nominalDiameter.toFixed(3))+'）':'';
- const nominal=d.kind==='thread'?(adjusted?'Ø':'M')+value+bolt:d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
+ const nominal=d.kind==='thread'?(d.adjustedDiameter===undefined?'M'+value:adjustedDrawingThreadLabel(value,d.nominalDiameter)):d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
   (['diameter','radius'].includes(d.kind)?(d.count>1?d.count+'×':'')+(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
  const tolerance=d.tolerance===undefined?'':' ±'+d.tolerance+(d.kind==='angle'?'°':'');
  return nominal+tolerance+(d.note?' '+d.note:'');

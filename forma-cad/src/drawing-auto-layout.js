@@ -259,10 +259,10 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  const minimumIso=s=>{
   const nominal=nominalIso(s);
   if(nominal<=minDrawingScale)return undefined;
-  const limit=nominal/2;
+  const limit=Math.min(nominal/2,options.autoIsoScale??Infinity);
   return largestFittingScale(value=>value<=limit+1e-12?true:null)?.scale??minDrawingScale;
  };
- const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale,{packingArea=area,includeTitles=false}={})=>{
+ const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale,{packingArea=area,includeTitles=false,order=[]}={})=>{
   const corner=titleBlock?{x:titleBlock.x-titleBlockClearance-packingArea.x,y:titleBlock.y-titleBlockClearance-packingArea.y}:null;
   const upperArea=corner?{...packingArea,height:corner.y}:packingArea;
   const nextOptions={...placementOptions,autoIsoScale};
@@ -275,7 +275,7 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
     const width=Math.max(block.width,Math.min(block.wrapWidth??0,maxNoteWidth))+2,height=block.height+2;
     annotations.push({key,box:{x:-1,y:-1,width,height},width,height});
    }
-   const packWithGaps=(gaps,order=[])=>{
+   const packWithGaps=gaps=>{
     const packCount=views.length+annotations.length-(right?1:0);
     const group=options.linkedProjections?linkedDrawingViews:order.length&&packCount>6?['front',...order]:null;
     const grouped=group?groupProjectionViews(views,nextFrames,s,gaps,group):views;
@@ -322,17 +322,20 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  }
  // Captions and header clearance are preferred only after fixing both scales.
  const withHeadroom={...area,y:18,height:bottom-18};
- const decorated=attempt(nextScale,result.isoOnRight,result.autoIsoScale,{packingArea:withHeadroom,includeTitles:true})??
-  attempt(nextScale,result.isoOnRight,result.autoIsoScale,{includeTitles:true});
- const layouts=decorated?[decorated,result]:[result];
- result=layouts[0];
+ const right=result.isoOnRight,isoScale=result.autoIsoScale;
+ const withCaptions=(size,order=[])=>attempt(nextScale,right,size,{packingArea:withHeadroom,includeTitles:true,order})??
+  attempt(nextScale,right,size,{includeTitles:true,order});
+ const ordered=(order,size)=>withCaptions(size,order)??attempt(nextScale,right,size,{order});
+ result=withCaptions(isoScale)??result;
  if(preferProjectionOrder&&!options.linkedProjections&&frames.front&&(frames.top||frames.right)){
   const order=['top','right'].filter(name=>frames[name]);
-  const candidates=order.length>1?[order,['top'],['right']]:[order];
-  preferredOrder:for(const dirs of candidates)for(const candidate of layouts){
-   const packWithGaps=gaps=>candidate.packWithGaps(gaps,dirs),ordered=packWithGaps(minimumGaps);
-   if(ordered){result={...candidate,...ordered,packWithGaps};break preferredOrder;}
+  let preferred=ordered(order,isoScale);
+  // Keep the fitted orthographic scale and reclaim width from the automatic ISO view.
+  if(!preferred&&adaptiveIso&&right&&!fixedScale){
+   const maximum=isoScale??nominalIso(nextScale);
+   preferred=largestFittingScale(value=>value<maximum?ordered(order,value):null)?.result;
   }
+  result=preferred??(order.length===2?(ordered(['top'],isoScale)??ordered(['right'],isoScale)):null)??result;
  }
  const layout=spreadViews&&Object.keys(frames).length>1?spreadDrawingItems(result,result.packingArea):result;
  const {packed,packingArea:used}=layout;

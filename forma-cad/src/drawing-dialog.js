@@ -32,7 +32,7 @@ import {associateDrawingHoleSources,drawingHoleCandidates,drawingHoleCenterRefer
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
 import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from './drawing-thread-dimensions.js';
 import {followSectionEdit} from './drawing-section-references.js';
-import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions} from './drawing-auto-dimensions.js';
+import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,drawingDiameterCandidateVisible,drawingDiameterDraftPosition,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions,unmeasuredDrawingHoles} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
@@ -202,6 +202,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   '</fieldset>').join('')+'</details></div>');
  $('drawing-auto-dimension-views').before(Object.assign(document.createElement('div'),{id:'drawing-auto-dimension-types',className:'drawing-controls',innerHTML:'<strong>自動入力する種類</strong>'+[['outline','外形寸法'],['diameter','円・穴径'],['radius','R寸法'],['spacing','中心位置・間隔']].map(([key,label])=>'<label><input type="checkbox" data-auto-type="'+key+'" checked>'+label+'</label>').join('')+'<label><input type="checkbox" id="drawing-auto-group" checked>同じR・穴径をまとめる</label><small>これから自動追加する寸法に適用します。図ごとの設定は「ビュー別の自動寸法」から変更できます。</small>'}));
  $('drawing-auto-group').closest('label').insertAdjacentHTML('afterend','<label><input type="checkbox" id="drawing-auto-unique-overall">外形寸法を幅・奥行き・高さに各1つ</label>');
+ const omittedHolePanel=document.createElement('details');
+ omittedHolePanel.id='drawing-omitted-holes';omittedHolePanel.hidden=true;
+ omittedHolePanel.innerHTML='<summary>省略した穴径・円</summary><div class="drawing-controls">'+
+  '<label>穴を選択<select id="drawing-omitted-hole"></select></label>'+
+  '<button type="button" id="drawing-omitted-hole-add">選んだ穴の寸法を追加</button></div>';
+ $('drawing-dimension-auto').closest('.drawing-dimension-controls').after(omittedHolePanel);
+ const omittedHoleInput=$('drawing-omitted-hole'),omittedHoleAdd=$('drawing-omitted-hole-add');
+ let omittedHoleReport=null,visibleOmittedHoles=[],selectedOmittedHole=null;
  const inlineScales=installDrawingInlineScales({makeInput:scaleInput,syncInput:syncScaleInput,changeScale:changeInlineViewScale,viewLabel:pdfViewLabel});
  const viewport=drawingViewport({dialog,host:viewportHost,minus:$('drawing-zoom-out'),plus:$('drawing-zoom-in'),fit:$('drawing-zoom-fit'),percent:$('drawing-zoom-percent'),expand:$('drawing-expand'),canNavigate:()=>!drag&&!busy,onViewChange:()=>{
   clearDimensionHover();inlineScales.position();
@@ -1156,6 +1164,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-target').disabled=busy;
   $('drawing-target').querySelector('[value="selected"]').disabled=!selected.length;
   historyControls();editor();extraControls();syncHiddenViews();syncInspectedHole();
+  syncOmittedHoles();
   $('drawing-dimension-arrange').disabled=!ready||!dimensions.some(d=>sheet.layout[d.view]);
   $('drawing-dimension-undo').disabled=$('drawing-dimension-clear').disabled=!ready||!dimensions.length;
   $('drawing-dimension-cancel').hidden=!picking&&!action;
@@ -1241,11 +1250,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function nearestHole(e,view,candidates,machining){
   if(!candidates.length)return null;
   const scale=sheet.layout[view].scale,p=paperPoint(e),matrix=viewportHost.querySelector('svg').getScreenCTM();
-  let nearest=null,best=10/Math.hypot(matrix.a,matrix.b);
+  let nearest=null,best=10/Math.hypot(matrix.a,matrix.b),bestRank=0;
   for(const hole of candidates){
-   const q=map(view,hole.center),r=Math.hypot(p[0]-q[0],p[1]-q[1]),outer=machining(hole)?.counterbore?.radius??hole.radius;
+   const info=machining(hole),rank=info?.thread?2:info?1:0;
+   const q=map(view,hole.center),r=Math.hypot(p[0]-q[0],p[1]-q[1]),outer=info?.counterbore?.radius??hole.radius;
    const distance=Math.min(r,Math.abs(r-hole.radius*scale),Math.abs(r-outer*scale));
-   if(distance<best){best=distance;nearest=hole;}
+   const sameCenterHit=nearest&&sameDrawingCenter(nearest.center,hole.center)&&Math.abs(distance-best)<1e-4;
+   if(sameCenterHit&&rank!==bestRank?rank>bestRank:distance<best){best=distance;nearest=hole;bestRank=rank;}
   }
   return nearest;
  }
@@ -2457,6 +2468,64 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   pdfPositions={...pdfPositions,...displayedPositions(sheet)};
   pdfPageScales={...pdfPageScales,[editingPage+1]:sheet.pageScale};
  }
+ function syncOmittedHoles(){
+  if(omittedHoleReport?.data!==data)omittedHoleReport=null;
+  const report=omittedHoleReport;
+  let visible=[];
+  if(report&&sheet&&dialog.open){
+   const shapes=withDetails(data,details).views,detailSources=new Map(details.map(d=>[d.id,d.view]));
+   const candidates=report.items.filter(({dimension:d})=>report.detailSources.get(d.view)===detailSources.get(d.view)&&
+    drawingDiameterCandidateVisible(d,shapes[d.view],sheet.layout[d.view]));
+   visible=unmeasuredDrawingHoles(candidates,[...dimensions,...sheet.inheritedDimensions]);
+  }
+  omittedHolePanel.hidden=!visible.length;
+  omittedHolePanel.firstElementChild.textContent='省略した穴径・円（'+visible.length+' 件）';
+  if(visible.length!==visibleOmittedHoles.length||visible.some((item,i)=>item!==visibleOmittedHoles[i])){
+   const choices=document.createDocumentFragment();
+   choices.append(new Option('候補を選択',''));
+   for(const [index,{dimension:d,reason}] of visible.entries()){
+    const position=d.center.map(n=>Number(n.toFixed(2))).join(', ');
+    const reasonText=reason==='small'?'小さい円':'件数上限';
+    choices.append(new Option(pdfViewLabel(d.view)+' · '+dimensionLabel(d)+' · ('+position+') · '+reasonText,String(index)));
+   }
+   omittedHoleInput.replaceChildren(choices);
+   visibleOmittedHoles=visible;
+  }
+  const index=visible.indexOf(selectedOmittedHole),enabled=!!sheet&&!busy&&!drag&&!picking&&!action;
+  if(index<0)selectedOmittedHole=null;
+  omittedHoleInput.value=index<0?'':String(index);
+  omittedHoleInput.disabled=!enabled||!visible.length;
+  omittedHoleAdd.disabled=!enabled||index<0||dimensions.length>=500;
+  omittedHoleAdd.title=dimensions.length>=500?'寸法は500個まで追加できます':'';
+  const svg=viewportHost.querySelector('svg');
+  svg?.querySelector('[data-omitted-hole-highlight]')?.remove();
+  if(!svg||!omittedHolePanel.open||!enabled||!selectedOmittedHole)return;
+  const d=selectedOmittedHole.dimension,[cx,cy]=map(d.view,d.center),r=Math.max(1.6,d.radius*sheet.layout[d.view].scale);
+  const circle=document.createElementNS(svg.namespaceURI,'circle');
+  for(const [key,value] of Object.entries({cx,cy,r,'data-omitted-hole-highlight':'true',fill:'none',
+   stroke:'#b45116','stroke-width':2.5,'vector-effect':'non-scaling-stroke','pointer-events':'none'}))circle.setAttribute(key,value);
+  svg.append(circle);
+  return {x:cx-r,y:cy-r,width:2*r,height:2*r};
+ }
+ omittedHolePanel.ontoggle=syncOmittedHoles;
+ omittedHoleInput.onchange=()=>{
+  const value=omittedHoleInput.value;
+  selectedOmittedHole=value===''?null:visibleOmittedHoles[Number(value)];
+  const box=syncOmittedHoles();
+  if(box){viewport.focus(box);viewportHost.scrollIntoView({block:'nearest'});}
+ };
+ omittedHoleAdd.onclick=()=>{
+  syncOmittedHoles();
+  if(omittedHoleAdd.disabled)return;
+  const d=selectedOmittedHole.dimension;
+  const draft=applyDimensionFont({...d,automatic:true,at:drawingDiameterDraftPosition(d,sheet.layout[d.view])});
+  const placed=arrangeDrawingDimensions([draft],sheet,[...onSheetDimensions(),...sheet.inheritedDimensions],{preferNearby:true,keepOnPaper:true});
+  const added=editingPage<0?placed.dimensions:addedPageDimensions(placed.dimensions,Number($('drawing-scale').value));
+  preserveActivePDFPlacement();
+  dimensions=[...dimensions,...added];selectedOmittedHole=null;
+  render();
+  if(sheet)status('穴径寸法 '+dimensionLabel(d)+' を追加しました。'+(placed.unresolved.length?'位置を調整してください。':''));
+ };
  $('drawing-dimension-auto').onclick=()=>{
   if(!data||!sheet||busy)return;
   picking=null;action=null;selection=null;
@@ -2472,6 +2541,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(added.length||result.updated||current.hidden)preserveActivePDFPlacement();
   const firstAdded=result.existing.length;
   dimensions=[...result.existing,...added];
+  omittedHoleReport={data,items:result.omitted,detailSources:new Map(details.map(d=>[d.id,d.view]))};
+  selectedOmittedHole=null;omittedHolePanel.open=!!result.omitted.length;
   render();
   if(!sheet)return;
   const messages=[];
@@ -2479,7 +2550,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(result.updated)messages.push('ねじ穴の寸法表記を '+result.updated+' 件更新しました。');
   if(current.hidden)messages.push('重複する自動外形寸法を '+current.hidden+' 個、非表示にしました。');
   if(!messages.length)messages.push('追加できる寸法はありません。');
-  if(result.skipped)messages.push('小さい円形部・過密な部分は省略しました。');
+  if(visibleOmittedHoles.length)messages.push('省略した穴径・円 '+visibleOmittedHoles.length+' 件は一覧から追加できます。');
+  else if(result.skipped)messages.push('小さい円形部・過密な部分は省略しました。');
   if(result.layoutWarnings)messages.push(result.layoutWarnings+' 個の寸法は配置の調整が必要です。');
   const clipped=[...viewportHost.querySelectorAll('[data-dimension][data-drawing-overflow]')].filter(node=>Number(node.dataset.dimension)>=firstAdded).length;
   if(clipped)messages.push('用紙をはみ出した寸法 '+clipped+' 個は赤枠から調整できます。');

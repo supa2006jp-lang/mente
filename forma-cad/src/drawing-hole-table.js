@@ -5,24 +5,25 @@ import {escapeDrawingText} from './drawing-dimensions.js';
 import {drawingThreadTableText} from './drawing-thread-annotations.js';
 
 export const maxDrawingTableHoles=48;
-const rowsPerBlock=24,baseColumns=[7,11.5,11.5,9,10,11.5,13.5],rowHeight=4.6;
+const rowsPerBlock=24,baseColumns=[7,11.5,11.5,9,10,11.5,13.5];
 function tableColumns(table){
  const thread=table.holes.some(hole=>hole.machining?.thread);
+ const adjusted=table.holes.some(hole=>hole.machining?.thread?.adjustedDiameter!==undefined);
  const widths=thread?[...baseColumns,44]:baseColumns;
- return {thread,widths,blockWidth:widths.reduce((a,b)=>a+b,0)};
+ return {thread,adjusted,widths,blockWidth:widths.reduce((a,b)=>a+b,0),rowHeight:adjusted?6.3:4.6};
 }
 const rounded=n=>Number(n.toFixed(3));
 const text=(s,x,y,anchor='start',size=2.8)=>'<text x="'+x+'" y="'+y+'" text-anchor="'+anchor+'" font-size="'+size+'">'+escapeDrawingText(s)+'</text>';
 const line=(x,y,endX,endY)=>'<path d="M '+x+' '+y+' L '+endX+' '+endY+'"/>';
 export function drawingHoleTableSize(table,views){
  if(!table||table.review||!views[table.view])return null;
- const {blockWidth}=tableColumns(table);
+ const {blockWidth,rowHeight}=tableColumns(table);
  return {width:blockWidth*Math.ceil(table.holes.length/rowsPerBlock),height:6+(1+Math.min(table.holes.length,rowsPerBlock))*rowHeight};
 }
 export function drawingHoleTableSVG(table,box){
  if(!box)return '';
  const {x,y,width,height}=box;
- const {thread,widths:columnWidths,blockWidth}=tableColumns(table);
+ const {thread,adjusted,widths:columnWidths,blockWidth,rowHeight}=tableColumns(table);
  let grid='<rect x="'+x+'" y="'+y+'" width="'+width+'" height="'+height+'" fill="white"/>';
  let labels=text('穴位置表 / '+drawingProjections[table.view].label+' / mm',x+2,y+4);
  for(let start=0;start<table.holes.length;start+=rowsPerBlock){
@@ -31,12 +32,16 @@ export function drawingHoleTableSVG(table,box){
   for(const offset of [...widths,blockWidth])grid+=line(left+offset,top,left+offset,top+(rows+1)*rowHeight);
   for(let index=0;index<=rows+1;index++)grid+=line(left,top+rowHeight*index,left+blockWidth,top+rowHeight*index);
   const print=(values,row)=>values.map((value,i)=>{
-   const ems=Array.from(String(value)).reduce((width,ch)=>width+(ch.codePointAt(0)>255?1:.65),0);
-   const size=Math.min(row?2.8:2.5,(columnWidths[i]-1)/ems);
-   return text(value,left+widths[i]+columnWidths[i]/2,top+row*rowHeight+3.25,'middle',size);
+   const lines=String(value).split('\n'),x=left+widths[i]+columnWidths[i]/2;
+   const y=top+row*rowHeight+rowHeight/2+.95;
+   return lines.map((line,index)=>{
+    const ems=Array.from(line).reduce((width,ch)=>width+(ch.codePointAt(0)>255?1:.65),0);
+    const size=Math.min(row?2.8:2.5,(columnWidths[i]-1)/ems);
+    return text(line,x,y+(index-(lines.length-1)/2)*2.9,'middle',size);
+   }).join('');
   }).join('');
   const headings=['ID','X','Y','穴径 Ø','穴深さ','座ぐり径','座ぐり深さ'];
-  if(thread)headings.push('ねじ（呼び径×ピッチ / 深さ / 方向）');
+  if(thread)headings.push(adjusted?'ねじ（ピッチ / 深さ / 方向）':'ねじ（呼び径×ピッチ / 深さ / 方向）');
   labels+=print(headings,0);
   for(let index=start;index<end;index++){
    const {center,radius,machining,number,review}=table.holes[index],recess=machining?.counterbore;
@@ -44,7 +49,7 @@ export function drawingHoleTableSVG(table,box){
    const depth=machining?.through?'貫通':Number.isFinite(machining?.depth)?rounded(machining.depth):'—';
    const values=review?[id,'—','—','—','要確認','—','—']:
     [id,rounded(center[0]-table.origin[0]),rounded(table.origin[1]-center[1]),
-     rounded(radius*2),depth,recess?rounded(recess.radius*2):'—',Number.isFinite(recess?.depth)?rounded(recess.depth):'—'];
+     rounded(machining?.thread?.adjustedDiameter??radius*2),depth,recess?rounded(recess.radius*2):'—',Number.isFinite(recess?.depth)?rounded(recess.depth):'—'];
    if(thread)values.push(machining?.thread&&!review?drawingThreadTableText(machining.thread):'—');
    const row=index-start+1;
    labels+='<g data-hole-row="'+id+'">'+print(values,row)+'</g>';
@@ -79,7 +84,7 @@ export function drawingHoleMarkersSVG(table,view){
 // Hit areas belong to the editing viewport. They never enter an exported drawing.
 export function addDrawingHoleHitAreas(svg,{holeTable,holeBox,layout}){
  if(!holeTable)return;
- const {blockWidth}=tableColumns(holeTable);
+ const {blockWidth,rowHeight}=tableColumns(holeTable);
  function shape(tag,attrs){
   const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
   for(const [key,value] of Object.entries({...attrs,fill:'none',stroke:'none','aria-hidden':'true'}))el.setAttribute(key,value);
