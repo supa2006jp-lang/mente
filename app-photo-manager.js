@@ -5049,7 +5049,7 @@
             const edit = libraryPhoto?.photoCompareBlankEdit || item.photoCompareBlankEdit || null;
             if (!edit || edit.type !== 'blank') return this.showPhotoManagerNotice('この画像には白紙再編集データがありません。');
             const color = /^#[0-9a-f]{6}$/i.test(edit.blankBaseColor || '') ? edit.blankBaseColor : '#ffffff';
-            const photo = this.createShiftPhotoCompareBlankBasePhoto?.(color);
+            const photo = this.createShiftPhotoCompareBlankBasePhoto?.(color, edit.blankBaseGradient);
             if (!photo) return this.showPhotoManagerNotice('白紙編集画面を開けませんでした。');
             photo.caption = edit.caption || '白紙';
             photo.marks = this.parseShiftPhotoCompareMarks?.(JSON.stringify(edit.marks || [])) || [];
@@ -5078,7 +5078,7 @@
             if (!edit || edit.type !== 'blank') return false;
             const baseColor = String(edit.blankBaseColor || '#ffffff').toLowerCase();
             const hasMarks = Array.isArray(edit.marks) && edit.marks.length > 0;
-            return hasMarks || (baseColor && baseColor !== '#ffffff');
+            return hasMarks || edit.blankBaseGradient?.enabled === true || (baseColor && baseColor !== '#ffffff');
         }
 
         getPhotoManagerBlankEditName(edit = null) {
@@ -5112,7 +5112,7 @@
             } catch (error) {
                 console.warn('Failed to render blank edit preview.', error);
             }
-            const fallbackSrc = this.createShiftPhotoCompareBlankBaseSrc?.(edit.blankBaseColor || '#ffffff') || '';
+            const fallbackSrc = this.createShiftPhotoCompareBlankBaseSrc?.(edit.blankBaseColor || '#ffffff', edit.blankBaseGradient) || '';
             const saveSrc = renderedSrc || fallbackSrc;
             if (!saveSrc) return null;
 
@@ -5191,7 +5191,7 @@
                         <div class="photo-manager-blank-template-list">
                             ${templates.length ? templates.map(template => `
                                 <article>
-                                    <img src="${template.src || this.createShiftPhotoCompareBlankBaseSrc?.(template.edit?.blankBaseColor || '#ffffff') || ''}" alt="${this.escapeHtml(template.name || '白紙テンプレート')}">
+                                    <img src="${template.src || this.createShiftPhotoCompareBlankBaseSrc?.(template.edit?.blankBaseColor || '#ffffff', template.edit?.blankBaseGradient) || ''}" alt="${this.escapeHtml(template.name || '白紙テンプレート')}">
                                     <div>
                                         <b>${this.escapeHtml(template.name || '白紙テンプレート')}</b>
                                         <small>${template.createdAt ? this.escapeHtml(new Date(template.createdAt).toLocaleString('ja-JP')) : ''}</small>
@@ -5210,7 +5210,7 @@
             const template = this.getPhotoManagerBlankTemplates().find(item => item.id === templateId);
             if (!template?.edit || template.edit.type !== 'blank') return this.showPhotoManagerNotice('白紙テンプレートが見つかりません。');
             const color = /^#[0-9a-f]{6}$/i.test(template.edit.blankBaseColor || '') ? template.edit.blankBaseColor : '#ffffff';
-            const photo = this.createShiftPhotoCompareBlankBasePhoto?.(color);
+            const photo = this.createShiftPhotoCompareBlankBasePhoto?.(color, template.edit.blankBaseGradient);
             if (!photo) return this.showPhotoManagerNotice('白紙テンプレートを開けませんでした。');
             photo.caption = template.edit.caption || '白紙';
             photo.marks = this.parseShiftPhotoCompareMarks?.(JSON.stringify(template.edit.marks || [])) || [];
@@ -7739,7 +7739,7 @@
                     wrap.className = 'shift-photo-compare-image-wrap';
                     wrap.style.cssText = 'position:fixed;left:-20000px;top:0;width:1600px;height:1000px;visibility:hidden;pointer-events:none;';
                     const base = document.createElement('img');
-                    base.src = this.createShiftPhotoCompareBlankBaseSrc?.(edit.blankBaseColor || '#ffffff') || item.src;
+                    base.src = this.createShiftPhotoCompareBlankBaseSrc?.(edit.blankBaseColor || '#ffffff', edit.blankBaseGradient) || item.src;
                     base.alt = '';
                     base.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;';
                     wrap.appendChild(base);

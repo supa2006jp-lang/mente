@@ -24,6 +24,7 @@
             const photoIndex = Number(wrap.dataset.photoIndex), photo = context.photos[photoIndex] || {};
             return { photoIndex, src: wrap.querySelector(':scope > img')?.src || photo.src || '', caption: photo.caption || '',
                 isBlankBase: !!photo.isBlankBase, blankBaseColor: photo.blankBaseColor || '',
+                blankBaseGradient: photo.blankBaseGradient || null,
                 marks: this.addShiftPhotoCompareImageCoordinates(this.readShiftPhotoCompareMarksFromWrap(wrap), wrap) };
         });
         const layer = overlay.querySelector('.shift-photo-compare-global-layer');
@@ -116,7 +117,7 @@
                 const layer = wrap.querySelector('.shift-photo-compare-mark-layer'); if (layer) layer.innerHTML = marks.map(mark => this.getShiftPhotoCompareMarkHtml(mark)).join('');
                 if (!preview) {
                     const photo = context.photos[saved.photoIndex];
-                    Object.assign(photo, { src: saved.src, caption: saved.caption || '', marks, isBlankBase: !!saved.isBlankBase, blankBaseColor: saved.blankBaseColor || '' });
+                    Object.assign(photo, { src: saved.src, caption: saved.caption || '', marks, isBlankBase: !!saved.isBlankBase, blankBaseColor: saved.blankBaseColor || '', blankBaseGradient: saved.blankBaseGradient || null });
                     if (photo.previewItem) {
                         const original = photo.previewItem.querySelector('img'); if (original) original.src = saved.src;
                         const caption = photo.previewItem.querySelector('.shift-photo-caption'); if (caption) caption.value = photo.caption;
@@ -132,6 +133,7 @@
                 context.globalMarks = global;
                 const blank = snapshot.wraps.find(p => p.isBlankBase);
                 if (blank) for (const input of overlay.querySelectorAll('.shift-photo-compare-blank-bg-color input')) input.value = blank.blankBaseColor || '#ffffff';
+                this.refreshShiftPhotoCompareBlankBackgroundControls?.();
                 if (context.row) context.row.dataset.shiftPhotoGlobalMarks = JSON.stringify(this.compactShiftPhotoCompareMarkImages(global));
             }
             this.selectShiftPhotoCompareMark(null); this.refreshShiftPhotoCompareMarkList(); this.updateShiftPhotoCompareMiniToolbar();
@@ -147,6 +149,7 @@
 
     P.setImageEditReadOnly = function (active) {
         const overlay = document.getElementById('shift-photo-compare-overlay'); if (!overlay) return;
+        if (active) document.getElementById('shift-photo-compare-blank-bg-panel')?.hidePopover();
         for (const element of overlay.querySelectorAll('.shift-photo-compare-markbar, .shift-photo-compare-grid, .shift-photo-compare-mini-toolbar')) element.inert = active;
         overlay.classList.toggle('image-edit-readonly', active);
     };

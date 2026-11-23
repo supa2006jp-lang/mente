@@ -1314,6 +1314,18 @@ test('image editor: awaited saves, redo, persistent versions, comparison and exp
         window.imageTestFlush=async()=>{await Promise.allSettled([...(app._shiftPhotoCompareContext?.imagePendingSaves||[])]);};
         window.imageTestCount=()=>document.querySelectorAll('.shift-photo-compare-image-wrap .shift-photo-compare-mark:not([data-animation-ghost="1"])').length;
     })()`);
+    await t.test('new photo editors have numeric scale labels with room for four digits', async () => {
+        const result = await page.evaluate(`(() => {
+            const values = ['shift-photo-compare-stretch-value','shift-photo-compare-stretch-y-value'].map(id=>document.getElementById(id).textContent);
+            const clean = !document.querySelector('.shift-photo-compare-header').innerText.includes('undefined');
+            app._shiftPhotoCompareMarkStretch = 1000; app._shiftPhotoCompareMarkStretchY = 1200;
+            app.updateShiftPhotoCompareSizeControls('mosaic');
+            const fits = ['shift-photo-compare-stretch-value','shift-photo-compare-stretch-y-value'].every(id=>{const el=document.getElementById(id);return el.scrollWidth<=el.clientWidth;});
+            app._shiftPhotoCompareMarkStretch = 100; app._shiftPhotoCompareMarkStretchY = 100; app.updateShiftPhotoCompareSizeControls();
+            return {values,clean,fits};
+        })()`);
+        assert.deepEqual(result.values, ['100','100']); assert.equal(result.clean,true); assert.equal(result.fits,true);
+    });
     await t.test('save cannot report success before disk completion and failed close keeps the editor retryable',async()=>{
         const result=await page.evaluate(`(async()=>{
             const write=store.writeSaveSnapshot;let release;const gate=new Promise(r=>release=r);let done=false;
@@ -1408,4 +1420,152 @@ test('image editor: awaited saves, redo, persistent versions, comparison and exp
         })()`);
         assert.equal(result.globals,1);assert.equal(result.undone,'#ffffff');assert.equal(result.redone,'#ff0000');assert.equal(result.failed,false);assert.equal(result.retained,true);assert.equal(result.retry,true);assert.equal(result.saved,'#ff0000');assert.equal(result.reopened,'#ff0000');assert.ok(result.versions>=2);
     });
+});
+
+test('photo background gradient: controls, pixels, undo, persistence and templates', { timeout: 180000 }, async t => {
+    const harness = await launchHarness();
+    t.after(() => harness.close());
+    const { page } = harness;
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    const result = await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        await app.openShiftPhotoCompareWithPhotos([], { source: 'photoManagerBlank', title: 'Gradient test' });
+        document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
+        document.querySelector('[data-bg-mode="gradient"]').click();
+        const end = document.querySelector('.shift-photo-compare-blank-bg-end-color input');
+        end.value = '#336699'; end.dispatchEvent(new Event('change', { bubbles: true }));
+        const direction = document.querySelector('.shift-photo-compare-blank-bg-direction');
+        direction.value = 'horizontal'; direction.dispatchEvent(new Event('change', { bubbles: true }));
+        const wrap = document.querySelector('.shift-photo-compare-image-wrap');
+        const image = wrap.querySelector(':scope > img'); await image.decode();
+        const exported = await app.renderShiftPhotoCompareWrapToCanvas(wrap, 1600);
+        const c = exported.getContext('2d');
+        const pixels = [10, exported.width - 11].map(x => [...c.getImageData(x, Math.floor(exported.height / 2), 1, 1).data]);
+        app.undoShiftPhotoCompareMarkChange(); const undone = direction.value;
+        app.redoShiftPhotoCompareMarkChange(); const redone = direction.value;
+        document.querySelector('[data-bg-mode="solid"]').click();
+        const solidHidden = document.querySelector('.shift-photo-compare-blank-bg-gradient-options').hidden;
+        app.undoShiftPhotoCompareMarkChange();
+        const restored = { visible: !document.querySelector('.shift-photo-compare-blank-bg-gradient-options').hidden, color: end.value };
+        const saved = await app.saveShiftPhotoCompare();
+        window.gradientTestId = app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+        const edit = app.getPhotoManagerLibrary().find(p => p.id === gradientTestId).photoCompareBlankEdit;
+        await app.closeShiftPhotoCompare();
+        return { pixels, undone, redone, solidHidden, restored, saved, gradient: edit.blankBaseGradient };
+    })()`);
+    assert.equal(result.pixels[0][3], 255);
+    assert.ok(result.pixels[0][0] > 245 && result.pixels[0][1] > 245 && result.pixels[0][2] > 245);
+    assert.ok(Math.abs(result.pixels[1][0] - 51) < 5 && Math.abs(result.pixels[1][1] - 102) < 5 && Math.abs(result.pixels[1][2] - 153) < 5);
+    assert.equal(result.undone, 'vertical'); assert.equal(result.redone, 'horizontal');
+    assert.equal(result.solidHidden, true); assert.deepEqual(result.restored, { visible: true, color: '#336699' });
+    assert.equal(result.saved, true);
+    assert.deepEqual(result.gradient, { enabled: true, color: '#336699', direction: 'horizontal', type: 'linear', centerX: 50, centerY: 50 });
+    await reloadApp(page, 'gradient reload');
+    const reopened = await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        const item = app.getPhotoManagerLibrary().find(p => p.photoCompareBlankEdit?.blankBaseGradient?.enabled);
+        await app.openPhotoManagerBlankEdit(item.id);
+        const gradient = app._shiftPhotoCompareContext.photos[0].blankBaseGradient;
+        const color = document.querySelector('.shift-photo-compare-blank-bg-end-color input').value;
+        app.savePhotoManagerBlankTemplate(item.id);
+        await app.closeShiftPhotoCompare();
+        app.openPhotoManagerBlankTemplate(app.getPhotoManagerBlankTemplates()[0].id);
+        await document.querySelector('.shift-photo-compare-image-wrap > img').decode();
+        return { gradient, color, template: app._shiftPhotoCompareContext.photos[0].blankBaseGradient };
+    })()`);
+    assert.deepEqual(reopened.gradient, result.gradient);
+    assert.deepEqual(reopened.template, result.gradient);
+    assert.equal(reopened.color, '#336699');
+    for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844]]) {
+        await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+        const layout = await page.evaluate(`(() => {
+            const controls = document.querySelector('.shift-photo-compare-blank-background-controls');
+            controls.querySelector('.shift-photo-compare-blank-bg-toggle').scrollIntoView({block:'center', inline:'nearest'});
+            app.toggleShiftPhotoCompareBlankBackgroundPanel(true);
+            return [...controls.querySelectorAll('button,input,select')].filter(el=>el.getClientRects().length).map(el => { const r=el.getBoundingClientRect(); return {left:r.left,right:r.right,width:r.width,height:r.height}; });
+        })()`);
+        assert.ok(layout.every(r => r.width > 0 && r.height > 0 && r.left >= 0 && r.right <= width), name + ' background controls fit');
+        if (process.env.PHOTO_GRADIENT_SCREENSHOTS) {
+            const capture = await page.send('Page.captureScreenshot', { format: 'png' });
+            fs.writeFileSync(path.join(os.tmpdir(), `photo-gradient-${name}.png`), Buffer.from(capture.data, 'base64'));
+        }
+    }
+    await page.evaluate('app.closeShiftPhotoCompare()');
+});
+
+test('photo background radial: panel, center preview, swap, export and saved state', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close()); const { page } = harness;
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    const result = await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        await app.openShiftPhotoCompareWithPhotos([], { source:'photoManagerBlank', title:'Radial test' });
+        if (document.querySelector('.shift-photo-compare-header').innerText.includes('undefined')) throw Error('Uninitialized photo controls');
+        const panel = document.getElementById('shift-photo-compare-blank-bg-panel');
+        const collapsed = !panel.matches(':popover-open');
+        document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
+        document.querySelector('[data-bg-mode="gradient"]').click();
+        const end = panel.querySelector('.shift-photo-compare-blank-bg-end-color input');
+        end.value = '#336699'; end.dispatchEvent(new Event('change', {bubbles:true}));
+        panel.querySelector('[data-bg-type="radial"]').click();
+        const x = panel.querySelector('[data-bg-center="centerX"]'), y = panel.querySelector('[data-bg-center="centerY"]');
+        const historyCount = app._shiftPhotoCompareUndoStack.length;
+        x.value='25'; x.dispatchEvent(new Event('input', {bubbles:true}));
+        const preview = { unchanged:app._shiftPhotoCompareContext.photos[0].blankBaseGradient.centerX === 50, noUndo:app._shiftPhotoCompareUndoStack.length === historyCount, src:decodeURIComponent(panel.querySelector('.shift-photo-compare-blank-bg-preview').style.backgroundImage) };
+        x.dispatchEvent(new Event('change', {bubbles:true}));
+        y.value='75'; y.dispatchEvent(new Event('change', {bubbles:true}));
+        const beforeSwap = app.captureImageEditSnapshot();
+        const beforeCount = app._shiftPhotoCompareUndoStack.length;
+        panel.querySelector('.shift-photo-compare-blank-bg-swap').click();
+        const once = app._shiftPhotoCompareUndoStack.length === beforeCount + 1;
+        app.undoShiftPhotoCompareMarkChange();
+        const undone = JSON.stringify(app.captureImageEditSnapshot()) === JSON.stringify(beforeSwap);
+        app.redoShiftPhotoCompareMarkChange();
+        const photo = app._shiftPhotoCompareContext.photos[0];
+        const wrap = document.querySelector('.shift-photo-compare-image-wrap'); await wrap.querySelector(':scope > img').decode();
+        const canvas = await app.renderShiftPhotoCompareWrapToCanvas(wrap, 1600), c = canvas.getContext('2d');
+        const center = [...c.getImageData(Math.round(canvas.width*.25),Math.round(canvas.height*.75),1,1).data];
+        const corner = [...c.getImageData(canvas.width-1,0,1,1).data];
+        const colors = [photo.blankBaseColor,photo.blankBaseGradient.color];
+        document.querySelector('[data-bg-mode="solid"]').click();
+        document.querySelector('[data-bg-mode="gradient"]').click();
+        const preserved = JSON.parse(JSON.stringify(photo.blankBaseGradient));
+        await app.saveShiftPhotoCompare();
+        const id = app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+        await app.closeShiftPhotoCompare(); await app.openPhotoManagerBlankEdit(id);
+        return {collapsed,preview,once,undone,center,corner,colors,preserved,reopened:app._shiftPhotoCompareContext.photos[0].blankBaseGradient};
+    })()`);
+    assert.equal(result.collapsed, true); assert.equal(result.preview.unchanged, true); assert.equal(result.preview.noUndo, true);
+    assert.match(result.preview.src, /cx="400" cy="500"/);
+    assert.equal(result.once, true); assert.equal(result.undone, true);
+    assert.deepEqual(result.colors, ['#336699', '#ffffff']);
+    assert.ok(Math.abs(result.center[0]-51)<5 && Math.abs(result.center[1]-102)<5 && Math.abs(result.center[2]-153)<5);
+    assert.ok(result.corner.slice(0,3).every(v=>v>245));
+    assert.deepEqual(result.reopened, result.preserved);
+    assert.equal(result.reopened.type, 'radial'); assert.equal(result.reopened.centerX, 25); assert.equal(result.reopened.centerY, 75);
+    for (const [name, width, height] of [['desktop',1440,1000], ['mobile',390,844]]) {
+        await page.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
+        await page.evaluate(`document.querySelector('.shift-photo-compare-blank-bg-toggle').scrollIntoView({block:'center'});app.toggleShiftPhotoCompareBlankBackgroundPanel(true)`);
+        await page.waitFor("document.querySelector('.shift-photo-compare-blank-bg-toggle').getAttribute('aria-expanded')==='true'", 'background panel');
+        const bounds = await page.evaluate(`(() => { const p=document.getElementById('shift-photo-compare-blank-bg-panel'),r=p.getBoundingClientRect(),b=document.querySelector('.shift-photo-compare-blank-bg-toggle');return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,overflow:p.scrollWidth>p.clientWidth,buttonFits:b.scrollWidth<=b.clientWidth,labelColor:getComputedStyle(p.querySelector('label span')).color}; })()`);
+        assert.ok(bounds.left>=0 && bounds.right<=width && bounds.top>=0 && bounds.bottom<=height && !bounds.overflow, name+' panel fits');
+        assert.equal(bounds.buttonFits, true); assert.equal(bounds.labelColor, 'rgb(51, 65, 85)');
+        if (process.env.PHOTO_GRADIENT_SCREENSHOTS) {
+            const capture = await page.send('Page.captureScreenshot', {format:'png'});
+            fs.writeFileSync(path.join(os.tmpdir(), `photo-radial-${name}.png`), Buffer.from(capture.data,'base64'));
+        }
+        await page.send('Input.dispatchKeyEvent', {type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+        await page.send('Input.dispatchKeyEvent', {type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+        await page.waitFor("document.querySelector('.shift-photo-compare-blank-bg-toggle').getAttribute('aria-expanded')==='false'", 'background panel closes');
+        assert.equal(await page.evaluate("!!document.getElementById('shift-photo-compare-overlay')"), true);
+    }
+    await page.evaluate("document.querySelector('.shift-photo-compare-blank-bg-toggle').click()");
+    await page.waitFor("document.getElementById('shift-photo-compare-blank-bg-panel').matches(':popover-open')", 'toggle opens panel');
+    await page.evaluate("document.querySelector('.shift-photo-compare-blank-bg-toggle').click()");
+    await page.waitFor("!document.getElementById('shift-photo-compare-blank-bg-panel').matches(':popover-open')", 'toggle closes panel');
+    await page.evaluate("document.querySelector('.shift-photo-compare-blank-bg-toggle').click()");
+    await page.send('Input.dispatchMouseEvent', {type:'mousePressed',x:100,y:30,button:'left',clickCount:1});
+    await page.send('Input.dispatchMouseEvent', {type:'mouseReleased',x:100,y:30,button:'left',clickCount:1});
+    await page.waitFor("!document.getElementById('shift-photo-compare-blank-bg-panel').matches(':popover-open')", 'outside click closes panel');
+    assert.equal(await page.evaluate("!!document.getElementById('shift-photo-compare-overlay')"), true);
+    await page.evaluate('app.closeShiftPhotoCompare()');
 });

@@ -20764,6 +20764,7 @@ select.history-assist-copied-value {
 
 .shift-photo-compare-size {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     gap: 5px;
     color: #e2e8f0;
@@ -20854,6 +20855,214 @@ select.history-assist-copied-value {
 .shift-photo-compare-color-presets button:hover {
     transform: translateY(-1px);
     border-color: #ffffff;
+}
+
+.shift-photo-compare-blank-background-controls {
+    display: inline-flex;
+    flex: 0 0 auto;
+}
+
+.shift-photo-compare-header .shift-photo-compare-blank-bg-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 70px;
+    height: 30px;
+    padding: 3px 7px;
+    border: 1px solid #94a3b8;
+    border-radius: 5px;
+    background: #334155;
+    color: #ffffff;
+    cursor: pointer;
+}
+
+.shift-photo-compare-header .shift-photo-compare-blank-bg-toggle span {
+    margin: 0;
+    color: inherit;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.shift-photo-compare-header .shift-photo-compare-blank-bg-toggle[aria-expanded="true"] {
+    background: #2563eb;
+}
+
+.shift-photo-compare-blank-bg-swatch {
+    display: inline-block;
+    width: 20px;
+    height: 16px;
+    flex-shrink: 0;
+    border: 1px solid #94a3b8;
+    border-radius: 3px;
+    background-size: 100% 100%;
+}
+
+#shift-photo-compare-blank-bg-panel {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    box-sizing: border-box;
+    width: min(320px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid #94a3b8;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.4;
+    box-shadow: 0 8px 28px #0004;
+}
+
+#shift-photo-compare-blank-bg-panel:popover-open {
+    display: grid;
+    gap: 10px;
+}
+
+#shift-photo-compare-blank-bg-panel [hidden] {
+    display: none !important;
+}
+
+#shift-photo-compare-blank-bg-panel button {
+    min-height: 28px;
+    padding: 3px 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+#shift-photo-compare-blank-bg-panel button:hover {
+    background: #eff6ff;
+}
+
+#shift-photo-compare-blank-bg-panel label span {
+    margin: 0;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-preview {
+    width: 192px;
+    max-width: 100%;
+    aspect-ratio: 8 / 5;
+    margin: 0 auto;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background-size: 100% 100%;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-gradient-options {
+    display: grid;
+    gap: 10px;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-mode {
+    display: flex;
+    border: 1px solid #64748b;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-mode button {
+    flex: 1;
+    border: 0;
+    border-radius: 0;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-mode button[aria-pressed="true"] {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-color,
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-color-row,
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-end-color {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+    margin: 0;
+    font-size: 12px;
+    color: #334155;
+    white-space: nowrap;
+}
+
+#shift-photo-compare-blank-bg-panel input[type="color"] {
+    width: 42px;
+    height: 28px;
+    padding: 1px;
+    cursor: pointer;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-direction {
+    width: 100%;
+    min-height: 28px;
+    padding: 2px 4px;
+    border: 1px solid #64748b;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 12px;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-center label {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 38px;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    min-height: 28px;
+}
+
+#shift-photo-compare-blank-bg-panel input[type="range"] {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+}
+
+#shift-photo-compare-blank-bg-panel output {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-preset-list {
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-preset {
+    min-height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--preset-color);
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-preset-remove {
+    min-height: 13px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 8px;
+}
+
+#shift-photo-compare-blank-bg-panel .shift-photo-compare-blank-bg-action {
+    min-height: 20px;
+    padding: 0;
+    font-size: 10px;
 }
 
 .shift-photo-compare-blank-bg-presets {
@@ -21053,8 +21262,12 @@ select.history-assist-copied-value {
     accent-color: #dc2626;
 }
 
-.shift-photo-compare-size b {
-    width: 24px;
+.shift-photo-compare-header .shift-photo-compare-size b {
+    flex: 0 0 4ch;
+    width: 4ch;
+    min-width: 4ch;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     text-align: right;
     color: #ffffff;
 }
