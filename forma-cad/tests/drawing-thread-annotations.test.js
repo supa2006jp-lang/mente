@@ -10,7 +10,7 @@ import {drawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from '../src/drawing-thread-annotations.js';
 import {drawingDimensionCenterGuides,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
-import {drawingThreadDimensionTarget} from '../src/drawing-thread-dimensions.js';
+import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from '../src/drawing-thread-dimensions.js';
 import {dimensionLabel,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
 
@@ -92,4 +92,35 @@ test('a thread dimension uses the nominal size and keeps its arrow on the select
  assert.equal(dimensionLabel(reconcileDrawingDimensions(removed,[d],refs)[0]),'要確認');
  assert.equal(dimensionLabel({...d,...drawingThreadDimensionTarget({},{arc:{center:[8,10],radius:2},point:[10,10]}),
   nominalDiameter:undefined,threadRef:undefined,threadRim:undefined}),'M4');
+});
+
+test('a pull of minus 0.2 mm on an M10 hole preserves the bolt size for new and saved drawing dimensions',()=>{
+ const stock={...box,width:32,height:28,depth:9};
+ const bore={...hole,diameter:10,z:9,depth:-6};
+ const modeled={...spec,surfacePoint:[5,0,7],pitch:1.5,leftHand:false};
+ const original=op([stock,bore],modeled);
+ const previous=project(original),prior=previous.views.top.holeMachining[0];
+ const selected={kind:'thread',view:'top',at:[20,22],
+  ...drawingThreadDimensionTarget(previous.views.top,{arc:{center:prior.center,radius:5},point:[5,0]})};
+ const adjusted=op(original,{type:'pull',id:'pull',target:box.id,distance:-.2,allThreadFaces:true});
+ const next=project(adjusted),rim=next.views.top.holeMachining[0];
+ assert.equal(rim.radius,5.2);
+ assert.equal(rim.thread.diameter,10);
+ assert.equal(rim.thread.adjustedDiameter,10.4);
+ assert.equal(rim.thread.id,prior.thread.id);
+ const refs=captureDrawingReferences(previous,[selected]);
+ const [updated]=reconcileDrawingDimensions(next,[selected],refs);
+ const label='M10.4（使用ボルトはM10）';
+ assert.equal(dimensionLabel(updated),label);
+ assert.equal(updated.radius,5.2);
+ assert.equal(dimensionLabel(reconcileDrawingDimensions(previous,[updated],refs)[0]),'M10');
+ const old={kind:'thread',view:'top',center:[0,0],radius:5.2,arcPoint:[5.2,0],at:[20,24],pinned:true};
+ const [restored]=restoreAdjustedThreadDimensions(next.views,[old]);
+ assert.equal(dimensionLabel(restored),label);
+ assert.deepEqual(restored.arcPoint,old.arcPoint);
+ assert.deepEqual(restored.at,old.at);
+ assert.equal(restored.pinned,true);
+ assert.equal(dimensionLabel(restoreAdjustedThreadDimensions(previous.views,[old])[0]),'M10.4');
+ const sheet=drawingSheet(next,1,true,[updated],'',options);
+ assert.ok(sheet.svg.includes(label));
 });

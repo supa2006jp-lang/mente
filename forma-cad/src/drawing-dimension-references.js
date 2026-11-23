@@ -171,6 +171,8 @@ export function reconcileDrawingDimensions(data,dimensions,references,{targetsCh
     if(rim){
      updated=followCircleDimension(d,()=>rim);
      updated.nominalDiameter=rim.thread.diameter;
+     if(rim.thread.adjustedDiameter===undefined)delete updated.adjustedDiameter;
+     else updated.adjustedDiameter=rim.thread.adjustedDiameter;
      if(d.pdfPlacement)updated.pdfPlacement={...d.pdfPlacement,at:translate(d.pdfPlacement.at,d.at,updated.at)};
      delete updated.review;
     }

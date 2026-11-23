@@ -15,11 +15,15 @@ const hole={...defaults,kind:'extrusion',name:'下穴',id:'hole',target:'plate',
  profile:'circle',operation:'cut',diameter:6,z:12,depth:-5};
 const thread={type:'thread',id:'tapped',target:'plate',profile:'metric60',threadVersion:2,
  surfacePoint:[3,0,9],pitch:1,fullLength:true};
-const screw={type:'freeScrew',id:'bolt',origin:[40,5,0],diameter:8,pitch:1.25,length:5,
- head:'hex',headSize:13,headHeight:4,drive:'none',headDown:true,tipChamfer:.5};
+const screw={type:'freeScrew',id:'bolt',origin:[40,5,0],diameter:10,pitch:1.5,length:5,
+ head:'hex',headSize:16.7,headHeight:4,drive:'none',headDown:true,tipChamfer:.5,
+ nut:{id:'nut',shape:'round',height:4,wall:2.5,autoPull:true,clearance:.2}};
 const cad=(features,spec)=>({kind:'cadop',name:spec.id,id:spec.id,spec,...runOperation(features,spec)});
-const features=[plate,hole,cad([plate,hole],thread),cad([],screw)];
-const targets=['plate','bolt'];
+const boltAndNut=cad([],screw);
+const features=[plate,hole,cad([plate,hole],thread),boltAndNut];
+const targets=['plate','bolt','nut'];
+const [nutX,nutY]=boltAndNut.analysis.nut.position;
+const adjustedLabel='M10.4（使用ボルトはM10）',expected=['M6','M10',adjustedLabel];
 const project={format:'forma-cad',version:1,features,drawing:{version:1,signature:drawingSignature(features),
  targets,targetMode:'visible',scale:2,hidden:true,comment:'',dimensions:[],
  options:{paper:'A4',orientation:'landscape',name:'ねじ寸法',material:'',date:'',frame:true,
@@ -40,6 +44,7 @@ let browser;
 try{
  browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const page=await browser.newPage({viewport:{width:1760,height:1120},acceptDownloads:true});
+ page.setDefaultTimeout(90000);
  const errors=[];
  page.on('pageerror',error=>errors.push(error.message));
  page.on('dialog',dialog=>dialog.accept(dialog.defaultValue()));
@@ -52,8 +57,9 @@ try{
   await $('project-preview-open').click();
   await $('project-load-preview').waitFor({state:'hidden'});
   await field('tool').click();
+  await page.waitForFunction(()=>document.getElementById('drawing-dialog').open&&!document.getElementById('drawing-generate').disabled);
+  assert.equal(await view.count(),1,await field('status').textContent());
   await view.waitFor();
-  await page.waitForFunction(()=>!document.getElementById('drawing-generate').disabled);
  }
  async function screen(point){
   return view.evaluate((group,coordinates)=>{
@@ -70,7 +76,7 @@ try{
   assert.equal(await field('snap-label').textContent(),text);
   assert.equal(await preview.locator('[data-dimension-hover="arc"]').count(),1);
   await page.mouse.click(...point);
-  assert.match(await field('status').textContent(),new RegExp('ねじ寸法 '+text));
+  assert.ok((await field('status').textContent()).includes('ねじ寸法 '+text));
   await page.mouse.click(...await screen(at));
   assert.equal((await labels()).at(-1),text);
  }
@@ -78,24 +84,29 @@ try{
  await $('canvas-host').locator('canvas').waitFor();
  await open(project);
  await add([3,0],[10,-24],'M6');
- await add([44,-5],[50,9],'M8');
- assert.deepEqual(await labels(),['M6','M8']);
+ await add([45,-5],[44,-20],'M10');
+ await add([nutX+5.2,-nutY],[nutX,13],adjustedLabel);
+ assert.deepEqual(await labels(),expected);
  await field('undo').click();
- assert.deepEqual(await labels(),['M6']);
+ assert.deepEqual(await labels(),expected.slice(0,2));
  await field('redo').click();
- assert.deepEqual(await labels(),['M6','M8']);
+ assert.deepEqual(await labels(),expected);
  await field('pdf-preview-open').click();
- assert.deepEqual(await field('pdf-preview-host').locator('[data-dimension] text').allTextContents(),['M6','M8']);
+ assert.deepEqual(await field('pdf-preview-host').locator('[data-dimension] text').allTextContents(),expected);
  await field('pdf-preview-close').click();
  await field('close').click();
  const [download]=await Promise.all([page.waitForEvent('download'),$('save').evaluate(button=>button.click())]);
  const saved=JSON.parse(await readFile(await download.path(),'utf8'));
  const drawing=readDrawingState(saved.drawing);
- assert.deepEqual(drawing.dimensions.map(d=>[d.kind,d.nominalDiameter,d.threadRim]),[['thread',6,'bore'],['thread',8,'shaft']]);
- await open(saved);
- assert.deepEqual(await labels(),['M6','M8']);
+ assert.deepEqual(drawing.dimensions.map(d=>[d.kind,d.nominalDiameter,d.threadRim]),
+  [['thread',6,'bore'],['thread',10,'shaft'],['thread',10,'bore']]);
+ assert.equal(drawing.dimensions[2].adjustedDiameter,10.4);
+ const {nominalDiameter,adjustedDiameter,threadRef,threadRim,...legacy}=drawing.dimensions[2];
+ drawing.dimensions[2]=legacy;
+ await open({...saved,drawing});
+ assert.deepEqual(await labels(),expected);
  assert.deepEqual(errors,[]);
- console.log('PASS M6 tapped-hole rim and M8 chamfered screw outer rim, hover, placement, undo/redo, PDF preview and reopening');
+ console.log('PASS normal M6 and M10 annotations and M10.4 with the M10 bolt note for an auto-pulled nut, including PDF preview and reopening a legacy drawing');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

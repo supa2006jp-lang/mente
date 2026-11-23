@@ -12,7 +12,8 @@ export const escapeDrawingText=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;',
 export function dimensionLabel(d){
  if(d.review)return '要確認';
  const value=numberLabel(d);
- const nominal=d.kind==='thread'?'M'+value:d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
+ const bolt=d.kind==='thread'&&d.adjustedDiameter!==undefined?'（使用ボルトはM'+Number(d.nominalDiameter.toFixed(3))+'）':'';
+ const nominal=d.kind==='thread'?'M'+value+bolt:d.repeat?d.repeat.count+'×'+(d.precision==null?Number(d.repeat.pitch.toFixed(3)):d.repeat.pitch.toFixed(d.precision))+' = '+value:
   (['diameter','radius'].includes(d.kind)?(d.count>1?d.count+'×':'')+(d.kind==='diameter'?'Ø':'R'):'')+value+(d.kind==='angle'?'°':'');
  const tolerance=d.tolerance===undefined?'':' ±'+d.tolerance+(d.kind==='angle'?'°':'');
  return nominal+tolerance+(d.note?' '+d.note:'');
@@ -39,7 +40,7 @@ function dimensionGroup(d,index,paths,colors,geometry,inherited){
 export function dimensionValue(d){
  if(d.view==='iso'&&d.modelA&&d.modelB)return Math.hypot(...d.modelB.map((value,axis)=>value-d.modelA[axis]));
  if(d.kind==='diameter')return d.radius*2;
- if(d.kind==='thread')return d.nominalDiameter??d.radius*2;
+ if(d.kind==='thread')return d.adjustedDiameter??d.nominalDiameter??d.radius*2;
  if(d.kind==='radius')return d.radius;
  if(d.kind==='angle'){
   const a=[d.a[0]-d.vertex[0],d.a[1]-d.vertex[1]],b=[d.b[0]-d.vertex[0],d.b[1]-d.vertex[1]];

@@ -183,6 +183,8 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    !Number.isFinite(d.alongOffset)||Math.abs(d.alongOffset)>1e6))fail();
   if(d.arcPoint!==undefined&&(!['radius','thread'].includes(d.kind)||!point(d.arcPoint)))fail();
   if(d.nominalDiameter!==undefined&&(d.kind!=='thread'||!Number.isFinite(d.nominalDiameter)||d.nominalDiameter<=0||d.nominalDiameter>2e6))fail();
+  if(d.adjustedDiameter!==undefined&&(d.kind!=='thread'||d.nominalDiameter===undefined||
+   !Number.isFinite(d.adjustedDiameter)||d.adjustedDiameter<=0||d.adjustedDiameter>2e6))fail();
   if(d.threadRef!==undefined&&(d.kind!=='thread'||!validDrawingThreadReference(d.threadRef)||
    !drawingThreadRimKinds.includes(d.threadRim)||d.nominalDiameter===undefined))fail();
   if(d.threadRef===undefined&&d.threadRim!==undefined)fail();

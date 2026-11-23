@@ -30,7 +30,7 @@ import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPoint
 import {addDrawingHoleHitAreas,maxDrawingTableHoles} from './drawing-hole-table.js';
 import {associateDrawingHoleSources,drawingHoleCandidates,drawingHoleCenterReference,holeAnchor,holeReferenceInventory,lastHoleNumber,reconcileHoleTable,resolveDrawingHoleCenter,unlistedDrawingHoles} from './drawing-hole-references.js';
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
-import {drawingThreadDimensionTarget} from './drawing-thread-dimensions.js';
+import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from './drawing-thread-dimensions.js';
 import {followSectionEdit} from './drawing-section-references.js';
 import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
@@ -1647,6 +1647,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     dimensionPoints=reconcileDrawingHolePoints(dimensionPoints,followHoleCenter);
     dimensions=reconcileDrawingDimensions(withDetails(data,details),dimensions,dimensionReferences,{targetsChanged,resolveHoleCenter:followHoleCenter});
    }
+   dimensions=restoreAdjustedThreadDimensions(withDetails(data,details).views,dimensions);
    const scale=Number($('drawing-scale').value),settings=options();
    const overall=reconcileAutomaticOverallDimensions(data,dimensions,view=>drawingViewScale(view,scale,settings));
    dimensions=overall.dimensions;

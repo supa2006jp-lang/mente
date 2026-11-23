@@ -23,8 +23,8 @@ function sourceOpenings(base,selected){
  });
 }
 
-function readThread(history,feature,bodiesAt){
- const {spec}=feature,bodies=bodiesAt(history),base=bodies.get(spec.target);
+function readThread(history,spec,id,bodiesAt){
+ const bodies=bodiesAt(history),base=bodies.get(spec.target);
  try{
   const selected=base&&threadCylinderInfo(base,spec.surfacePoint);
   if(!selected?.internal)return null;
@@ -38,7 +38,9 @@ function readThread(history,feature,bodiesAt){
    const gap=Math.abs(level-(end==='high'?low+length:low));
    return {...mouth,end,offset:gap>tolerance?gap:0};
   });
-  return openings.length?{selected,openings,thread:{id:feature.id,diameter:selected.radius*2,pitch:spec.pitch,length,leftHand:!!spec.leftHand}}:null;
+  const diameter=selected.radius*2,adjustedDiameter=diameter-2*(spec.threadCylinderOffset||0);
+  return openings.length?{selected,openings,thread:{id,diameter,pitch:spec.pitch,length,leftHand:!!spec.leftHand,
+   ...(adjustedDiameter>0&&Math.abs(adjustedDiameter-diameter)>tolerance?{adjustedDiameter}:{})}}:null;
  }finally{for(const body of bodies.values())body.delete();}
 }
 
@@ -72,8 +74,26 @@ function movedPoint(spec,point,direction=false){
  return result;
 }
 
+function storedInternalThread(output){
+ const source=output.threadSource;
+ return source?.spec.threadInternal===true&&isModeledThread(source.spec)?source:null;
+}
+
+function internalThreadOwner(features,index,spec){
+ const derived=feature=>['pull','move','printLayout'].includes(feature.spec?.type);
+ if(!derived(features[index]))return features[index].id;
+ const same=other=>isModeledThread(other)&&other.target===spec.target&&
+  (other.id&&spec.id?other.id===spec.id:other.surfacePoint.every((value,i)=>value===spec.surfacePoint[i]));
+ for(let i=index-1;i>=0;i--){
+  const feature=features[i];
+  if(derived(feature))continue;
+  if(same(feature.spec)|| (feature.cadResult??feature).outputs?.some(output=>same(storedInternalThread(output)?.spec)))return feature.id;
+ }
+ return features[index].id;
+}
+
 export function drawingThreadEntries(features,bodies,targets,bodiesAt){
- if(!features.some(f=>isModeledThread(f.spec)))return [];
+ if(!features.some(f=>isModeledThread(f.spec)||(f.cadResult??f).outputs?.some(storedInternalThread)))return [];
  const lives=new Set(),moveInputs=new Map(),sources=new Map(),entries=[];
  for(const [index,f] of features.entries()){
   const result=f.cadResult??(f.kind==='cadop'?f:null);
@@ -84,7 +104,7 @@ export function drawingThreadEntries(features,bodies,targets,bodiesAt){
   else if((f.kind==='extrusion'||!f.kind)&&f.operation==='new')lives.add(f.id);
  }
  for(const bodyId of targets){
-  const shape=bodies.get(bodyId),moves=[];
+  const shape=bodies.get(bodyId),moves=[],handled=new Set();
   let id=bodyId,verify=false;
   const position=(point,direction=false)=>moves.reduce((p,spec)=>movedPoint(spec,p,direction),point.clone());
   for(let index=features.length-1;index>=0;index--){
@@ -102,11 +122,21 @@ export function drawingThreadEntries(features,bodies,targets,bodiesAt){
     if(!input)break;
     moves.unshift({...spec,...f.analysis?.contactMove?.transform});id=input;continue;
    }
-   if(isModeledThread(spec)&&spec.target===id){
-    if(!sources.has(index))sources.set(index,readThread(features.slice(0,index),f,bodiesAt));
-    const source=sources.get(index);
+   const direct=isModeledThread(spec)&&spec.target===id;
+   const saved=direct?null:storedInternalThread(output);
+   if(direct||saved){
+    const sourceId=direct?f.id:internalThreadOwner(features,index,saved.spec);
+    if(handled.has(sourceId))continue;
+    handled.add(sourceId);
+    const key=index+':'+outputIndex;
+    if(!sources.has(key))sources.set(key,readThread(saved?.features??features.slice(0,index),saved?.spec??spec,sourceId,bodiesAt));
+    const source=sources.get(key);
     if(source){
-     if(verify&&!source.samples)source.samples=output.brep?ridgeSamples(output.brep,source.selected,source.thread.pitch):[];
+     const atStep=(point,direction)=> (saved?.transforms??[]).reduce((value,move)=>movedPoint(move,value,direction),point);
+     if(verify&&!source.samples){
+      const cylinder={...source.selected,origin:atStep(source.selected.origin,false),normal:atStep(source.selected.normal,true)};
+      source.samples=output.brep?ridgeSamples(output.brep,cylinder,source.thread.pitch):[];
+     }
      const survives=!verify||source.samples.length>0&&source.samples.every(point=>{
       const vertex=R.makeVertex(position(point).toArray());
       try{return R.measureDistanceBetween(vertex,shape)<tolerance;}finally{vertex.delete();}
@@ -116,7 +146,7 @@ export function drawingThreadEntries(features,bodies,targets,bodiesAt){
       // length remains valid if its ridge survived other machining.
       const machining=verify?{radius:mouth.radius,...(mouth.machining.counterbore?{counterbore:{radius:mouth.machining.counterbore.radius}}:{})}:mouth.machining;
       const {end,offset}=mouth;
-      entries.push({...mouth,machining,center:position(mouth.center),normal:position(mouth.normal,true),
+      entries.push({...mouth,machining,center:position(atStep(mouth.center,false)),normal:position(atStep(mouth.normal,true),true),
        thread:{...source.thread,bodyId,end,...(offset?{offset}:{})}});
      }
     }
@@ -171,12 +201,15 @@ function projectThreadEntries(entries,projection,compound,bounds,frontFrame,show
 export function projectDrawingThreads(entries,view,projection,compound,bounds,frontFrame){
  if(!entries.length)return [];
  const circles=completeDrawingCircles(view);
- const shown=(entry,center)=>{
-  const radius=entry.machining.counterbore?.radius??entry.radius;
-  return circles.some(circle=>Math.hypot(circle.center[0]-center[0],circle.center[1]-center[1])<tolerance&&matchRadius(circle.radius,radius));
+ const hasCircle=(center,radius)=>circles.some(circle=>
+  Math.hypot(circle.center[0]-center[0],circle.center[1]-center[1])<tolerance&&matchRadius(circle.radius,radius));
+ const boreRadius=(entry,center)=>{
+  const adjusted=entry.thread.adjustedDiameter/2;
+  return Number.isFinite(adjusted)&&hasCircle(center,adjusted)?adjusted:entry.radius;
  };
+ const shown=(entry,center)=>hasCircle(center,entry.machining.counterbore?.radius??boreRadius(entry,center));
  return projectThreadEntries(entries,projection,compound,bounds,frontFrame,shown)
-  .map(({entry,center,entryLevel})=>({...entry.machining,center,entryLevel,thread:entry.thread}));
+  .map(({entry,center,entryLevel})=>({...entry.machining,radius:boreRadius(entry,center),center,entryLevel,thread:entry.thread}));
 }
 
 export function projectDrawingThreadShafts(entries,projection,compound,bounds,frontFrame){
