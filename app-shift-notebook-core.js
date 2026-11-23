@@ -17101,10 +17101,14 @@
     }
 
     setShiftPhotoCompareBlankBaseColor(color = '#ffffff') {
+        this.clearShiftPhotoComparePalettePreview();
+        this.rememberShiftPhotoComparePaletteColor(color);
         this.setShiftPhotoCompareBlankBackground({ color });
     }
 
     setShiftPhotoCompareBlankGradient(changes = {}) {
+        this.clearShiftPhotoComparePalettePreview();
+        if (changes.color) this.rememberShiftPhotoComparePaletteColor(changes.color);
         const photo = this._shiftPhotoCompareContext?.photos?.find(item => item?.isBlankBase);
         const gradient = { ...this.normalizeShiftPhotoCompareBlankGradient(photo?.blankBaseGradient), ...changes };
         this.setShiftPhotoCompareBlankBackground({ gradient });
@@ -17309,6 +17313,7 @@
         document.querySelectorAll('.shift-photo-compare-blank-bg-swatch, .shift-photo-compare-blank-bg-preview').forEach(preview => { preview.style.backgroundImage = `url("${src}")`; });
         this.updateShiftPhotoCompareBlankBgPresetSelection();
         this.positionShiftPhotoCompareBlankBackgroundPanel();
+        this.updateShiftPhotoComparePaletteEyedropperState();
     }
 
     getShiftPhotoCompareBlankBaseColor() {
@@ -21788,6 +21793,8 @@
     }
 
     setShiftPhotoCompareMarkColor(value) {
+        this.clearShiftPhotoComparePalettePreview();
+        this.rememberShiftPhotoComparePaletteColor(value);
         const color = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#dc2626';
         const target = this.getShiftPhotoCompareCurrentColorTarget();
         const selectedTable = this.getShiftPhotoCompareSelectedMarks().find(mark => mark.dataset.mode === 'table' && !this.isShiftPhotoCompareMarkLocked(mark));
@@ -21946,11 +21953,12 @@
     }
 
     pickShiftPhotoCompareScreenColor(target = 'active') {
+        this.clearShiftPhotoComparePalettePreview();
         const safeTarget = ['active', 'blank', 'blankEnd', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
         this._shiftPhotoCompareEyedropperTarget = safeTarget;
         document.getElementById('shift-photo-compare-overlay')?.classList.add('eyedropper-picking');
         this.bindShiftPhotoCompareEyedropperPreview();
-        this.updateShiftPhotoComparePaletteEyedropperState();
+        this.toggleShiftPhotoComparePickerPalette(true);
         const message = safeTarget === 'favorite'
             ? 'よく使う色に登録する色を、写真比較内またはパレットからクリックしてください。'
             : safeTarget === 'choose'
@@ -21960,6 +21968,7 @@
     }
 
     cancelShiftPhotoCompareEyedropper() {
+        this.clearShiftPhotoComparePalettePreview();
         this._shiftPhotoCompareEyedropperTarget = '';
         document.getElementById('shift-photo-compare-overlay')?.classList.remove('eyedropper-picking');
         this.unbindShiftPhotoCompareEyedropperPreview();
@@ -21969,9 +21978,17 @@
     }
 
     applyShiftPhotoComparePickedColor(color = '', target = 'active', event = null) {
+        this.clearShiftPhotoComparePalettePreview();
+        if (this._shiftPhotoCompareContext?._saving || this._shiftPhotoCompareContext?._imageComparison) return;
         if (!/^#[0-9a-f]{6}$/i.test(color || '')) return;
         const normalizedColor = color.toLowerCase();
+        this.rememberShiftPhotoComparePaletteColor(normalizedColor);
         const safeTarget = ['active', 'blank', 'blankEnd', 'fill', 'text', 'border', 'favorite', 'choose'].includes(target) ? target : 'active';
+        const table = this.getShiftPhotoCompareSelectedMarks().find(mark => mark.dataset.mode === 'table' && !this.isShiftPhotoCompareMarkLocked(mark));
+        if (table && ['fill', 'text'].includes(safeTarget)) {
+            this.applyShiftPhotoCompareTableColor(table, safeTarget, normalizedColor);
+            return;
+        }
         if (safeTarget === 'choose') {
             this.showShiftPhotoComparePickedColorMenu(normalizedColor, event);
             return;
@@ -22117,7 +22134,7 @@
         );
         const favoriteColors = this.getShiftPhotoCompareFavoritePickerColors();
         return `
-            <div class="shift-photo-compare-picker-palette" id="shift-photo-compare-picker-palette" data-size="${this.getShiftPhotoComparePickerPaletteSize()}" hidden onpointerdown="app.handleShiftPhotoComparePalettePointerDown(event)">
+            <div class="shift-photo-compare-picker-palette" id="shift-photo-compare-picker-palette" data-size="${this.getShiftPhotoComparePickerPaletteSize()}" hidden onpointerdown="app.handleShiftPhotoComparePalettePointerDown(event)" onclick="if(event.detail === 0) app.handleShiftPhotoComparePalettePointerDown(event)" onpointerover="app.previewShiftPhotoComparePaletteColor(event)" onpointerleave="app.clearShiftPhotoComparePalettePreview()" onfocusin="app.previewShiftPhotoComparePaletteColor(event)" onfocusout="app.clearShiftPhotoComparePalettePreview()">
                 <div class="shift-photo-compare-picker-palette-head" onpointerdown="app.startShiftPhotoComparePickerPaletteDrag(event)" title="ドラッグでパレットを移動">
                     <span><i class="fa-solid fa-palette"></i> スポイト用パレット</span>
                     <button type="button" class="shift-photo-compare-picker-close" onclick="app.toggleShiftPhotoComparePickerPalette(false)" title="パレットを閉じる"><i class="fa-solid fa-xmark"></i></button>
@@ -22127,9 +22144,13 @@
                 </div>
                 <div class="shift-photo-compare-picker-status">
                     <span><i class="fa-solid fa-eye-dropper"></i> 反映先</span>
-                    <strong class="shift-photo-compare-picker-target">未使用</strong>
+                    <select class="shift-photo-compare-picker-target" aria-label="パレットの反映先" onchange="app.setShiftPhotoComparePaletteTarget(this.value)"></select>
                 </div>
                 <div class="shift-photo-compare-picker-hint">パレットの色をクリックして反映できます。</div>
+                <div class="shift-photo-compare-picker-recent"${this.getShiftPhotoComparePaletteRecentColors().length ? '' : ' hidden'}>
+                    <span>最近使った色</span>
+                    <div class="shift-photo-compare-picker-recent-list">${this.getShiftPhotoComparePaletteRecentColors().map(color => swatch(color, 'recent')).join('')}</div>
+                </div>
                 <div class="shift-photo-compare-picker-favorites">
                     <div class="shift-photo-compare-picker-favorites-head">
                         <span><i class="fa-solid fa-star"></i> よく使う色</span>
@@ -22301,6 +22322,7 @@
         palette.hidden = !shouldShow;
         document.getElementById('shift-photo-compare-palette-toggle')?.classList.toggle('active', shouldShow);
         if (!shouldShow) {
+            this.clearShiftPhotoComparePalettePreview();
             if (this._shiftPhotoCompareEyedropperTarget) this.cancelShiftPhotoCompareEyedropper();
             if (this._shiftPhotoCompareFallbackEyedropper) this.stopShiftPhotoCompareFallbackEyedropper();
             return;
@@ -22329,7 +22351,11 @@
         });
         const targetLabel = palette.querySelector('.shift-photo-compare-picker-target');
         if (targetLabel) {
-            targetLabel.textContent = picking ? this.getShiftPhotoComparePaletteEyedropperLabel() : '未使用';
+            const target = this._shiftPhotoCompareFallbackEyedropper?.paletteTargetKind || this._shiftPhotoCompareEyedropperTarget || 'active';
+            const options = this.getShiftPhotoComparePaletteTargets();
+            if (!options.some(option => option.value === target)) options.push({value:target,label:this.getShiftPhotoComparePaletteEyedropperLabel(),disabled:true});
+            targetLabel.innerHTML = options.map(option => `<option value="${option.value}"${option.disabled ? ' disabled' : ''}>${option.label}</option>`).join('');
+            targetLabel.value = target;
         }
         const hint = palette.querySelector('.shift-photo-compare-picker-hint');
         if (hint) {
@@ -22499,12 +22525,136 @@
         return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : '';
     }
 
+    getShiftPhotoComparePaletteTargets() {
+        const blanks = this._shiftPhotoCompareContext?.photos?.filter(photo => photo?.isBlankBase) || [];
+        return [
+            {value:'active',label:'選択中の色'},
+            {value:'blank',label:'背景の開始色',disabled:!blanks.length},
+            {value:'blankEnd',label:'背景の終了色',disabled:!blanks.some(photo => photo.blankBaseGradient?.enabled)},
+            {value:'text',label:'文字'}, {value:'fill',label:'塗り'}, {value:'border',label:'枠線'},
+            {value:'choose',label:'取得後に選択'}, {value:'favorite',label:'よく使う色へ登録'}
+        ];
+    }
+
+    setShiftPhotoComparePaletteTarget(target) {
+        if (this._shiftPhotoCompareContext?._saving || this._shiftPhotoCompareContext?._imageComparison) return;
+        if (!this.getShiftPhotoComparePaletteTargets().some(option => option.value === target && !option.disabled)) return;
+        this.cancelShiftPhotoCompareEyedropper();
+        this.stopShiftPhotoCompareFallbackEyedropper();
+        this.pickShiftPhotoCompareScreenColor(target);
+    }
+
+    getShiftPhotoComparePaletteRecentColors() {
+        let colors = this._shiftPhotoComparePaletteRecentColors;
+        if (!colors) {
+            try { colors = JSON.parse(localStorage.getItem('shift_photo_compare_recent_colors') || '[]'); }
+            catch (_) { colors = []; }
+        }
+        return [...new Set((Array.isArray(colors) ? colors : []).filter(color => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)).map(color => color.toLowerCase()))].slice(0, 10);
+    }
+
+    rememberShiftPhotoComparePaletteColor(color) {
+        if (!/^#[0-9a-f]{6}$/i.test(color || '')) return;
+        const normalized = color.toLowerCase();
+        const colors = [normalized, ...this.getShiftPhotoComparePaletteRecentColors().filter(item => item !== normalized)].slice(0, 10);
+        this._shiftPhotoComparePaletteRecentColors = colors;
+        try { localStorage.setItem('shift_photo_compare_recent_colors', JSON.stringify(colors)); } catch (_) {}
+        const section = document.querySelector('.shift-photo-compare-picker-recent');
+        if (!section) return;
+        section.hidden = false;
+        section.querySelector('.shift-photo-compare-picker-recent-list').innerHTML = colors.map(item => `<button type="button" class="shift-photo-compare-picker-swatch recent" data-color="${item}" style="--palette-color:${item}" title="${item}" aria-label="${item}"></button>`).join('');
+        if (!section.closest('.shift-photo-compare-picker-palette')?.hidden) this.positionShiftPhotoComparePickerPalette();
+    }
+
+    clearShiftPhotoComparePalettePreview() {
+        const preview = this._shiftPhotoComparePalettePreview;
+        this._shiftPhotoComparePalettePreview = null;
+        preview?.originals.forEach(mark => mark.classList.remove('shift-palette-preview-hidden'));
+        preview?.nodes.forEach(node => node.remove());
+        if (preview?.cleanup) {
+            window.removeEventListener('blur', preview.cleanup);
+            window.removeEventListener('resize', preview.cleanup);
+        }
+    }
+
+    previewShiftPhotoComparePaletteColor(event) {
+        if (event?.pointerType === 'touch') return;
+        const color = this.getShiftPhotoComparePaletteColorFromEvent(event);
+        if (!color) { this.clearShiftPhotoComparePalettePreview(); return; }
+        if (this._shiftPhotoCompareContext?._saving || this._shiftPhotoCompareContext?._imageComparison) return;
+        const fallback = this._shiftPhotoCompareFallbackEyedropper;
+        let target = fallback?.paletteTargetKind || this._shiftPhotoCompareEyedropperTarget || 'active';
+        if (target === 'active') target = this.getShiftPhotoCompareCurrentColorTarget();
+        if (this._shiftPhotoComparePalettePreview?.color === color && this._shiftPhotoComparePalettePreview.target === target) return;
+        this.clearShiftPhotoComparePalettePreview();
+        if (['choose', 'favorite'].includes(target)) return;
+        const preview = {color,target,originals:[],nodes:[]};
+        this._shiftPhotoComparePalettePreview = preview;
+        preview.cleanup = () => this.clearShiftPhotoComparePalettePreview();
+        window.addEventListener('blur', preview.cleanup);
+        window.addEventListener('resize', preview.cleanup);
+        if (['blank', 'blankEnd'].includes(target)) {
+            document.querySelectorAll('.shift-photo-compare-image-wrap').forEach(wrap => {
+                const photo = this.getShiftPhotoComparePhotoByWrap(wrap), img = wrap.querySelector(':scope > img');
+                if (!photo?.isBlankBase || !img || (target === 'blankEnd' && !photo.blankBaseGradient?.enabled)) return;
+                const gradient = {...this.normalizeShiftPhotoCompareBlankGradient(photo.blankBaseGradient)};
+                if (target === 'blankEnd') gradient.color = color;
+                const rect = this.getShiftPhotoCompareRenderedImageRect(img, wrap.clientWidth, wrap.clientHeight);
+                const layer = document.createElement('div');
+                layer.className = 'shift-palette-background-preview';
+                layer.style.cssText = `left:${rect.x}px;top:${rect.y}px;width:${rect.width}px;height:${rect.height}px`;
+                layer.style.backgroundImage = `url("${this.createShiftPhotoCompareBlankBaseSrc(target === 'blank' ? color : photo.blankBaseColor, gradient)}")`;
+                layer.setAttribute('aria-hidden', 'true');
+                wrap.appendChild(layer);preview.nodes.push(layer);
+            });
+            return;
+        }
+        let marks = fallback?.mark ? [fallback.mark] : this.getShiftPhotoCompareStyleTargetMarks();
+        if (target === 'border') marks = this.expandShiftPhotoCompareMarksWithPairs(marks);
+        this.getShiftPhotoCompareUnlockedMarks(marks).forEach(mark => {
+            if (!document.contains(mark)) return;
+            if (['video', 'mosaic', 'mosaicRange'].includes(mark.dataset.mode)) return;
+            if (target === 'text' && !['text','number','dimension','callout','boxedText','table'].includes(mark.dataset.mode)) return;
+            const copy = mark.cloneNode(true);
+            copy.classList.remove('selected', 'shift-palette-preview-hidden');
+            // Ghosts are excluded from serialization; the original mark data stays untouched.
+            copy.dataset.animationGhost = '1';
+            copy.classList.add('shift-palette-mark-preview');
+            copy.inert = true;copy.setAttribute('aria-hidden', 'true');
+            copy.removeAttribute('id');copy.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+            if (mark.dataset.mode === 'table' && ['fill','text'].includes(target)) {
+                const cells = this.normalizeShiftPhotoCompareTableCells(copy.dataset.tableCells, copy.dataset.tableRows, copy.dataset.tableCols);
+                const selected = this.getShiftPhotoCompareSelectedTableCellIndices(mark);
+                (selected.length ? selected : cells.map((_,index) => index)).forEach(index => { if (cells[index]) cells[index][target === 'fill' ? 'fillColor' : 'textColor'] = color; });
+                copy.dataset.tableCells = JSON.stringify(cells);
+                this.refreshShiftPhotoCompareTableLayout(copy);
+            } else if (target === 'regionFill') {
+                const points = this.parseShiftPhotoCompareFreehandPoints(copy.dataset.points || '[]');
+                const fills = this.reconcileShiftPhotoComparePolylineRegionFills(points, copy.dataset.polylineRegionFills || '[]', {enabled:copy.dataset.polylineFill === '1',color:copy.dataset.polylineFillColor || copy.dataset.color,opacity:copy.dataset.polylineFillOpacity});
+                const opacity = Math.max(0.05, 1 - (Number(fallback.transparencyPercent) || 0) / 100);
+                copy.dataset.polylineRegionFills = JSON.stringify(fills.map((fill,index) => fallback.regionIndex < 0 || index === fallback.regionIndex ? {...fill,enabled:true,color,opacity} : fill));
+                copy.dataset.polylineFill = '1';
+                this.refreshShiftPhotoComparePolylineRegions(copy);
+            } else {
+                const key = target === 'outline' ? (fallback.outlineTarget === 'inner' ? 'innerOutlineColor' : 'outerOutlineColor') : target === 'text' && ['text','number','dimension'].includes(mark.dataset.mode) ? 'color' : ({fill:'fillColor',text:'textColor'}[target] || 'color');
+                this.applyShiftPhotoCompareSettingsToMark(copy, {[key]:color});
+            }
+            mark.after(copy);mark.classList.add('shift-palette-preview-hidden');
+            preview.originals.push(mark);preview.nodes.push(copy);
+        });
+    }
+
     handleShiftPhotoComparePalettePointerDown(event) {
+        this.clearShiftPhotoComparePalettePreview();
         if (event?.target?.closest?.('button') && !event?.target?.closest?.('.shift-photo-compare-picker-swatch')) return;
         event?.preventDefault?.();
         event?.stopPropagation?.();
         const color = this.getShiftPhotoComparePaletteColorFromEvent(event);
         if (!color) return;
+        if (this._shiftPhotoCompareFallbackEyedropper) {
+            this._shiftPhotoCompareFallbackEyedropper.applyColor(event);
+            return;
+        }
         const target = this._shiftPhotoCompareEyedropperTarget || 'active';
         this.applyShiftPhotoComparePickedColor(color, target, event);
         if (target === 'choose') {
@@ -22714,6 +22864,8 @@
     }
 
     setShiftPhotoCompareCalloutFillColor(value) {
+        this.clearShiftPhotoComparePalettePreview();
+        this.rememberShiftPhotoComparePaletteColor(value);
         this._shiftPhotoCompareCalloutFill = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#fff3a3';
         const input = document.querySelector('.shift-photo-compare-fill-color input[type="color"]');
         if (input) input.value = this._shiftPhotoCompareCalloutFill;
@@ -22867,6 +23019,8 @@
     }
 
     setShiftPhotoCompareCalloutTextColor(value) {
+        this.clearShiftPhotoComparePalettePreview();
+        this.rememberShiftPhotoComparePaletteColor(value);
         this._shiftPhotoCompareCalloutTextColor = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#111827';
         this.rememberShiftPhotoCompareTextColorForActiveMarks(this._shiftPhotoCompareCalloutTextColor, 'text');
         const input = document.querySelector('.shift-photo-compare-callout-text-color input[type="color"]');
@@ -22880,14 +23034,14 @@
     applyShiftPhotoCompareTextColorToSelection(value) {
         const textColor = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#111827';
         const targets = this.getShiftPhotoCompareUnlockedMarks(this.getShiftPhotoCompareSelectedMarks())
-            .filter(mark => ['callout', 'boxedText'].includes(mark.dataset.mode));
+            .filter(mark => ['text', 'number', 'dimension', 'callout', 'boxedText'].includes(mark.dataset.mode));
         if (!targets.length) return;
-        if (this._shiftPhotoCompareMarkMode === 'move') {
+        if (this._shiftPhotoCompareMarkMode === 'move' && targets.every(mark => ['callout', 'boxedText'].includes(mark.dataset.mode))) {
             this.applyShiftPhotoCompareSettingsToSelectedMark({ textColor });
             return;
         }
         this.pushShiftPhotoCompareUndo();
-        targets.forEach(mark => this.applyShiftPhotoCompareSettingsToMark(mark, { textColor }));
+        targets.forEach(mark => this.applyShiftPhotoCompareSettingsToMark(mark, ['callout', 'boxedText'].includes(mark.dataset.mode) ? {textColor} : {color:textColor}));
         const syncTargets = new Set(targets.map(mark => mark.closest('.shift-photo-compare-image-wrap') || mark.closest('.shift-photo-compare-global-layer')).filter(Boolean));
         syncTargets.forEach(target => {
             if (target.classList.contains('shift-photo-compare-global-layer')) this.syncShiftPhotoCompareGlobalMarks(target);
@@ -31735,6 +31889,7 @@
         };
         this.toggleShiftPhotoComparePickerPalette(true);
         this.startShiftPhotoCompareOutlineFallbackEyedropper(applyColor, label);
+        if (this._shiftPhotoCompareFallbackEyedropper) Object.assign(this._shiftPhotoCompareFallbackEyedropper, {mark,outlineTarget:safeTarget});
     }
 
     startShiftPhotoCompareOutlineFallbackEyedropper(applyPickedColor, label = '縁') {
@@ -31779,6 +31934,8 @@
                 this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。写真またはパレットをクリックしてください。');
                 return;
             }
+            this.clearShiftPhotoComparePalettePreview();
+            this.rememberShiftPhotoComparePaletteColor(color);
             applyPickedColor(color.toLowerCase());
             this.showShiftPhotoCompareActionMessage(`${label}色に ${color.toLowerCase()} を反映しました。続けて色を拾えます。`);
         };
@@ -31838,6 +31995,8 @@
                 this.showShiftPhotoCompareActionMessage('この場所の色を取得できませんでした。写真またはパレットをクリックしてください。');
                 return;
             }
+            this.clearShiftPhotoComparePalettePreview();
+            this.rememberShiftPhotoComparePaletteColor(color);
             if (Number(regionIndex) >= 0) {
                 this.setShiftPhotoComparePolylineRegionFill(mark, regionIndex, color, transparencyPercent);
             } else {
@@ -31853,7 +32012,7 @@
             this.showShiftPhotoCompareActionMessage('スポイトをキャンセルしました。');
         };
         const paletteTargetLabel = Number(regionIndex) >= 0 ? '区画の塗り' : '直線区画の塗り';
-        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown, paletteTargetLabel, paletteTargetKind: 'regionFill' };
+        this._shiftPhotoCompareFallbackEyedropper = { overlay, applyColor, keydown, paletteTargetLabel, paletteTargetKind: 'regionFill', mark, regionIndex, transparencyPercent };
         window.addEventListener('pointerdown', applyColor, true);
         window.addEventListener('pointermove', previewMove, true);
         window.addEventListener('keydown', keydown, true);
@@ -31862,6 +32021,7 @@
     }
 
     stopShiftPhotoCompareFallbackEyedropper() {
+        this.clearShiftPhotoComparePalettePreview();
         const picker = this._shiftPhotoCompareFallbackEyedropper;
         if (!picker) return;
         window.removeEventListener('pointerdown', picker.applyColor, true);
@@ -41192,6 +41352,7 @@
     }
 
     async renderShiftPhotoCompareWrapToCanvas(wrap, maxSide = 3200, options = {}) {
+        this.clearShiftPhotoComparePalettePreview();
         if (!wrap) return null;
         if (document.fonts?.ready) await document.fonts.ready;
         if (!options.skipSync) {

@@ -1722,6 +1722,146 @@ test('photo background foil: patterns, preview, export, undo, save and templates
     await page.evaluate('app.closeShiftPhotoCompare()');
 });
 
+test('photo palette: destinations, recent colors and non-destructive hover previews', { timeout: 180000 }, async t => {
+    const harness=await launchHarness();t.after(()=>harness.close());const {page}=harness;
+    await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        const photo=app.createShiftPhotoCompareBlankBasePhoto('#336699',{enabled:true,color:'#ffffff'});
+        photo.marks=[{mode:'circle',x:30,y:45,size:70,color:'#dc2626'},{mode:'text',x:55,y:35,size:50,text:'点検',color:'#dc2626'},{mode:'boxedText',x:55,y:65,size:90,text:'確認',color:'#111111',fillColor:'#ffffff',textColor:'#111111'}];
+        await app.openShiftPhotoCompareWithPhotos([photo],{source:'photoManagerBlank',title:'パレット検証'});
+        window.paletteSelect=target=>{const select=document.querySelector('.shift-photo-compare-picker-target');select.value=target;select.dispatchEvent(new Event('change',{bubbles:true}));};
+        window.paletteSwatch=color=>document.querySelector('.shift-photo-compare-picker-matrix .shift-photo-compare-picker-swatch[data-color="'+color+'"]');
+        window.paletteHover=color=>paletteSwatch(color).dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
+        window.palettePick=color=>paletteSwatch(color).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,pointerType:'mouse',button:0}));
+        app.pickShiftPhotoCompareScreenColor('blank');
+    })()`);
+    const background=await page.evaluate(`(async()=>{
+        const photo=app._shiftPhotoCompareContext.photos[0],before=JSON.stringify(photo),undo=app._shiftPhotoCompareUndoStack.length;
+        paletteHover('#22c55e');
+        const preview=!!document.querySelector('.shift-palette-background-preview'),unmodified=before===JSON.stringify(photo)&&undo===app._shiftPhotoCompareUndoStack.length&&app.getShiftPhotoComparePaletteRecentColors().length===0;
+        document.getElementById('shift-photo-compare-picker-palette').dispatchEvent(new PointerEvent('pointerleave'));
+        const reverted=!document.querySelector('.shift-palette-background-preview');
+        palettePick('#22c55e');paletteSelect('blankEnd');paletteHover('#2563eb');palettePick('#2563eb');
+        const applied={start:photo.blankBaseColor,end:photo.blankBaseGradient.color,recent:app.getShiftPhotoComparePaletteRecentColors()};
+        app.undoShiftPhotoCompareMarkChange();const undone=photo.blankBaseGradient.color;app.redoShiftPhotoCompareMarkChange();
+        return {preview,unmodified,reverted,applied,undone};
+    })()`);
+    assert.equal(background.preview,true);assert.equal(background.unmodified,true);assert.equal(background.reverted,true);
+    assert.deepEqual(background.applied,{start:'#22c55e',end:'#2563eb',recent:['#2563eb','#22c55e']});assert.equal(background.undone,'#ffffff');
+    const marks=await page.evaluate(`(()=>{
+        app.setShiftPhotoCompareMarkModeDirect('move');const rows=[];
+        for(const [mode,target,key] of [['circle','border','color'],['text','text','color'],['boxedText','text','textColor'],['boxedText','fill','fillColor']]){
+            const mark=document.querySelector('.shift-photo-compare-mark-layer .shift-photo-compare-mark.'+mode);app.selectShiftPhotoCompareMark(mark);paletteSelect(target);
+            const before=JSON.stringify(app.captureImageEditSnapshot()),original=mark.dataset[key],count=app._shiftPhotoCompareUndoStack.length;
+            paletteHover('#f97316');const copy=document.querySelector('.shift-palette-mark-preview');
+            const diagnostic={copy:!!copy,color:copy?.dataset[key],originalVisibility:getComputedStyle(mark).visibility,copyVisibility:copy&&getComputedStyle(copy).visibility,selected:app.getShiftPhotoCompareStyleTargetMarks().length};
+            const visible=!!copy&&copy.dataset[key]==='#f97316'&&getComputedStyle(mark).visibility==='hidden'&&getComputedStyle(copy).visibility!=='hidden';
+            const clean=mark.dataset[key]===original&&count===app._shiftPhotoCompareUndoStack.length;
+            app.clearShiftPhotoComparePalettePreview();const restored=before===JSON.stringify(app.captureImageEditSnapshot())&&getComputedStyle(mark).visibility!=='hidden';
+            paletteHover('#f97316');palettePick('#f97316');rows.push({mode,target,visible,clean,restored,applied:mark.dataset[key]==='#f97316',noGhost:!document.querySelector('.shift-palette-mark-preview'),diagnostic});
+        }
+        return rows;
+    })()`);
+    for(const row of marks)for(const key of ['visible','clean','restored','applied','noGhost'])assert.equal(row[key],true,row.mode+' '+row.target+' '+key+' '+JSON.stringify(row.diagnostic));
+    const saved=await page.evaluate(`(async()=>{
+        for(let i=0;i<12;i++)app.rememberShiftPhotoComparePaletteColor('#'+i.toString(16).padStart(6,'0'));
+        app.rememberShiftPhotoComparePaletteColor('#00000A');const recent=app.getShiftPhotoComparePaletteRecentColors();
+        paletteSelect('blank');paletteHover('#f97316');
+        const rendered=await app.renderShiftPhotoCompareWrapToCanvas(document.querySelector('.shift-photo-compare-image-wrap'),800);
+        const noPreview=!document.querySelector('.shift-palette-background-preview'),pixels=[...rendered.getContext('2d').getImageData(0,0,1,1).data];
+        paletteHover('#f97316');await app.saveShiftPhotoCompare();const id=app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+        const color=app._shiftPhotoCompareContext.photos[0].blankBaseColor;await app.closeShiftPhotoCompare();
+        return {id,recent,noPreview,pixels,color};
+    })()`);
+    assert.equal(saved.recent.length,10);assert.equal(saved.recent[0],'#00000a');assert.equal(new Set(saved.recent).size,10);
+    assert.equal(saved.noPreview,true);assert.equal(saved.color,'#22c55e');assert.ok(saved.pixels[1]>150&&saved.pixels[0]<80);
+    await reloadApp(page,'palette recent colors reload');
+    const restored=await page.evaluate(`(async()=>{await maintenanceLazyFeatures.loadPhotoEffects();await app.openPhotoManagerBlankEdit(${JSON.stringify(saved.id)});app.pickShiftPhotoCompareScreenColor('blank');return app.getShiftPhotoComparePaletteRecentColors();})()`);
+    assert.deepEqual(restored,saved.recent);
+    for(const [name,width,height] of [['desktop',1440,1000],['mobile',390,844],['small',360,640]]){
+        await page.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+        const fits=await page.evaluate(`(()=>{app.positionShiftPhotoComparePickerPalette();const p=document.getElementById('shift-photo-compare-picker-palette'),r=p.getBoundingClientRect(),select=p.querySelector('select').getBoundingClientRect();return {fits:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,noOverflow:p.scrollWidth<=p.clientWidth,selectFits:select.width>0&&select.right<=r.right};})()`);
+        assert.equal(fits.fits,true,name+' palette fits');assert.equal(fits.noOverflow,true,name+' no horizontal overflow');assert.equal(fits.selectFits,true,name+' target fits');
+        if(process.env.PHOTO_PALETTE_SCREENSHOTS){const capture=await page.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(os.tmpdir(),'photo-palette-'+name+'.png'),Buffer.from(capture.data,'base64'));}
+    }
+    await page.evaluate('app.closeShiftPhotoCompare()');
+});
+
+test('photo palette previews table cells, outlines and polyline fills without storing ghosts', { timeout: 180000 }, async t => {
+    const harness=await launchHarness();t.after(()=>harness.close());const {page}=harness;
+    const result=await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        const photo=app.createShiftPhotoCompareBlankBasePhoto('#ffffff');
+        photo.marks=[{mode:'table',x:50,y:50,size:80,tableRows:2,tableCols:2,color:'#111111'}, {mode:'polyline',points:[{x:15,y:15},{x:35,y:15},{x:35,y:35},{x:15,y:35},{x:15,y:15}],color:'#dc2626',polylineFill:true,polylineFillColor:'#ffffff',polylineFillOpacity:1}];
+        await app.openShiftPhotoCompareWithPhotos([photo],{source:'photoManagerBlank',title:'Palette advanced preview'});
+        app.setShiftPhotoCompareMarkModeDirect('move');const rows=[];
+        const swatch=()=>document.querySelector('.shift-photo-compare-picker-matrix [data-color="#2563eb"]');
+        for(const kind of ['tableFill','tableText','outline','region']){
+            const mark=document.querySelector('.shift-photo-compare-mark-layer .'+(kind.startsWith('table')?'table':'polyline'));
+            app.selectShiftPhotoCompareMark(mark);
+            if(kind==='outline')await app.pickShiftPhotoCompareOutlineColor(mark,'outer');
+            else if(kind==='region')await app.pickShiftPhotoComparePolylineFillColor(mark,0,20);
+            else app.setShiftPhotoComparePaletteTarget(kind==='tableFill'?'fill':'text');
+            const original=JSON.stringify(mark.dataset),undo=app._shiftPhotoCompareUndoStack.length;
+            swatch().dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));
+            const copy=document.querySelector('.shift-palette-mark-preview');
+            const getColor=node=>!node?'':kind==='outline'?node.dataset.outerOutlineColor:kind==='region'?JSON.parse(node.dataset.polylineRegionFills)[0].color:JSON.parse(node.dataset.tableCells)[0][kind==='tableFill'?'fillColor':'textColor'];
+            const preview=getColor(copy)==='#2563eb',clean=original===JSON.stringify(mark.dataset)&&undo===app._shiftPhotoCompareUndoStack.length;
+            swatch().click();await new Promise(resolve=>setTimeout(resolve,20));
+            rows.push({kind,preview,clean,applied:getColor(mark)==='#2563eb',noGhost:!document.querySelector('.shift-palette-mark-preview')});
+            app.stopShiftPhotoComparePaletteEyedropper();
+        }
+        const mark=document.querySelector('.shift-photo-compare-mark-layer .table');app.selectShiftPhotoCompareMark(mark);app.setShiftPhotoComparePaletteTarget('fill');
+        swatch().dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}));app.setShiftPhotoComparePaletteTarget('border');
+        const switched=!document.querySelector('.shift-palette-mark-preview')&&!mark.classList.contains('shift-palette-preview-hidden');
+        app.toggleShiftPhotoComparePickerPalette(false);await app.closeShiftPhotoCompare();return {rows,switched};
+    })()`);
+    for(const row of result.rows)for(const key of ['preview','clean','applied','noGhost'])assert.equal(row[key],true,row.kind+' '+key);
+    assert.equal(result.switched,true);
+});
+
+test('photo eyedroppers automatically open the palette for every color target', { timeout: 180000 }, async t => {
+    const harness = await launchHarness(); t.after(() => harness.close()); const { page } = harness;
+    await page.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    const result = await page.evaluate(`(async () => {
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        await app.openShiftPhotoCompareWithPhotos([app.createShiftPhotoCompareBlankBasePhoto('#336699',{enabled:true,color:'#ffffff'})],{source:'photoManagerBlank',title:'Palette auto open'});
+        const palette=document.getElementById('shift-photo-compare-picker-palette');
+        const toggle=document.getElementById('shift-photo-compare-palette-toggle');
+        const snapshot=JSON.stringify(app.captureImageEditSnapshot()),results=[];
+        for(const target of ['active','blank','blankEnd','fill','text','border','favorite','choose']){
+            app.toggleShiftPhotoComparePickerPalette(false);
+            app.pickShiftPhotoCompareScreenColor(target);
+            const opened=!palette.hidden&&palette.getBoundingClientRect().width>0&&toggle.classList.contains('active');
+            const picking=palette.classList.contains('eyedropper-active')&&app._shiftPhotoCompareEyedropperTarget===target;
+            const labelled=palette.querySelector('.shift-photo-compare-picker-target').selectedOptions[0].textContent===app.getShiftPhotoComparePaletteEyedropperLabel();
+            app.pickShiftPhotoCompareScreenColor(target);
+            const staysOpen=!palette.hidden;
+            app.stopShiftPhotoComparePaletteEyedropper();
+            const stopped=!app._shiftPhotoCompareEyedropperTarget&&!palette.classList.contains('eyedropper-active')&&!palette.hidden;
+            app.pickShiftPhotoCompareScreenColor(target);
+            app.toggleShiftPhotoComparePickerPalette(false);
+            results.push({target,opened,picking,labelled,staysOpen,stopped,closed:palette.hidden&&!app._shiftPhotoCompareEyedropperTarget&&!toggle.classList.contains('active')});
+        }
+        const unchanged=JSON.stringify(app.captureImageEditSnapshot())===snapshot;
+        const mark=document.createElement('div');document.querySelector('.shift-photo-compare-image-wrap').appendChild(mark);
+        const fallback=[];
+        for(const kind of ['outer','inner','region']){
+            app.toggleShiftPhotoComparePickerPalette(false);
+            if(kind==='region')await app.pickShiftPhotoComparePolylineFillColor(mark,0);
+            else await app.pickShiftPhotoCompareOutlineColor(mark,kind);
+            const opened=!palette.hidden&&palette.classList.contains('eyedropper-active')&&!!app._shiftPhotoCompareFallbackEyedropper;
+            app.toggleShiftPhotoComparePickerPalette(false);
+            fallback.push({kind,opened,closed:palette.hidden&&!app._shiftPhotoCompareFallbackEyedropper});
+        }
+        mark.remove();await app.closeShiftPhotoCompare();return {results,unchanged,fallback};
+    })()`);
+    for(const row of result.results)for(const key of ['opened','picking','labelled','staysOpen','stopped','closed'])assert.equal(row[key],true,row.target+' '+key);
+    for(const row of result.fallback){assert.equal(row.opened,true,row.kind+' opened');assert.equal(row.closed,true,row.kind+' closed');}
+    assert.equal(result.unchanged,true,'starting and stopping eyedroppers does not edit the image');
+});
+
 test('photo background eyedropper: independent endpoints, image and palette picking, undo and save', { timeout: 180000 }, async t => {
     const harness = await launchHarness(); t.after(() => harness.close()); const { page } = harness;
     await page.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -1751,7 +1891,6 @@ test('photo background eyedropper: independent endpoints, image and palette pick
         app.redoShiftPhotoCompareMarkChange();const redo=photo.blankBaseGradient.color===backgroundPickExpected;
         document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
         document.querySelector('.shift-photo-compare-blank-bg-color .shift-photo-compare-eyedropper').click();
-        app.toggleShiftPhotoComparePickerPalette(true);
         const swatch=document.querySelector('.shift-photo-compare-picker-swatch[data-color="#dc2626"]');
         swatch.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true}));
         const palette={start:photo.blankBaseColor,end:photo.blankBaseGradient.color};

@@ -95,6 +95,8 @@ test('color swap changes both colors in one operation and keeps radial placement
 test('eyedropper routes each background color without changing the other target', () => {
     const editor = new MaintenanceApp();
     const changes = [];
+    editor.rememberShiftPhotoComparePaletteColor = () => {};
+    editor.getShiftPhotoCompareSelectedMarks = () => [];
     editor.setShiftPhotoCompareBlankBaseColor = color => changes.push(['start', color]);
     editor.setShiftPhotoCompareBlankGradient = gradient => changes.push(['end', JSON.parse(JSON.stringify(gradient))]);
     editor.setShiftPhotoCompareMarkColor = color => changes.push(['mark', color]);

@@ -3,7 +3,7 @@
         fiveS: 'app-five-s-management.js?v=20261116-image4',
         search: 'app-unified-search.js?v=20261115-data6',
         photoExport: 'app-photo-export.js?v=20261115-workspace6',
-        notebook: 'app-shift-notebook-core.js?v=20261124-toolbar1',
+        notebook: 'app-shift-notebook-core.js?v=20261124-palette2',
         photos: 'app-photo-manager.js?v=20261123-foil1',
         camera: 'app-shift-photo-camera.js?v=20260906-avatar-stage72',
         reveal: 'app-shift-photo-reveal.js?v=20260906-avatar-stage72',

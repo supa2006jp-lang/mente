@@ -107,6 +107,7 @@
     };
 
     P.captureImageEditSnapshot = function () {
+        this.clearShiftPhotoComparePalettePreview?.();
         const context = this._shiftPhotoCompareContext;
         if (!context) return null;
         if (context._imageComparison) return clone(context._imageComparison);
