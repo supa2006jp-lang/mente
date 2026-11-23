@@ -26,8 +26,8 @@ const [nutX,nutY]=boltAndNut.analysis.nut.position;
 const adjustedLabel='Ø10.4（使用ボルトはM10）',expected=['M6','M10',adjustedLabel];
 const project={format:'forma-cad',version:1,features,drawing:{version:1,signature:drawingSignature(features),
  targets,targetMode:'visible',scale:2,hidden:true,comment:'',dimensions:[],
- options:{paper:'A4',orientation:'landscape',name:'ねじ寸法',material:'',date:'',frame:true,
-  viewSelection:['top'],isoMode:'hidden',positions:{top:[45,42]}}}};
+ options:{paper:'A3',orientation:'landscape',name:'ねじ寸法',material:'',date:'',frame:true,
+  viewSelection:['top','front','right'],isoMode:'hidden',positions:{top:[45,42],front:[45,150],right:[280,150]}}}};
 
 const root=path.resolve('dist'),types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'};
 const server=http.createServer(async(req,res)=>{
@@ -52,6 +52,10 @@ try{
  const $=id=>page.locator('#'+id),field=id=>$('drawing-'+id);
  const preview=field('preview'),view=preview.locator('[data-view="top"] > g[transform]');
  const labels=()=>preview.locator('[data-dimension] text').allTextContents();
+ const projectionScales=()=>Promise.all(['top','front','right'].map(async name=>{
+  const transform=await preview.locator(`[data-view="${name}"] > g[transform]`).getAttribute('transform');
+  return Number(transform.match(/scale\(([^)]+)\)/)[1]);
+ }));
  async function open(doc){
   await $('file').setInputFiles({name:'thread-dimensions.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(doc))});
   await $('project-preview-open').click();
@@ -90,10 +94,39 @@ try{
  assert.ok(!automatic.includes('Ø10.4'));
  await field('dimension-auto').click();
  assert.deepEqual(await labels(),automatic);
+ const link=field('link-scales');
+ await link.check();
+ await field('view-scales').evaluate(panel=>panel.open=true);
+ const scale=field('view-scales').locator('[data-view-scale-input="top"]');
+ await scale.fill('1.5');
+ await scale.press('Enter');
+ assert.deepEqual(await projectionScales(),[1.5,1.5,1.5]);
+ assert(await link.isChecked());
+ await field('dimension-auto').click();
+ assert.deepEqual(await projectionScales(),[1.5,1.5,1.5]);
+ assert(await link.isChecked());
  await field('pdf-preview-open').click();
  const pdf=await field('pdf-preview-host').locator('[data-dimension] text').allTextContents();
  assert.equal(pdf.filter(label=>label===adjustedLabel).length,1);
  await field('pdf-preview-close').click();
+ const corner=preview.locator('[data-view-resize="right"]');
+ await corner.scrollIntoViewIfNeeded();
+ const box=await corner.boundingBox();
+ const x=box.x+box.width/2,y=box.y+box.height/2;
+ await page.mouse.move(x,y);
+ await page.mouse.down();
+ await page.mouse.move(x+20,y+10,{steps:5});
+ await page.mouse.up();
+ const [resizedTop,resizedFront,resizedRight]=await projectionScales();
+ assert(resizedRight>1.5&&resizedTop===resizedRight&&resizedFront===resizedRight);
+ assert(await link.isChecked());
+ await field('undo').click();
+ assert.deepEqual(await projectionScales(),[1.5,1.5,1.5]);
+ await field('undo').click();
+ assert.deepEqual(await projectionScales(),[2,2,2]);
+ assert(await link.isChecked());
+ await field('undo').click();
+ assert(!(await link.isChecked()));
  await field('undo').click();
  assert.deepEqual(await labels(),[]);
  await add([3,0],[10,-24],'M6');
@@ -107,10 +140,12 @@ try{
  await field('pdf-preview-open').click();
  assert.deepEqual(await field('pdf-preview-host').locator('[data-dimension] text').allTextContents(),expected);
  await field('pdf-preview-close').click();
+ await link.check();
  await field('close').click();
  const [download]=await Promise.all([page.waitForEvent('download'),$('save').evaluate(button=>button.click())]);
  const saved=JSON.parse(await readFile(await download.path(),'utf8'));
  const drawing=readDrawingState(saved.drawing);
+ assert.equal(drawing.options.linkedProjectionScales,true);
  assert.deepEqual(drawing.dimensions.map(d=>[d.kind,d.nominalDiameter,d.threadRim]),
   [['thread',6,'bore'],['thread',10,'shaft'],['thread',10,'bore']]);
  assert.equal(drawing.dimensions[2].adjustedDiameter,10.4);
@@ -118,8 +153,9 @@ try{
  drawing.dimensions[2]=legacy;
  await open({...saved,drawing});
  assert.deepEqual(await labels(),expected);
+ assert(await link.isChecked());
  assert.deepEqual(errors,[]);
- console.log('PASS automatic and manual Ø10.4 with the M10 bolt note, including PDF preview, duplicate prevention and reopening a legacy drawing');
+ console.log('PASS automatic and manual adjusted thread dimensions, linked projection scales, PDF preview and reopening saved drawings');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

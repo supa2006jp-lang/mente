@@ -1,6 +1,7 @@
 import {alignLinkedDrawingViews,linkedDrawingViews,drawingViewVisible,drawingViewScale,drawingViewScaleOverride,drawingProjectedFrame,defaultDrawingViewOrder,drawingProjections,drawingScaleSummary,drawingScaleStep,minDrawingScale,maxDrawingScale} from './drawing-view-preferences.js';
 import {withDetails} from './drawing-annotations.js';
 import {drawingCommentEntries,drawingCommentMargin} from './drawing-comments.js';
+import {isCircularDimensionKind} from './drawing-dimensions.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
 import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmitted,drawingViewBreak} from './drawing-break.js';
@@ -30,7 +31,11 @@ export function drawingViewFrames(input,options={},scale=1){
 export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,previousFrames=frames){return dimensions.map(d=>{const f=frames[d.view];if(!f||d.pinned||d.unplaced)return structuredClone(d);const at=[...d.at],old=fromScale*(previousFrames[d.view]?.factor??f.factor),next=toScale*f.factor;
  if(d.kind==='horizontal'){const boundary=at[1]<f.by?f.by:f.by+f.height,gap=(at[1]-boundary)*old;at[1]=boundary+gap/next;}
  else if(d.kind==='vertical'){const boundary=at[0]<f.bx?f.bx:f.bx+f.width,gap=(at[0]-boundary)*old;at[0]=boundary+gap/next;}
- else if(['radius','diameter'].includes(d.kind)){const delta=at.map((v,i)=>v-d.center[i]),length=Math.hypot(...delta)||1,gap=Math.max(5,length*old-d.radius*old),distance=d.radius+gap/next;for(let i=0;i<2;i++)at[i]=d.center[i]+delta[i]/length*distance;}
+ else if(isCircularDimensionKind(d.kind)){
+  const delta=at.map((value,i)=>value-d.center[i]),length=Math.hypot(...delta)||1;
+  const gap=Math.max(5,length*old-d.radius*old),distance=d.radius+gap/next;
+  for(let i=0;i<2;i++)at[i]=d.center[i]+delta[i]/length*distance;
+ }
  else if(d.kind==='angle'){for(let i=0;i<2;i++)at[i]=d.vertex[i]+(at[i]-d.vertex[i])*old/next;}
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
  return {...structuredClone(d),at,...(d.alongOffset===undefined?{}:{alongOffset:d.alongOffset*old/next})};});}

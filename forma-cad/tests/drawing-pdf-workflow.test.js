@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
 import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
-import {dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
+import {dimensionLabel,dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
 import {optimizeDrawingLayout} from '../src/drawing-auto-layout.js';
 import {readDrawingState} from '../src/drawing-state.js';
@@ -420,12 +420,18 @@ test('larger spacing uses vertical slack at the same scale when the linked row a
 test('linked scales share the overview override and only the PDF overrides for the current page',()=>{
  const settings={...options,linkedProjectionScales:true,viewScales:{front:.8,top:.6,right:.5},
   pdfLayout:'manual',pdfViewScales:{top:.7},pageAssignments:{pageCount:2,views:{right:2},comments:{}}};
- const editor=drawingSheet(part,1,true,[],'',settings);
+ const thread={view:'top',kind:'thread',center:[30,-20],radius:5.2,arcPoint:[35.2,-20],at:[45.2,-20],
+  automatic:true,nominalDiameter:10,adjustedDiameter:10.4};
+ const editor=drawingSheet(part,1,true,[thread],'',settings);
  assert(['front','top','right'].every(name=>editor.layout[name].scale===.8));
- const [first,second]=drawingPDFPages(part,1,true,[],'',settings,editor);
+ const [first,second]=drawingPDFPages(part,1,true,[thread],'',settings,editor);
  assert.equal(first.layout.front.scale,.7);
  assert.equal(first.layout.top.scale,.7);
  assert.equal(second.layout.right.scale,.8);
+ const [resized]=first.dimensions;
+ assert.equal(dimensionLabel(resized),'Ø10.4（使用ボルトはM10）');
+ assert.deepEqual(resized.arcPoint,thread.arcPoint);
+ assert.ok(Math.abs((resized.at[0]-resized.arcPoint[0])*.7-8)<1e-9);
  const saved={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],options:settings};
  assert.equal(readDrawingState(saved).options.linkedProjectionScales,true);
  assert.throws(()=>readDrawingState({...saved,options:{...settings,linkedProjectionScales:'true'}}));
