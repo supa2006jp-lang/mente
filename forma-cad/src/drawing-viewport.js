@@ -5,9 +5,10 @@ export function drawingViewport({dialog,host,minus,plus,fit,percent,expand,canNa
  function markers(){
   const node=svg(),m=node?.getScreenCTM();
   if(!m)return;
-  const radius=3.5/Math.hypot(m.a,m.b);
+  const scale=1/Math.hypot(m.a,m.b),radius=3.5*scale;
   for(const p of node.querySelectorAll('[data-snap-point]'))p.setAttribute('r',radius);
   for(const p of node.querySelectorAll('[data-dimension-picked]'))p.setAttribute('r',radius*1.55);
+  for(const guide of node.querySelectorAll('[data-dimension-center-guide] > g'))guide.setAttribute('transform','scale('+scale+')');
  }
  function screenChanged(){markers();onViewChange();}
  function apply(){const node=svg();if(node&&sheet){

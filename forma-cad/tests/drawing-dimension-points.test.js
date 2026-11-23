@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {drawingDimensionPointFits,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
+import {drawingDimensionCenterGuides,drawingDimensionPointFits,snapDrawingDimensionPoint} from '../src/drawing-dimension-points.js';
 import {dimensionLabel,dimensionValue,drawingDimensionGeometry,pathEndpoints} from '../src/drawing-dimensions.js';
 import {viewPoints} from '../src/drawing-annotations.js';
 import {replaceDrawingDimensionEndpoint} from '../src/drawing-linear-dimensions.js';
@@ -47,6 +47,31 @@ test('manual dimension points can snap along an edge without locking to its draw
  const model={viewBox:[0,0,8,5],visible};
  assert.deepEqual(snapDrawingDimensionPoint(model,[2.1,.2],.4),[2.1,0]);
  assert.deepEqual(snapDrawingDimensionPoint(model,[4.1,.2],.5),[4,0]);
+});
+
+const ring=(x,y,r)=>`M ${x-r} ${y} A ${r} ${r} 0 0 1 ${x+r} ${y} A ${r} ${r} 0 0 1 ${x-r} ${y}`;
+
+test('center guides deduplicate concentric rounds, prefer machining coordinates and follow hidden lines and detail clips',()=>{
+ const bore=[20.00002,10];
+ const source={viewBox:[0,0,50,30],
+  visible:[ring(20,10,2),ring(20,10,4),ring(8,10,2),'M 42 12 A 2 2 0 0 1 38 12','M 29 7 A 2 2 0 0 1 31 9'],
+  hidden:[ring(33,22,1),'M 38 12 A 2 2 0 0 1 42 12'],
+  holeMachining:[{center:bore,radius:2,counterbore:{radius:4}},{center:[33,22],radius:1},{center:[15,22],radius:1}],
+ };
+ assert.deepEqual(drawingDimensionCenterGuides(source),[bore,[8,10]]);
+ assert.deepEqual(drawingDimensionCenterGuides(source,true),[bore,[33,22],[8,10],[40,12]]);
+ assert.deepEqual(drawingDimensionCenterGuides({...source,clip:{center:[20,10],radius:5}},true),[bore]);
+});
+
+test('a manual point snaps to the hole center or the nearby rim according to cursor position',()=>{
+ const small={viewBox:[0,0,30,20],visible:[ring(20,10,1)]};
+ assert.deepEqual(snapDrawingDimensionPoint(small,[20.21,10.16],1),[20,10]);
+ assert.deepEqual(snapDrawingDimensionPoint(small,[20.85,10],1),[21,10]);
+ assert.deepEqual(snapDrawingDimensionPoint(small,[20.21,10.16],1,{guide:[9,9.8]}),[20,10]);
+ assert.notDeepEqual(snapDrawingDimensionPoint(small,[20.21,10.16],1,{accept:p=>p[0]!==20}),[20,10]);
+ const hidden={...small,visible:[],hidden:small.visible};
+ assert.deepEqual(snapDrawingDimensionPoint(hidden,[20.21,10.16],1),[20.21,10.16]);
+ assert.deepEqual(snapDrawingDimensionPoint(hidden,[20.21,10.16],1,{hidden:true}),[20,10]);
 });
 
 test('guide snapping aligns one coordinate and intersects nearby straight and round edges',()=>{

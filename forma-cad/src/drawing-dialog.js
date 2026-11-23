@@ -37,7 +37,7 @@ import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
 import {followDrawingFrontChange,planDrawingFrontChange,remapDrawingViewSettings} from './drawing-front-references.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from './drawing-dimension-references.js';
-import {drawingDimensionPointFits,maxDrawingDimensionPoints,snapDrawingDimensionPoint} from './drawing-dimension-points.js';
+import {drawingDimensionCenterGuides,drawingDimensionPointFits,maxDrawingDimensionPoints,snapDrawingDimensionPoint} from './drawing-dimension-points.js';
 import {groupDrawingDimensions} from './drawing-dimension-groups.js';
 import {installDrawingDimensionList} from './drawing-dimension-list.js';
 const scales=[2,1,.5,.2,.1,.05,.02,.01];
@@ -96,7 +96,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  let dimensionHover=null;
  let dimensionPoints=[];
  $('drawing-dimension-add').insertAdjacentHTML('afterend',
-  '<button id="drawing-dimension-point-add" type="button" aria-pressed="false" title="図をクリックして寸法の基準点を置きます">寸法点を追加</button>');
+  '<button id="drawing-dimension-point-add" type="button" aria-pressed="false" title="図をクリックして寸法点を置きます。十字は穴やねじ穴の中心です">寸法点を追加</button>');
  $('drawing-comment').closest('label').insertAdjacentHTML('afterend',
   '<div class="drawing-controls drawing-comment-style" role="group" aria-label="コメントの書式">'+
   '<label>コメントの文字色<input id="drawing-comment-color" type="color"></label>'+
@@ -2146,7 +2146,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   detail:'拡大したい部分の中心をクリックし、次に範囲の半径を指定してください',
   holes:'正投影図で穴位置表の基準点をクリックしてください。右が＋X、上が＋Yです',
   leader:parameters.thread?'ねじを設定した穴の円または中心をクリックしてください':'図の中で矢印が指す箇所をクリックしてください',
-  dimensionPoint:'図をクリックして寸法点を追加します。Altを押すと吸着を解除できます'
+  dimensionPoint:'図をクリックして寸法点を追加します。十字は穴・ねじ穴の中心です。Altを押すと吸着を解除できます'
  }[kind]);};
  function beginReviewAction(kind,item){
   if(!item.review||busy)return;
@@ -2173,6 +2173,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-centers-all').onclick=()=>{for(const view of names()){for(const c of circles(viewData(view))){if(!insideView(viewData(view),c.center)||markers.some(m=>!m.review&&m.kind==='center'&&m.view===view&&Math.hypot(m.center[0]-c.center[0],m.center[1]-c.center[1])<1e-5))continue;if(markers.length>=200)break;markers.push({id:'marker-'+crypto.randomUUID(),kind:'center',view,center:c.center,radius:c.radius});}}cancelPick();};
  function hitView(e,onlyBase=false,includeDetails=false){const p=paperPoint(e),keys=onlyBase?drawingProjectionNames:names().filter(n=>includeDetails||!n.startsWith('detail-'));return keys.find(name=>{const v=sheet.layout[name];return v&&p[0]>=v.x-2&&p[0]<=v.x+v.width+2&&p[1]>=v.y-2&&p[1]<=v.y+v.height+2;});}
  function snapCut(view,axis,value,disable=false){if(disable)return value;let best=1.5/sheet.layout[view].scale,result=value;for(const p of viewPoints(viewData(view))){if(drawingPointOmitted(sheet.layout[view],p))continue;if(Math.abs(p[axis]-value)<best){best=Math.abs(p[axis]-value);result=p[axis];}}return result;}
+ const showsHiddenLines=name=>hiddenViews[name]??$('drawing-hidden').checked;
  function manualPointAt(e){
   const matrix=viewportHost.querySelector('svg')?.getScreenCTM();
   if(!matrix)return null;
@@ -2184,7 +2185,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const v=sheet.layout[name],view=viewData(name),raw=local(name,[p.x,p.y]),radius=nearPaper/v.scale;
    if(!drawingDimensionPointFits(view,raw,snap?radius:0)||drawingPointOmitted(v,raw))continue;
    const point=snap?snapDrawingDimensionPoint(view,raw,radius,{
-    hidden:hiddenViews[name]??$('drawing-hidden').checked,accept:value=>!drawingPointOmitted(v,value),
+    hidden:showsHiddenLines(name),accept:value=>!drawingPointOmitted(v,value),
     guide:action?.guide?.view===name?action.guide.point:undefined
    }):raw;
    if(drawingDimensionPointFits(view,point)&&point.every(value=>Math.abs(value)<=1e6))return {name,point};
@@ -2293,6 +2294,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const [key,value] of Object.entries({cx,cy,r:1,...attributes}))circle.setAttribute(key,value);
   svg.append(circle);
  }
+ function drawDimensionCenterGuide(svg,name,point){
+  const [x,y]=map(name,point),guide=document.createElementNS(svg.namespaceURI,'g');
+  guide.setAttribute('transform','translate('+x+' '+y+')');
+  guide.setAttribute('data-dimension-center-guide',name);
+  guide.setAttribute('pointer-events','none');
+  guide.setAttribute('aria-hidden','true');
+  const cross='M -5 0 H 5 M 0 -5 V 5';
+  guide.innerHTML='<g fill="none" stroke-linecap="round">'+
+   '<path d="'+cross+'" stroke="white" stroke-width="4" vector-effect="non-scaling-stroke"/>'+
+   '<path d="'+cross+'" stroke="#7037a4" stroke-width="1.8" vector-effect="non-scaling-stroke"/></g>';
+  svg.append(guide);
+ }
  function drawDimensionPointGuides(svg,{view:name,point}){
   const v=sheet.layout[name],view=v&&viewData(name);
   if(!view||!drawingDimensionPointFits(view,point)||drawingPointOmitted(v,point))return;
@@ -2320,11 +2333,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const name of picking?dimensionViews(picking.kind):names()){
    if(picking?.view&&picking.view!==name)continue;
    const view=viewData(name),v=sheet.layout[name];
+   const centers=pointMode?drawingDimensionCenterGuides(view,showsHiddenLines(name)).filter(p=>!drawingPointOmitted(v,p)):[];
    const points=name==='iso'?view.dimensionVertices.map(vertex=>vertex.point):viewPoints(view);
    for(const p of points){
-    if(drawingPointOmitted(v,p))continue;
+    if(drawingPointOmitted(v,p)||centers.some(center=>Math.hypot(p[0]-center[0],p[1]-center[1])<1e-4))continue;
     drawPointMarker(svg,name,p,{fill:name==='iso'&&picking?.a===p?'#c46a15':'#008caf','data-snap-view':name,'data-snap-point':JSON.stringify(p)});
    }
+   for(const center of centers)drawDimensionCenterGuide(svg,name,center);
    for(const item of dimensionPoints){
     const {id,point}=item;
     if(item.review||item.view!==name||!drawingDimensionPointFits(view,point)||drawingPointOmitted(v,point))continue;

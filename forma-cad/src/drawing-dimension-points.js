@@ -1,5 +1,6 @@
 import {drawingCurves} from './drawing-curves.js';
 import {pathEndpoints} from './drawing-dimensions.js';
+import {completeDrawingCircles} from './drawing-auto-dimensions.js';
 
 export const maxDrawingDimensionPoints=500;
 
@@ -17,6 +18,34 @@ function curves(paths){
   curveCache.set(paths,{...drawingCurves(paths),vertices});
  }
  return curveCache.get(paths);
+}
+
+const centerTolerance=1e-4,centerCache=new WeakMap();
+const sameCenter=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1])<centerTolerance;
+
+export function drawingDimensionCenterGuides(view,hidden=false){
+ const {visible,holeMachining}=view;
+ let cache=centerCache.get(visible);
+ if(!cache||cache.hiddenPaths!==view.hidden||cache.holeMachining!==holeMachining){
+  cache={hiddenPaths:view.hidden,holeMachining};
+  centerCache.set(visible,cache);
+ }
+ const key=hidden&&view.hidden?.length?'withHidden':'visible';
+ if(!cache[key]){
+  const visibleArcs=curves(visible).arcs;
+  const arcs=key==='withHidden'?[...visibleArcs,...curves(view.hidden).arcs]:visibleArcs;
+  const centers=[];
+  const add=point=>{if(!centers.some(center=>sameCenter(center,point)))centers.push(point);};
+  // Prefer the exact machining center when a bore or counterbore rim is shown.
+  for(const hole of holeMachining??[]){
+   if(arcs.some(arc=>sameCenter(arc.center,hole.center)&&
+    (Math.abs(arc.radius-hole.radius)<centerTolerance||
+     hole.counterbore&&Math.abs(arc.radius-hole.counterbore.radius)<centerTolerance)))add(hole.center);
+  }
+  for(const {center} of completeDrawingCircles(view,arcs))add(center);
+  cache[key]=centers;
+ }
+ return cache[key].filter(point=>drawingDimensionPointFits(view,point));
 }
 
 function segmentIntersection(a,b){
@@ -100,8 +129,14 @@ export function snapDrawingDimensionPoint(view,point,radius,{hidden=false,accept
   const crossing=segmentIntersection(nearby[i].line,nearby[j].line);
   if(crossing)tryVertex(crossing);
  }
- // Keep a point on the drawing edge if the guide cannot reach the edge nearby.
- if(crossing||vertex||edge)return crossing??vertex??edge;
+ const outlinePoint=crossing??vertex??edge;
+ let center=null,centerDistance=outlinePoint?distance(outlinePoint):radius;
+ for(const point of drawingDimensionCenterGuides(view,hidden)){
+  const d=distance(point);
+  if(d<=centerDistance&&accept(point)){center=point;centerDistance=d;}
+ }
+ // Keep a point on the drawing geometry if the alignment guide cannot reach it nearby.
+ if(center||outlinePoint)return center??outlinePoint;
  for(const axis of guideAxes){
   const aligned=[...point];aligned[axis]=guide[axis];
   if(usable(aligned))return aligned;

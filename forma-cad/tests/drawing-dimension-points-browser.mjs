@@ -7,6 +7,8 @@ import * as R from 'replicad';
 import init from '../node_modules/replicad-opencascadejs/dist/replicad_single.js';
 import {cadMesh} from '../src/cad-mesh.js';
 import {drawingSignature,readDrawingState} from '../src/drawing-state.js';
+import {defaults} from '../src/geometry.js';
+import {runOperation} from '../src/kernel.js';
 
 R.setOC(await init({wasmBinary:await readFile('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}));
 const box=R.makeBox([0,0,0],[40,20,12]),tool=R.makeBox([8,6,3],[30,14,14]),pocket=box.cut(tool);
@@ -326,8 +328,42 @@ try{
  const [custom]=await points();
  assert.ok(custom[0]>0&&custom[0]<5&&custom[1]===0);
 
+ // Exercise both a plain bore and a modeled internal thread in the real editor.
+ await field('close').click();
+ const stock={...defaults,kind:'extrusion',id:'stock',name:'ガイドの検証用プレート',width:56,height:32,depth:12};
+ const hole=(id,x)=>({...defaults,kind:'extrusion',id,name:'穴',profile:'circle',diameter:6,x,y:4,z:12,
+  depth:-9,hole:true,operation:'cut',target:stock.id});
+ const drilled=[stock,hole('round-hole',-12),hole('thread-hole',9)];
+ const thread={type:'thread',target:stock.id,id:'thread',surfacePoint:[12,4,10],pitch:1,profile:'metric60',
+  threadVersion:2,fullLength:true,leftHand:true};
+ const threaded=[...drilled,{kind:'cadop',id:thread.id,name:'ねじ穴',spec:thread,...runOperation(drilled,thread)}];
+ await load({...project,features:threaded,drawing:{...project.drawing,signature:drawingSignature(threaded),targets:[stock.id]}});
+ const centers=preview.locator('[data-dimension-center-guide]');
+ assert.equal(await centers.count(),0);
+ await field('dimension-point-add').click();
+ assert.equal(await centers.count(),2);
+ assert.equal(await preview.locator('[data-dimension-center-guide="top"]').count(),2);
+ const symbol=centers.first().locator('path').last();
+ const width=(await symbol.boundingBox()).width;
+ await field('zoom-in').click();
+ assert.ok(Math.abs((await symbol.boundingBox()).width-width)<.05);
+ await field('zoom-fit').click();
+ for(const position of [[-11.7,-4.23],[9.22,-3.82]]){
+  const [x,y]=await screen(position,top);
+  await page.mouse.move(x,y);
+  assert.equal(await preview.locator('[data-action-preview]').count(),1);
+  await page.mouse.click(x,y);
+ }
+ assert.deepEqual(await manual.evaluateAll(marks=>marks.map(mark=>JSON.parse(mark.dataset.snapPoint))),[[-12,-4],[9,-4]]);
+ assert.equal(await guides.count(),2);
+ await field('pdf-preview-open').click();
+ assert.equal(await field('pdf-preview-host').locator('[data-dimension-center-guide]').count(),0);
+ await field('pdf-preview-close').click();
+ await field('dimension-cancel').click();
+ assert.equal(await centers.count(),0);
+
  assert.deepEqual(errors,[]);
- console.log('PASS manual points, guides, clearance, value override, outside arrows, endpoint replacement, existing dimensions, undo, save and reload, SVG export, PDF preview, and fillet dimension targets');
+ console.log('PASS manual points, hole and thread center snapping, guides, clearance, value override, outside arrows, endpoint replacement, existing dimensions, undo, save and reload, SVG export, PDF preview, and fillet dimension targets');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));
