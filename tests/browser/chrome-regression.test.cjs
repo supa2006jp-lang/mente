@@ -1592,13 +1592,14 @@ test('photo background foil: patterns, preview, export, undo, save and templates
         app.redoShiftPhotoCompareMarkChange(); const redone = photo.blankBaseGradient.foil.strength === 95;
         const wrap = document.querySelector('.shift-photo-compare-image-wrap'), image = wrap.querySelector(':scope > img');
         const patterns = [], samples = [];
-        for (const pattern of ['prism','diamond','crystal']) {
+        for (const pattern of ['prism','diamond','crystal','gold','silver','stars']) {
             const select = panel.querySelector('[data-bg-foil-pattern]'); select.value = pattern; select.dispatchEvent(new Event('change',{bubbles:true}));
             await image.decode(); const canvas = await app.renderShiftPhotoCompareWrapToCanvas(wrap, 800), c = canvas.getContext('2d');
             const pixels = []; for(let y=20;y<canvas.height;y+=23) for(let x=20;x<canvas.width;x+=29) pixels.push([...c.getImageData(x,y,1,1).data]);
             const colors = new Set(pixels.map(p=>p.slice(0,3).map(v=>Math.round(v/16)).join(','))).size;
             const opaque = pixels.every(p=>p[3]===255);
-            patterns.push({pattern,colors,opaque,signature:pixels.slice(0,100).map(p=>p.join(',')).join(';')});
+            const mean = [0,1,2].map(channel=>pixels.reduce((sum,p)=>sum+p[channel],0)/pixels.length);
+            patterns.push({pattern,colors,opaque,mean,signature:pixels.slice(0,100).map(p=>p.join(',')).join(';')});
             samples.push(canvas.toDataURL());
         }
         window.foilPatternImages = samples;
@@ -1617,13 +1618,19 @@ test('photo background foil: patterns, preview, export, undo, save and templates
     })()`);
     assert.equal(result.selected,true); assert.equal(result.previewOnly,true); assert.equal(result.previewChanged,true);
     assert.equal(result.once,true); assert.equal(result.undone,true); assert.equal(result.redone,true);
-    assert.ok(result.patterns.every(p=>p.colors>30 && p.opaque));
-    assert.equal(new Set(result.patterns.map(p=>p.signature)).size,3);
+    assert.ok(result.patterns.every(p=>p.colors>(p.pattern==='silver'?8:15) && p.opaque), JSON.stringify(result.patterns.map(({pattern,colors,opaque})=>({pattern,colors,opaque}))));
+    assert.equal(new Set(result.patterns.map(p=>p.signature)).size,6);
+    const gold = result.patterns.find(p=>p.pattern==='gold'), silver = result.patterns.find(p=>p.pattern==='silver');
+    assert.ok(gold.mean[0]-gold.mean[2]>40, 'gold has a warm metallic tint');
+    assert.ok(Math.max(...silver.mean)-Math.min(...silver.mean)<20, 'silver keeps a neutral metallic tint');
     assert.deepEqual(result.zeroPixel,[18,52,86,255]);
     assert.equal(result.disabled,true); assert.equal(result.retained,true); assert.equal(result.saved,true);
     if (process.env.PHOTO_FOIL_SCREENSHOTS) {
-        const samples = await page.evaluate('foilPatternImages');
-        for (let i=0;i<samples.length;i++) fs.writeFileSync(path.join(os.tmpdir(), 'photo-foil-'+['prism','diamond','crystal'][i]+'.png'), Buffer.from(samples[i].split(',')[1],'base64'));
+        const patterns = ['prism','diamond','crystal','gold','silver','stars'];
+        for (let i=0;i<patterns.length;i++) {
+            const sample = await page.evaluate(`foilPatternImages[${i}]`);
+            fs.writeFileSync(path.join(os.tmpdir(), 'photo-foil-'+patterns[i]+'.png'), Buffer.from(sample.split(',')[1],'base64'));
+        }
     }
     await reloadApp(page, 'foil reload');
     const reopened = await page.evaluate(`(async()=>{
@@ -1643,6 +1650,21 @@ test('photo background foil: patterns, preview, export, undo, save and templates
         const fits = await page.evaluate(`(()=>{const p=document.getElementById('shift-photo-compare-blank-bg-panel'),r=p.getBoundingClientRect();return !p.innerText.includes('undefined')&&p.scrollWidth<=p.clientWidth&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&[...p.querySelectorAll('button,select,input')].filter(e=>e.getClientRects().length).every(e=>e.scrollWidth<=e.clientWidth);})()`);
         assert.equal(fits,true,name+' foil controls fit');
         if(process.env.PHOTO_FOIL_SCREENSHOTS){const capture=await page.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(os.tmpdir(),'photo-foil-'+name+'.png'),Buffer.from(capture.data,'base64'));}
+    }
+    await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    for (const pattern of ['gold','silver','stars']) {
+        const restored = await page.evaluate(`(async()=>{
+            app.setShiftPhotoCompareBlankFoil({pattern:'${pattern}'});
+            const snapshot = async()=>{
+                const wrap=document.querySelector('.shift-photo-compare-image-wrap');await wrap.querySelector(':scope > img').decode();
+                return (await app.renderShiftPhotoCompareWrapToCanvas(wrap,800)).toDataURL();
+            };
+            const before=await snapshot();const saved=await app.saveShiftPhotoCompare();
+            const id=app._shiftPhotoCompareContext.photoManagerBlankEditItemId;
+            await app.closeShiftPhotoCompare();await app.openPhotoManagerBlankEdit(id);
+            return {saved,pattern:app._shiftPhotoCompareContext.photos[0].blankBaseGradient.foil.pattern,pixelsMatch:before===await snapshot(),selected:document.querySelector('[data-bg-foil-pattern]').value};
+        })()`);
+        assert.deepEqual(restored,{saved:true,pattern,pixelsMatch:true,selected:pattern});
     }
     await page.evaluate('app.closeShiftPhotoCompare()');
 });

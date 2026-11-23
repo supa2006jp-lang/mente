@@ -122,21 +122,39 @@ test('foil validates persisted settings and leaves old backgrounds unchanged', (
 
 test('foil patterns are deterministic, bounded and exportable without external assets', () => {
     const outputs = [];
-    for (const pattern of ['prism', 'diamond', 'crystal']) {
+    for (const pattern of ['prism', 'diamond', 'crystal', 'gold', 'silver', 'stars']) {
         const gradient = { foil: { enabled: true, pattern, strength: 75, scale: 90, angle: 45 } };
         const output = svg('#123456', gradient);
         assert.equal(output, svg('#123456', gradient));
         assert.match(output, new RegExp(`data-foil-pattern="${pattern}"`));
         assert.match(output, /opacity="0.75"/);
-        assert.match(output, /width="288" height="288"/);
+        if (['prism', 'diamond', 'crystal'].includes(pattern)) assert.match(output, /width="288" height="288"/);
         assert.ok(output.length < 20000);
         assert.doesNotMatch(output, /<script|<image|<animate|<foreignObject/);
         outputs.push(output);
     }
-    assert.equal(new Set(outputs).size, 3);
+    assert.equal(new Set(outputs).size, 6);
     assert.doesNotMatch(svg('#123456', { foil: { enabled: true, strength: 0 } }), /foil-facets/);
     assert.doesNotMatch(svg('#123456', { foil: { enabled: false } }), /foil-facets/);
     assert.doesNotMatch(svg('#123456', { foil: { enabled: true, pattern: '<script>', angle: '" onload="bad' } }), /script|onload/);
+});
+
+test('metal relief and star geometry respond to settings without losing saved pattern names', () => {
+    for (const pattern of ['gold', 'silver', 'stars']) {
+        const settings = { foil: { enabled: true, pattern, strength: 80, scale: 80, angle: 30 } };
+        const original = svg('#ffffff', settings);
+        assert.notEqual(original, svg('#ffffff', { foil: { ...settings.foil, scale: 120 } }));
+        assert.notEqual(original, svg('#ffffff', { foil: { ...settings.foil, angle: 90 } }));
+        assert.doesNotMatch(svg('#ffffff', { foil: { ...settings.foil, strength: 0 } }), /data-foil-pattern/);
+        const photo = app.createShiftPhotoCompareBlankBasePhoto('#ffffff', settings);
+        assert.equal(photo.blankBaseGradient.foil.pattern, pattern);
+        const html = app.getShiftPhotoCompareBlankBackgroundControlsHtml(photo);
+        assert.ok(html.includes(`value="${pattern}" selected`));
+    }
+    assert.match(svg('#ffffff', { foil: { enabled: true, pattern: 'gold' } }), /lighting-color="#ebbb46"/);
+    assert.match(svg('#ffffff', { foil: { enabled: true, pattern: 'silver' } }), /lighting-color="#c3cbd5"/);
+    assert.match(svg('#ffffff', { foil: { enabled: true, pattern: 'gold' } }), /seed="17"/);
+    assert.equal((svg('#ffffff', { foil: { enabled: true, pattern: 'stars' } }).match(/<polygon/g) || []).length, 9);
 });
 
 test('foil mode retains its settings across modes and saves independent metadata', () => {

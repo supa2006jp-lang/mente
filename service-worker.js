@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261123-foil1';
+const APP_BUILD = '20261123-foil2';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
@@ -54,8 +54,8 @@ const SHELL_FILES = [
     './app-dom-actions.js',
     './app-edit-safety.js?v=20261115-workspace-refine6',
     './app-image-edit-workspace.js?v=20261123-gradient2',
-    './app-boot.js?v=20261123-foil1',
-    './app-shift-notebook-core.js?v=20261123-foil1',
+    './app-boot.js?v=20261123-foil2',
+    './app-shift-notebook-core.js?v=20261123-foil2',
     './app-photo-manager.js?v=20261123-foil1',
     './app-shift-photo-camera.js?v=20260906-avatar-stage72',
     './app-shift-photo-reveal.js?v=20260906-avatar-stage72',

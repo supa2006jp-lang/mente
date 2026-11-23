@@ -16995,7 +16995,7 @@
         const number = (value, fallback, min, max) => value == null || value === '' || !Number.isFinite(Number(value)) ? fallback : Math.max(min, Math.min(max, Math.round(Number(value))));
         return {
             enabled: foil?.enabled === true,
-            pattern: ['prism', 'diamond', 'crystal'].includes(foil?.pattern) ? foil.pattern : 'prism',
+            pattern: ['prism', 'diamond', 'crystal', 'gold', 'silver', 'stars'].includes(foil?.pattern) ? foil.pattern : 'prism',
             strength: number(foil?.strength, 80, 0, 100),
             scale: number(foil?.scale, 80, 40, 160),
             angle: number(foil?.angle, 30, 0, 180)
@@ -17005,6 +17005,8 @@
     createShiftPhotoCompareBlankFoilSvg(settings) {
         const foil = this.normalizeShiftPhotoCompareBlankFoil(settings);
         if (!foil.enabled || foil.strength === 0) return '';
+        if (foil.pattern === 'gold' || foil.pattern === 'silver') return this.createShiftPhotoCompareMetalFoilSvg(foil);
+        if (foil.pattern === 'stars') return this.createShiftPhotoCompareStarFoilSvg(foil);
         const size = foil.scale * .8;
         const cells = [], gradients = [];
         // Fixed facets keep the preview, undo, saved image and export identical.
@@ -17025,6 +17027,38 @@
             <linearGradient id="foil-shine" gradientUnits="userSpaceOnUse" x2="520" y2="0" spreadMethod="reflect" gradientTransform="rotate(${foil.angle + 30} 800 500)"><stop stop-color="#fff" stop-opacity="0"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".49" stop-color="#fff" stop-opacity=".7"/><stop offset=".53" stop-color="#fff" stop-opacity=".1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
             <pattern id="foil-lines" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(${foil.angle})"><path d="M0 0H4" stroke="#fff" stroke-opacity=".18" stroke-width="1"/></pattern>
         </defs><g opacity="${foil.strength / 100}" data-foil-pattern="${foil.pattern}"><rect width="1600" height="1000" fill="url(#foil-facets)"/><rect width="1600" height="1000" fill="url(#foil-spectrum)" opacity=".3"/><rect width="1600" height="1000" fill="url(#foil-shine)"/><rect width="1600" height="1000" fill="url(#foil-lines)"/></g>`;
+    }
+
+    createShiftPhotoCompareMetalFoilSvg(foil) {
+        const gold = foil.pattern === 'gold';
+        const tint = gold ? '#ebbb46' : '#c3cbd5', shine = gold ? '#fff4c5' : '#ffffff';
+        const frequency = (1.1 / foil.scale).toFixed(5);
+        // A fixed noise seed gives the foil real surface relief without changing it on export.
+        return `<defs>
+            <filter id="foil-metal-relief" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+                <feTurbulence type="fractalNoise" baseFrequency="${frequency} ${(1.7 / foil.scale).toFixed(5)}" numOctaves="3" seed="17" stitchTiles="stitch" result="creases"/>
+                <feDiffuseLighting in="creases" surfaceScale="12" diffuseConstant="1.1" lighting-color="${tint}" result="metal"><feDistantLight azimuth="${foil.angle + 25}" elevation="48"/></feDiffuseLighting>
+                <feSpecularLighting in="creases" surfaceScale="12" specularConstant="1.4" specularExponent="18" lighting-color="${shine}" result="reflection"><feDistantLight azimuth="${foil.angle + 25}" elevation="48"/></feSpecularLighting>
+                <feComposite in="reflection" in2="metal" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>
+            </filter>
+            <linearGradient id="foil-metal-sheen" gradientUnits="userSpaceOnUse" x2="850" y2="0" spreadMethod="reflect" gradientTransform="rotate(${foil.angle} 800 500)"><stop stop-color="#000" stop-opacity=".18"/><stop offset=".4" stop-color="${shine}" stop-opacity="0"/><stop offset=".5" stop-color="${shine}" stop-opacity=".4"/><stop offset=".6" stop-color="${shine}" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".1"/></linearGradient>
+        </defs><g opacity="${foil.strength / 100}" data-foil-pattern="${foil.pattern}"><rect width="1600" height="1000" fill="${tint}" filter="url(#foil-metal-relief)"/><rect width="1600" height="1000" fill="url(#foil-metal-sheen)"/></g>`;
+    }
+
+    createShiftPhotoCompareStarFoilSvg(foil) {
+        const size = foil.scale * 3;
+        const points = Array.from({ length: 10 }, (_, index) => {
+            const angle = (index * 36 - 90) * Math.PI / 180, radius = index % 2 ? 8.6 : 20;
+            return `${(Math.cos(angle) * radius).toFixed(3)},${(Math.sin(angle) * radius).toFixed(3)}`;
+        }).join(' ');
+        const positions = [[.14,.17,1,8],[.49,.12,.7,-18],[.82,.24,1.1,25],[.28,.46,.8,35],[.65,.5,1.15,-12],[.9,.64,.65,5],[.13,.79,.7,-30],[.46,.86,1.05,15],[.78,.88,.8,-5]];
+        const stars = positions.map(([x,y,scale,rotation]) => `<g transform="translate(${x * size} ${y * size}) rotate(${rotation}) scale(${scale * size / 240})"><polygon points="${points}" fill="url(#foil-star-rainbow)" stroke="#faffff" stroke-width="1"/><path d="M0 -20L0 0L11.756 16.18" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width=".8"/></g>`).join('');
+        return `<defs>
+            <linearGradient id="foil-star-base" gradientUnits="userSpaceOnUse" x2="650" y2="0" spreadMethod="reflect" gradientTransform="rotate(${foil.angle} 800 500)"><stop stop-color="#d4dae5"/><stop offset=".23" stop-color="#e5d8eb"/><stop offset=".44" stop-color="#e1f4f5"/><stop offset=".5" stop-color="#ffffff"/><stop offset=".63" stop-color="#ece9cb"/><stop offset=".8" stop-color="#d8e5ed"/><stop offset="1" stop-color="#f5deeb"/></linearGradient>
+            <linearGradient id="foil-star-rainbow" gradientTransform="rotate(${foil.angle} .5 .5)"><stop stop-color="#cb61ad"/><stop offset=".17" stop-color="#9b88df"/><stop offset=".33" stop-color="#50b9dd"/><stop offset=".48" stop-color="#73c9a9"/><stop offset=".55" stop-color="#fff"/><stop offset=".6" stop-color="#d8c765"/><stop offset=".8" stop-color="#e7a061"/><stop offset="1" stop-color="#d665a4"/></linearGradient>
+            <pattern id="foil-stars" patternUnits="userSpaceOnUse" width="${size}" height="${size}">${stars}</pattern>
+            <pattern id="foil-star-lines" patternUnits="userSpaceOnUse" width="3" height="3" patternTransform="rotate(${foil.angle})"><path d="M0 0H3" stroke="#fff" stroke-opacity=".16" stroke-width=".7"/></pattern>
+        </defs><g opacity="${foil.strength / 100}" data-foil-pattern="stars"><rect width="1600" height="1000" fill="url(#foil-star-base)"/><rect width="1600" height="1000" fill="url(#foil-stars)"/><rect width="1600" height="1000" fill="url(#foil-star-lines)"/></g>`;
     }
 
     createShiftPhotoCompareBlankBaseSrc(color = '#ffffff', gradient = null) {
@@ -17166,7 +17200,7 @@
                 </div>
             </div>
             <div class="shift-photo-compare-blank-bg-foil-options"${foil.enabled ? '' : ' hidden'}>
-                <label><span>模様</span><select data-bg-foil-pattern aria-label="キラの模様" onchange="app.setShiftPhotoCompareBlankFoil({pattern:this.value})">${[['prism', '角プリズム'], ['diamond', 'ダイヤ'], ['crystal', '結晶']].map(([value, label]) => `<option value="${value}"${foil.pattern === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+                <label><span>模様</span><select data-bg-foil-pattern aria-label="キラの模様" onchange="app.setShiftPhotoCompareBlankFoil({pattern:this.value})">${[['prism', '角プリズム'], ['diamond', 'ダイヤ'], ['crystal', '結晶'], ['gold', '金箔'], ['silver', '銀箔'], ['stars', '星型ホログラム']].map(([value, label]) => `<option value="${value}"${foil.pattern === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
                 ${[['strength', '輝き', 0, 100, '%'], ['scale', '粒の大きさ', 40, 160, '%'], ['angle', '光の角度', 0, 180, '°']].map(([key, label, min, max, unit]) => `<label><span>${label}</span><input type="range" min="${min}" max="${max}" step="1" value="${foil[key]}" data-bg-foil="${key}" data-unit="${unit}" aria-label="キラの${label}" oninput="app.previewShiftPhotoCompareBlankFoil()" onchange="app.setShiftPhotoCompareBlankFoil({${key}:Number(this.value)})"><output>${foil[key]}${unit}</output></label>`).join('')}
             </div>
             <div class="shift-photo-compare-color-presets shift-photo-compare-blank-bg-presets" title="開始色プリセット">
