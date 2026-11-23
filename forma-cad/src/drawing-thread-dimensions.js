@@ -35,6 +35,14 @@ function threadDimensionSize(rim){
   ...(validDrawingThreadReference(ref)?{threadRef:ref,threadRim:rim.kind}:{})};
 }
 
+export function adjustedDrawingBoreDimension(view,circle){
+ if(!view.holeMachining?.some(hole=>hole.thread?.adjustedDiameter!==undefined))return;
+ const rim=matchedRim(view,circle);
+ if(rim?.kind==='bore'&&rim.thread.adjustedDiameter!==undefined&&Math.abs(rim.radius-circle.radius)<tolerance){
+  return {kind:'thread',...threadDimensionSize(rim)};
+ }
+}
+
 export function drawingThreadDimensionTarget(view,{arc,threadShaft,point}){
  const rim=threadShaft?{...threadShaft,kind:'shaft'}:matchedRim(view,arc);
  const {center}=rim??arc;

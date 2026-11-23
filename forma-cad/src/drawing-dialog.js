@@ -2469,13 +2469,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    fontSize:dimensionFontSize===standardDimensionFont?undefined:dimensionFontSize,details,placed});
   let added=result.dimensions;
   if(editingPage>=0&&added.length)added=addedPageDimensions(added,scale);
-  if(added.length||current.hidden)preserveActivePDFPlacement();
-  const firstAdded=current.dimensions.length;
-  dimensions=[...current.dimensions,...added];
+  if(added.length||result.updated||current.hidden)preserveActivePDFPlacement();
+  const firstAdded=result.existing.length;
+  dimensions=[...result.existing,...added];
   render();
   if(!sheet)return;
   const messages=[];
   if(result.dimensions.length)messages.push('寸法を '+result.dimensions.length+' 個、自動追加しました。');
+  if(result.updated)messages.push('ねじ穴の寸法表記を '+result.updated+' 件更新しました。');
   if(current.hidden)messages.push('重複する自動外形寸法を '+current.hidden+' 個、非表示にしました。');
   if(!messages.length)messages.push('追加できる寸法はありません。');
   if(result.skipped)messages.push('小さい円形部・過密な部分は省略しました。');

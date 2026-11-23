@@ -83,6 +83,19 @@ try{
  await page.goto(process.env.FORMA_TEST_URL||'http://127.0.0.1:'+server.address().port+'/');
  await $('canvas-host').locator('canvas').waitFor();
  await open(project);
+ await field('dimension-auto').click();
+ const automatic=await labels();
+ assert.equal(automatic.filter(label=>label===adjustedLabel).length,1);
+ assert.ok(automatic.includes('Ø15'));
+ assert.ok(!automatic.includes('Ø10.4'));
+ await field('dimension-auto').click();
+ assert.deepEqual(await labels(),automatic);
+ await field('pdf-preview-open').click();
+ const pdf=await field('pdf-preview-host').locator('[data-dimension] text').allTextContents();
+ assert.equal(pdf.filter(label=>label===adjustedLabel).length,1);
+ await field('pdf-preview-close').click();
+ await field('undo').click();
+ assert.deepEqual(await labels(),[]);
  await add([3,0],[10,-24],'M6');
  await add([45,-5],[44,-20],'M10');
  await add([nutX+5.2,-nutY],[nutX,13],adjustedLabel);
@@ -106,7 +119,7 @@ try{
  await open({...saved,drawing});
  assert.deepEqual(await labels(),expected);
  assert.deepEqual(errors,[]);
- console.log('PASS normal M6 and M10 annotations and Ø10.4 with the M10 bolt note for an auto-pulled nut, including PDF preview and reopening a legacy drawing');
+ console.log('PASS automatic and manual Ø10.4 with the M10 bolt note, including PDF preview, duplicate prevention and reopening a legacy drawing');
 }finally{
  await browser?.close();
  await new Promise(resolve=>server.close(resolve));

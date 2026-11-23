@@ -13,6 +13,7 @@ import {drawingDimensionCenterGuides,snapDrawingDimensionPoint} from '../src/dra
 import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from '../src/drawing-thread-dimensions.js';
 import {dimensionLabel,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {captureDrawingReferences,reconcileDrawingDimensions} from '../src/drawing-dimension-references.js';
+import {autoDrawingDimensions} from '../src/drawing-auto-dimensions.js';
 
 before(async()=>R.setOC(await init({wasmBinary:await readFile(new URL('../node_modules/replicad-opencascadejs/dist/replicad_single.wasm',import.meta.url))})));
 
@@ -123,4 +124,44 @@ test('a pull of minus 0.2 mm on an M10 hole preserves the bolt size for new and 
  assert.equal(dimensionLabel(restoreAdjustedThreadDimensions(previous.views,[old])[0]),'M10.4');
  const sheet=drawingSheet(next,1,true,[updated],'',options);
  assert.ok(sheet.svg.includes(label));
+ const automatic=autoDrawingDimensions(next,1,[],sheet,{types:['diameter']}).dimensions;
+ assert.deepEqual(automatic.map(dimensionLabel),[label]);
+ assert.deepEqual(automatic[0].threadRef,updated.threadRef);
+ const pages=drawingPDFPages(next,1,true,automatic,'',options);
+ assert.ok(pages.some(page=>page.svg.includes(label)));
+ assert.equal(autoDrawingDimensions(next,1,[updated],sheet,{types:['diameter']}).dimensions.length,0);
+});
+
+test('automatic dimensions distinguish adjusted bores from same-size plain circles and refresh saved groups',()=>{
+ const centers=[[12,14],[32,14],[52,14],[72,14]],radius=5.2;
+ const circle=([x,y],r)=>`M ${x-r} ${y} A ${r} ${r} 0 0 1 ${x+r} ${y} A ${r} ${r} 0 0 1 ${x-r} ${y}`;
+ const bore=(center,diameter,bodyId)=>({center,radius,
+  thread:{id:bodyId,bodyId,end:'high',diameter,adjustedDiameter:10.4}});
+ const top={viewBox:[0,0,84,28],visible:['M 0 0 L 84 0 L 84 28 L 0 28 Z',
+  ...centers.map(center=>circle(center,radius)),circle(centers[0],7)],hidden:[],
+  holeMachining:[bore(centers[0],10,'nut-a'),bore(centers[1],9,'nut-b')]};
+ const data={views:{top},bounds:[[0,-28,0],[84,0,8]]},settings={types:['diameter']};
+ const sheet=drawingSheet(data,1,true,[],'',options);
+ const added=autoDrawingDimensions(data,1,[],sheet,settings).dimensions;
+ const labels=dimensions=>dimensions.map(dimensionLabel).sort();
+ const m10='Ø10.4（使用ボルトはM10）',m9='Ø10.4（使用ボルトはM9）';
+ assert.deepEqual(labels(added),['2×Ø10.4','Ø14',m10,m9].sort());
+ assert.equal(autoDrawingDimensions(data,1,added,sheet,settings).dimensions.length,0);
+ assert.equal(autoDrawingDimensions(data,1,[],sheet,{types:['spacing']}).dimensions.some(d=>d.kind==='thread'),false);
+ const old={kind:'diameter',view:'top',automatic:true,center:centers[0],radius,centers,count:4,at:[98,20],fontSize:3.8,pinned:true};
+ const result=autoDrawingDimensions(data,1,[old],sheet,settings);
+ assert.equal(result.updated,1);
+ assert.deepEqual(result.existing,[{...old,center:centers[2],centers:centers.slice(2),count:2}]);
+ assert.deepEqual(labels(result.dimensions.filter(d=>d.kind==='thread')),[m10,m9].sort());
+ assert.ok(result.dimensions.filter(d=>d.kind==='thread').every(d=>d.fontSize===old.fontSize&&d.automatic));
+ const {centers:members,count,...single}=old;
+ const refreshed=autoDrawingDimensions(data,1,[single],sheet,settings).existing[0];
+ assert.equal(dimensionLabel(refreshed),m10);
+ assert.deepEqual(refreshed.at,single.at);
+ assert.equal(refreshed.pinned,true);
+ const details=[{id:'detail-a',view:'top',center:centers[0],radius:8,factor:2}];
+ const detailSheet=drawingSheet(data,1,true,[],'',{...options,details});
+ const detail=autoDrawingDimensions(data,1,[],detailSheet,{...settings,views:{top:[]},details}).dimensions;
+ assert.deepEqual(labels(detail),['Ø14',m10].sort());
+ assert.ok(detail.every(d=>d.view==='detail-a'));
 });
