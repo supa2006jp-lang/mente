@@ -166,3 +166,52 @@
 .image-export-preview { display: flex; align-items: center; justify-content: center; min-height: 120px; max-height: 45dvh; overflow: auto; border: 1px solid #cbd5e1; border-radius: 8px; background: repeating-conic-gradient(#e2e8f0 0% 25%,#fff 0% 50%) 0 / 16px 16px; }
 .image-export-preview img { display: block; max-width: 100%; max-height: 42dvh; object-fit: contain; }
 @media(max-width: 600px) { .image-edit-dialog { padding: 14px; } .image-export-fields label { width: 100%; } .image-export-fields select { flex: 1; min-width: 0; } .image-edit-dialog-actions { bottom: -14px; } }
+
+.image-edit-categorized .shift-photo-compare-header { grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.image-edit-categorized .shift-photo-compare-header > div:first-child { min-width: 0; }
+.image-edit-categorized .shift-photo-compare-header > div:first-child b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.image-edit-categorized .shift-photo-compare-header > div:first-child > span { display: none; }
+.image-edit-categorized .shift-photo-compare-header-actions {
+    grid-template-columns: minmax(0, 1fr) max-content 32px;
+    grid-template-areas: "common save close" "tabs tabs tabs" "tools tools tools" "recent recent recent" "status status status";
+    gap: 4px 6px;
+    min-width: 0;
+}
+.image-edit-categorized .image-edit-common-tools { grid-area: common; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.image-edit-categorized .image-edit-common-tools button { width: 32px; height: 32px; padding: 0; flex: 0 0 32px; }
+.image-edit-categorized .shift-photo-compare-save, .image-edit-categorized .shift-photo-compare-close { height: 32px; min-height: 32px; margin: 0; }
+.image-edit-categorized .shift-photo-compare-close { width: 32px; min-width: 32px; box-sizing: border-box; }
+.image-edit-toolbar-tabs { grid-area: tabs; display: flex; min-width: 0; border-bottom: 1px solid #64748b; }
+.image-edit-categorized .image-edit-toolbar-tabs button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    flex: 0 1 100px; min-width: 0; height: 32px; padding: 0 10px;
+    border: 0; border-bottom: 3px solid transparent; border-radius: 0;
+    background: transparent; color: #cbd5e1; font-size: 12px; white-space: nowrap;
+}
+.image-edit-categorized .image-edit-toolbar-tabs button[aria-selected="true"] { background: #1e3a4a; color: #fff; border-bottom-color: #4ade80; }
+.image-edit-categorized .image-edit-toolbar-tabs button:focus-visible { outline: 2px solid #facc15; outline-offset: -3px; }
+.image-edit-categorized .shift-photo-compare-markbar {
+    width: 100%; max-width: 100%; box-sizing: border-box; align-content: flex-start;
+    max-height: 104px; overflow: auto; overscroll-behavior: contain; gap: 6px;
+    padding: 6px; border-radius: 4px; scrollbar-width: thin;
+}
+.image-edit-categorized .image-edit-category-hidden { display: none !important; }
+.image-edit-categorized .shift-photo-compare-markbar > * { max-width: 100%; }
+.image-edit-categorized .shift-photo-compare-sample-inline { margin-left: auto; height: 44px; overflow: hidden; }
+.image-edit-categorized .shift-photo-compare-sample-box { zoom: .6; }
+.image-edit-categorized .image-edit-workspace-tools { grid-area: status; gap: 4px 8px; }
+.image-edit-categorized .image-edit-workspace-tools button { min-height: 26px; padding: 3px 7px; border-radius: 4px; font-size: 11px; }
+.image-edit-categorized #image-edit-save-status { color: #cbd5e1; }
+.image-edit-categorized #image-edit-save-status[data-state="saved"] { color: #86efac; }
+.image-edit-categorized #image-edit-save-status[data-state="failed"] { color: #fca5a5; }
+.image-edit-categorized .shift-photo-compare-recent-images { max-height: 76px; padding: 4px 6px; }
+@media(max-width: 600px) {
+    .image-edit-categorized .shift-photo-compare-panel { gap: 4px; padding: 6px; }
+    .image-edit-categorized .image-edit-toolbar-tabs button { flex: 1 1 0; padding: 0 3px; gap: 4px; }
+    .image-edit-categorized .shift-photo-compare-markbar { max-height: min(160px, 26dvh); }
+    .image-edit-categorized .shift-photo-compare-mode-hint { display: none; }
+    .image-edit-categorized .shift-photo-compare-size { max-width: 100%; }
+    .image-edit-categorized .shift-photo-compare-recent-images { max-height: 64px; }
+    .image-edit-categorized .shift-photo-compare-grid { overflow-y: auto; }
+    .image-edit-categorized .shift-photo-compare-image-wrap { min-height: 180px; }
+}

@@ -10,6 +10,17 @@ function harness(){
 }
 const snapshot=n=>({version:1,wraps:[{photoIndex:0,src:'data:image/png;base64,test',marks:[{mode:'circle',x:n}]}],globalMarks:[]});
 
+test('toolbar categories cover creation and selected mark modes without moving navigation tools',()=>{
+    const {app}=harness();
+    for(const mode of ['text','boxedText','callout','number','table'])assert.equal(app.getImageEditToolbarCategoryForMode(mode),'text');
+    for(const mode of ['image','video','mosaic','mosaicRange'])assert.equal(app.getImageEditToolbarCategoryForMode(mode),'image');
+    for(const mode of ['circle','triangle','arrow','dimension','rect','xmark','freehand','polyline'])assert.equal(app.getImageEditToolbarCategoryForMode(mode),'draw');
+    for(const mode of ['move','selectRange','erase','',null,undefined])assert.equal(app.getImageEditToolbarCategoryForMode(mode),'');
+    const calls=[];app.setImageEditToolbarCategory=(...args)=>calls.push(args);
+    app.followImageEditToolbarMode('move');assert.equal(calls.length,0);
+    app.followImageEditToolbarMode('image');assert.equal(calls[0][0],'image');assert.equal(calls[0][1].follow,true);
+});
+
 test('saved image versions retain ten per image without merging other images or departments',()=>{
     const {app,store}=harness();const first=snapshot(0);app.addImageEditVersion(first,'start');first.wraps[0].marks[0].x=999;
     assert.equal(app.getImageEditVersions()[0].snapshot.wraps[0].marks[0].x,0);

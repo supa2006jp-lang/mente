@@ -1,5 +1,5 @@
 // The app shell is safe to cache. User records stay in IndexedDB/localStorage.
-const APP_BUILD = '20261123-foil2';
+const APP_BUILD = '20261124-toolbar1';
 const CACHE_NAME = 'maintenance-next-static-' + APP_BUILD;
 const CACHE_PREFIX = 'maintenance-next-static-';
 const SHELL_FILES = [
@@ -10,7 +10,7 @@ const SHELL_FILES = [
     './app-five-s-management.js?v=20261116-image4',
     './app-unified-search.js?v=20261115-data6',
     './app-photo-export.js?v=20261115-workspace6',
-    './workspace-improvements.css?v=20261116-image4',
+    './workspace-improvements.css?v=20261124-toolbar1',
     './',
     './index.html',
     './assets/vendor/fontsource/inter/5.2.6/index.css',
@@ -53,9 +53,9 @@ const SHELL_FILES = [
     './assets/vendor/ffmpeg/0.11.6/046d0074eee1d99a674a.js',
     './app-dom-actions.js',
     './app-edit-safety.js?v=20261115-workspace-refine6',
-    './app-image-edit-workspace.js?v=20261123-gradient2',
-    './app-boot.js?v=20261123-foil2',
-    './app-shift-notebook-core.js?v=20261123-foil2',
+    './app-image-edit-workspace.js?v=20261124-toolbar1',
+    './app-boot.js?v=20261124-toolbar1',
+    './app-shift-notebook-core.js?v=20261124-toolbar1',
     './app-photo-manager.js?v=20261123-foil1',
     './app-shift-photo-camera.js?v=20260906-avatar-stage72',
     './app-shift-photo-reveal.js?v=20260906-avatar-stage72',

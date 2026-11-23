@@ -17168,7 +17168,7 @@
         const mode = foil.enabled ? 'foil' : gradient.enabled ? 'gradient' : 'solid';
         const src = this.createShiftPhotoCompareBlankBaseSrc(color, gradient);
         return `<div class="shift-photo-compare-blank-background-controls">
-            <button type="button" class="shift-photo-compare-blank-bg-toggle" aria-expanded="false" aria-haspopup="dialog" aria-controls="shift-photo-compare-blank-bg-panel" popovertarget="shift-photo-compare-blank-bg-panel" onclick="app.refreshShiftPhotoCompareBlankBackgroundControls()" title="背景設定">
+            <button type="button" class="shift-photo-compare-blank-bg-toggle" aria-expanded="false" aria-haspopup="dialog" aria-controls="shift-photo-compare-blank-bg-panel" popovertarget="shift-photo-compare-blank-bg-panel" onclick="app.setImageEditToolbarCategory?.('background', {follow:true}); app.refreshShiftPhotoCompareBlankBackgroundControls()" title="背景設定">
                 <span class="shift-photo-compare-blank-bg-swatch" style="background-image:url('${src}')" aria-hidden="true"></span><span>背景</span>
             </button>
             <div id="shift-photo-compare-blank-bg-panel" popover="auto" role="dialog" aria-label="背景設定" ontoggle="app.onShiftPhotoCompareBlankBackgroundToggle(event)">
@@ -17218,6 +17218,7 @@
         const next = open ?? !panel.matches(':popover-open');
         if (next && (this._shiftPhotoCompareContext?._imageComparison || this._shiftPhotoCompareContext?._saving)) return;
         if (next) {
+            this.setImageEditToolbarCategory?.('background', { follow: true });
             this.refreshShiftPhotoCompareBlankBackgroundControls();
             panel.showPopover();
             this.positionShiftPhotoCompareBlankBackgroundPanel();
@@ -18412,6 +18413,7 @@
         this.updateShiftPhotoCompareStrokeControl();
         this.updateShiftPhotoComparePolylineSnapButton();
         this.updateShiftPhotoCompareSizeControls();
+        this.followImageEditToolbarMode?.(this._shiftPhotoCompareMarkMode);
     }
 
     clearShiftPhotoCompareTransientModes({ keepMove = true, silent = true } = {}) {
@@ -25959,6 +25961,7 @@
         this.updateShiftPhotoCompareExtendedColorControls();
         this.updateShiftPhotoCompareDashedButton(mark);
         this.updateShiftPhotoCompareStrokeControl();
+        this.followImageEditToolbarMode?.(mark.dataset.mode);
     }
 
     updateShiftPhotoCompareMiniToolbar() {

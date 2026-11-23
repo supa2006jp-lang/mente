@@ -4,6 +4,97 @@
     const clone = value => JSON.parse(JSON.stringify(value));
     const node = (tag, text, parent) => { const e = document.createElement(tag); if (text != null) e.textContent = text; parent?.append(e); return e; };
     const button = (parent, text, action) => { const e = node('button', text, parent); e.type = 'button'; e.onclick = action; return e; };
+    const toolbarCategories = [
+        ['draw', '描画', 'fa-pen', '記号・線・図形'], ['text', '文字', 'fa-font', '文字・吹き出し・連番'],
+        ['image', '画像', 'fa-image', '画像・動画・モザイク'], ['background', '背景', 'fa-fill-drip', '背景色・キラ・壁紙'],
+        ['output', '出力', 'fa-file-export', '画像出力・アニメ・読み上げ・保存した版']
+    ];
+
+    P.getImageEditToolbarCategoryForMode = function (mode) {
+        if (['text', 'boxedText', 'callout', 'number', 'table'].includes(mode)) return 'text';
+        if (['image', 'video', 'mosaic', 'mosaicRange'].includes(mode)) return 'image';
+        if (['circle', 'triangle', 'arrow', 'dimension', 'rect', 'xmark', 'freehand', 'polyline'].includes(mode)) return 'draw';
+        return '';
+    };
+
+    P.initializeImageEditToolbar = function () {
+        const overlay = document.getElementById('shift-photo-compare-overlay');
+        const actions = overlay?.querySelector('.shift-photo-compare-header-actions');
+        const bar = actions?.querySelector('.shift-photo-compare-markbar');
+        if (!bar || actions.querySelector('.image-edit-toolbar-tabs')) return;
+        overlay.classList.add('image-edit-categorized');
+        const common = node('div', null, actions); common.className = 'image-edit-common-tools'; common.setAttribute('aria-label', '共通操作');
+        for (const selector of ['.shift-photo-compare-move', '.shift-photo-compare-select-range', '.shift-photo-compare-undo', '.shift-photo-compare-redo']) {
+            const control = bar.querySelector(selector); if (control) common.append(control);
+        }
+        const tabs = node('div', null, actions); tabs.className = 'image-edit-toolbar-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '画像編集のカテゴリ');
+        for (const [key, label, icon, title] of toolbarCategories) {
+            const tab = button(tabs, null, () => this.setImageEditToolbarCategory(key));
+            tab.innerHTML = `<i class="fa-solid ${icon}" aria-hidden="true"></i><span>${label}</span>`;
+            tab.id = `image-edit-tab-${key}`; tab.dataset.editorCategory = key; tab.title = title;
+            tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', 'image-edit-tool-panel');
+        }
+        tabs.addEventListener('keydown', event => {
+            const current = event.target.closest('[role="tab"]');
+            if (!current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const buttons = [...tabs.children], index = buttons.indexOf(current);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+            buttons[next].click(); buttons[next].focus({ preventScroll: true });
+        });
+        bar.id = 'image-edit-tool-panel'; bar.setAttribute('role', 'tabpanel');
+        // Keep the existing controls and handlers intact; only their visibility changes.
+        const rules = [
+            ['.shift-photo-compare-blank-background-controls', 'background'],
+            ['.shift-photo-compare-wallpaper-btn, .shift-photo-compare-wallpaper-clear, .shift-photo-compare-fill-color, .shift-photo-compare-fill-presets', 'text background'],
+            ['.shift-photo-compare-callout-text-color, .shift-photo-compare-callout-text-presets, .shift-photo-compare-font, .shift-photo-compare-text, .shift-photo-compare-number-reset', 'text'],
+            ['.shift-photo-compare-image-ocr-btn, .shift-photo-compare-animation-auto-order-btn, .shift-photo-compare-animation-play-btn, .shift-photo-compare-export, .shift-photo-compare-copy-all, .shift-photo-compare-export-one', 'output'],
+            ['.shift-photo-compare-video-insert-btn, .shift-photo-compare-clipboard, .shift-photo-compare-brush-size, .shift-photo-compare-image-cutout, .shift-photo-compare-image-ratio-reset, .shift-photo-compare-aspect-lock', 'image'],
+            ['.shift-photo-compare-polyline-snap-toggle, .shift-photo-compare-dashed', 'draw'],
+            ['.shift-photo-compare-outline, .shift-photo-compare-inner-outline, .shift-photo-compare-symbol-preset, .shift-photo-compare-mark-color-presets', 'draw text']
+        ];
+        for (const control of bar.children) {
+            const mode = control.dataset.markMode;
+            control.dataset.editorCategories = (mode && this.getImageEditToolbarCategoryForMode(mode))
+                || rules.find(([selector]) => control.matches(selector))?.[1] || 'draw text image';
+        }
+        const sample = overlay.querySelector('.shift-photo-compare-sample-inline');
+        if (sample) { sample.dataset.editorCategories = 'draw text'; bar.append(sample); }
+        this.setImageEditToolbarCategory('draw', { follow: true });
+    };
+
+    P.setImageEditToolbarCategory = function (category, { follow = false } = {}) {
+        const context = this._shiftPhotoCompareContext, overlay = document.getElementById('shift-photo-compare-overlay');
+        if (!context || context._saving || context._imageComparison || !overlay?.classList.contains('image-edit-categorized') || !toolbarCategories.some(([key]) => key === category)) return;
+        if (!follow && this._shiftPhotoCompareMarkMode !== 'move') this.setShiftPhotoCompareMarkModeDirect('move');
+        if (!follow) {
+            this.cancelShiftPhotoCompareEyedropper?.();
+            this.hideShiftPhotoComparePlacementPreview?.();
+            this.clearShiftPhotoCompareImageBrushMode?.({ silent: true });
+        }
+        const backgroundPanel = document.getElementById('shift-photo-compare-blank-bg-panel');
+        if (category !== 'background' && backgroundPanel?.matches(':popover-open')) backgroundPanel.hidePopover();
+        context.toolbarCategory = category;
+        overlay.dataset.editorCategory = category;
+        const bar = overlay.querySelector('.shift-photo-compare-markbar');
+        const mode = this._shiftPhotoCompareSelectedMark?.dataset.mode || this._shiftPhotoCompareMarkMode;
+        for (const control of bar.children) {
+            const dimensionText = category === 'draw' && mode === 'dimension' && control.matches('.shift-photo-compare-text, .shift-photo-compare-font');
+            control.classList.toggle('image-edit-category-hidden', !dimensionText && !String(control.dataset.editorCategories || '').split(' ').includes(category));
+        }
+        bar.setAttribute('aria-labelledby', `image-edit-tab-${category}`);
+        overlay.querySelectorAll('[data-editor-category]').forEach(tab => {
+            if (tab === overlay) return;
+            const active = tab.dataset.editorCategory === category;
+            tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1;
+        });
+        overlay.querySelector('.shift-photo-compare-recent-images')?.classList.toggle('image-edit-category-hidden', category !== 'image');
+    };
+
+    P.followImageEditToolbarMode = function (mode) {
+        const category = this.getImageEditToolbarCategoryForMode(mode);
+        if (category) this.setImageEditToolbarCategory(category, { follow: true });
+    };
 
     P.getImageEditDocumentKey = function (context = this._shiftPhotoCompareContext) {
         if (!context) return '';
@@ -99,6 +190,7 @@
         const versions = button(group, '保存した版', () => this.openImageEditVersions()); versions.id = 'image-edit-versions';
         const status = node('span', null, group); status.id = 'image-edit-save-status'; status.setAttribute('role', 'status');
         this.setImageEditSaveStatus('ready', context); this.updateShiftPhotoCompareUndoButton();
+        this.initializeImageEditToolbar();
     };
 
     P.applyImageEditSnapshot = function (snapshot, preview = false) {
@@ -150,7 +242,7 @@
     P.setImageEditReadOnly = function (active) {
         const overlay = document.getElementById('shift-photo-compare-overlay'); if (!overlay) return;
         if (active) document.getElementById('shift-photo-compare-blank-bg-panel')?.hidePopover();
-        for (const element of overlay.querySelectorAll('.shift-photo-compare-markbar, .shift-photo-compare-grid, .shift-photo-compare-mini-toolbar')) element.inert = active;
+        for (const element of overlay.querySelectorAll('.shift-photo-compare-markbar, .image-edit-common-tools, .image-edit-toolbar-tabs, .shift-photo-compare-grid, .shift-photo-compare-mini-toolbar')) element.inert = active;
         overlay.classList.toggle('image-edit-readonly', active);
     };
 

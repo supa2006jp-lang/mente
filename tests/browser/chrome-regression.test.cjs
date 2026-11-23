@@ -1349,7 +1349,7 @@ test('image editor: awaited saves, redo, persistent versions, comparison and exp
             document.querySelector('.shift-photo-compare-redo').click();await imageTestFlush();counts.push(imageTestCount());
             document.getElementById('shift-photo-compare-overlay').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true}));await imageTestFlush();counts.push(imageTestCount());
             document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,shiftKey:true,bubbles:true}));await imageTestFlush();counts.push(imageTestCount());
-            const input=document.getElementById('shift-photo-compare-text-input');input.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true}));counts.push(imageTestCount());
+            app.setImageEditToolbarCategory('text');const input=document.getElementById('shift-photo-compare-text-input');input.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true}));counts.push(imageTestCount());
             document.getElementById('shift-photo-compare-overlay').focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,isComposing:true,bubbles:true}));counts.push(imageTestCount());
             app.undoShiftPhotoCompareMarkChange();imageTestAddMark(80);await imageTestFlush();const reset=document.querySelector('.shift-photo-compare-redo').disabled;await app.saveShiftPhotoCompare();return {counts,reset};
         })()`);
@@ -1420,6 +1420,59 @@ test('image editor: awaited saves, redo, persistent versions, comparison and exp
         })()`);
         assert.equal(result.globals,1);assert.equal(result.undone,'#ffffff');assert.equal(result.redone,'#ff0000');assert.equal(result.failed,false);assert.equal(result.retained,true);assert.equal(result.retry,true);assert.equal(result.saved,'#ff0000');assert.equal(result.reopened,'#ff0000');assert.ok(result.versions>=2);
     });
+});
+
+test('image editor toolbar: categories, selection, keyboard, readonly and responsive canvas', { timeout: 180000 }, async t => {
+    const harness=await launchHarness();t.after(()=>harness.close());const {page}=harness;
+    await page.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    const result=await page.evaluate(`(async()=>{
+        await maintenanceLazyFeatures.loadPhotoEffects();
+        const photo=app.createShiftPhotoCompareBlankBasePhoto('#dbeafe');
+        photo.marks=[{mode:'text',x:40,y:40,size:60,text:'点検',color:'#dc2626'},{mode:'circle',x:65,y:60,size:60,color:'#dc2626'},{mode:'image',x:75,y:30,size:60,imageSrc:app.createShiftPhotoCompareBlankBaseSrc('#16a34a')}];
+        await app.openShiftPhotoCompareWithPhotos([photo],{source:'photoManagerBlank',title:'ツールバー検証'});
+        const overlay=document.getElementById('shift-photo-compare-overlay'),bar=overlay.querySelector('.shift-photo-compare-markbar');
+        const visible=e=>e.getClientRects().length>0;
+        const initial={category:app._shiftPhotoCompareContext.toolbarCategory,textHidden:!visible(bar.querySelector('.shift-photo-compare-text')),backgroundHidden:!visible(bar.querySelector('.shift-photo-compare-blank-background-controls')),undoVisible:visible(overlay.querySelector('.shift-photo-compare-undo')),height:overlay.querySelector('.shift-photo-compare-header').offsetHeight};
+        app.selectShiftPhotoCompareMark(overlay.querySelector('.shift-photo-compare-mark.text'));
+        const textCategory=app._shiftPhotoCompareContext.toolbarCategory,input=document.getElementById('shift-photo-compare-text-input');
+        const before=JSON.stringify(app.captureImageEditSnapshot()),count=app._shiftPhotoCompareUndoStack.length;
+        for(const key of ['image','background','output','draw','text'])document.getElementById('image-edit-tab-'+key).click();
+        const preserved=before===JSON.stringify(app.captureImageEditSnapshot())&&count===app._shiftPhotoCompareUndoStack.length&&input===document.getElementById('shift-photo-compare-text-input')&&input.value==='点検';
+        app.selectShiftPhotoCompareMark(overlay.querySelector('.shift-photo-compare-mark.image'));const imageCategory=app._shiftPhotoCompareContext.toolbarCategory;
+        app.setShiftPhotoCompareMarkMode('circle');const drawCategory=app._shiftPhotoCompareContext.toolbarCategory;
+        document.getElementById('image-edit-tab-background').click();const moved=app._shiftPhotoCompareMarkMode==='move';
+        app.toggleShiftPhotoCompareBlankBackgroundPanel(true);document.getElementById('image-edit-tab-output').click();
+        const closed=!document.getElementById('shift-photo-compare-blank-bg-panel').matches(':popover-open');
+        const tab=document.getElementById('image-edit-tab-output');tab.focus();tab.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+        const keyboard=app._shiftPhotoCompareContext.toolbarCategory==='draw'&&document.activeElement.id==='image-edit-tab-draw';
+        document.getElementById('image-edit-compare').click();document.getElementById('image-edit-tab-text').click();
+        const readonly=overlay.querySelector('.image-edit-common-tools').inert&&overlay.querySelector('.image-edit-toolbar-tabs').inert&&app._shiftPhotoCompareContext.toolbarCategory==='draw'&&!document.getElementById('image-edit-compare').closest('[inert]');
+        document.getElementById('image-edit-compare').click();const writable=!overlay.querySelector('.image-edit-common-tools').inert;
+        app._shiftPhotoCompareContext._saving=true;document.getElementById('image-edit-tab-text').click();const savingProtected=app._shiftPhotoCompareContext.toolbarCategory==='draw';app._shiftPhotoCompareContext._saving=false;
+        const reachable=new Set();for(const key of ['draw','text','image','background','output']){app.setImageEditToolbarCategory(key);for(const child of bar.children)if(!child.classList.contains('image-edit-category-hidden'))reachable.add(child);}
+        const complete=reachable.size===bar.children.length;
+        return {initial,textCategory,preserved,imageCategory,drawCategory,moved,closed,keyboard,readonly,writable,savingProtected,complete};
+    })()`);
+    assert.deepEqual({...result.initial,height:0},{category:'draw',textHidden:true,backgroundHidden:true,undoVisible:true,height:0});
+    assert.ok(result.initial.height<260,'desktop toolbar is compact: '+result.initial.height);
+    assert.equal(result.textCategory,'text');assert.equal(result.imageCategory,'image');assert.equal(result.drawCategory,'draw');
+    for(const key of ['preserved','moved','closed','keyboard','readonly','writable','savingProtected','complete'])assert.equal(result[key],true,key);
+    for(const [name,width,height] of [['desktop',1440,1000],['mobile',390,844],['small',360,640]]){
+        await page.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+        for(const category of ['draw','text','image','background','output']){
+            await page.evaluate(`document.getElementById('image-edit-tab-${category}').click()`);
+            const layout=await page.evaluate(`(()=>{const o=document.getElementById('shift-photo-compare-overlay'),bar=o.querySelector('.shift-photo-compare-markbar'),header=o.querySelector('.shift-photo-compare-header'),picture=o.querySelector('.shift-photo-compare-image-wrap').getBoundingClientRect(),p=o.querySelector('.shift-photo-compare-panel');return {fits:p.scrollWidth<=p.clientWidth&&header.scrollWidth<=header.clientWidth&&bar.scrollWidth<=bar.clientWidth,barHeight:bar.offsetHeight,pictureHeight:Math.max(0,Math.min(picture.bottom,innerHeight)-Math.max(picture.top,0)),tabs:[...o.querySelectorAll('[role=tab]')].every(b=>{const r=b.getBoundingClientRect();return r.width>0&&r.left>=0&&r.right<=innerWidth&&b.scrollWidth<=b.clientWidth;}),save:o.querySelector('.shift-photo-compare-save').getBoundingClientRect().right<=innerWidth};})()`);
+            if(process.env.PHOTO_TOOLBAR_SCREENSHOTS&&name!=='small'){
+                const capture=await page.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(os.tmpdir(),'photo-toolbar-'+name+'-'+category+'.png'),Buffer.from(capture.data,'base64'));
+            }
+            if(!layout.fits) layout.widths=await page.evaluate(`['.shift-photo-compare-panel','.shift-photo-compare-header','.shift-photo-compare-markbar'].map(s=>{const e=document.querySelector(s);return [s,e.scrollWidth,e.clientWidth];})`);
+            assert.equal(layout.fits,true,name+' '+category+' fits: '+JSON.stringify(layout));assert.equal(layout.tabs,true,name+' tabs fit');assert.equal(layout.save,true,name+' save visible');
+            assert.ok(layout.barHeight<=162,name+' bounded settings');assert.ok(layout.pictureHeight>130,name+' '+category+' photo remains visible: '+layout.pictureHeight);
+        }
+    }
+    const pixels=await page.evaluate(`(async()=>{const wrap=document.querySelector('.shift-photo-compare-image-wrap');await wrap.querySelector(':scope > img').decode();const c=await app.renderShiftPhotoCompareWrapToCanvas(wrap,800);return [...c.getContext('2d').getImageData(10,10,1,1).data];})()`);
+    assert.deepEqual(pixels,[219,234,254,255]);
+    await page.evaluate('app.closeShiftPhotoCompare()');
 });
 
 test('photo background gradient: controls, pixels, undo, persistence and templates', { timeout: 180000 }, async t => {
@@ -1676,11 +1729,11 @@ test('photo background eyedropper: independent endpoints, image and palette pick
         await maintenanceLazyFeatures.loadPhotoEffects();
         await app.openShiftPhotoCompareWithPhotos([app.createShiftPhotoCompareBlankBasePhoto('#336699',{enabled:true,color:'#ffffff',type:'radial',centerX:25,centerY:75})],{source:'photoManagerBlank',title:'Eyedropper test'});
         const wrap=document.querySelector('.shift-photo-compare-image-wrap'),image=wrap.querySelector(':scope > img');await image.decode();
-        const r=wrap.getBoundingClientRect(),drawn=app.getShiftPhotoCompareRenderedImageRect(image,r.width,r.height),point={x:r.left+drawn.x+drawn.width*.1,y:r.top+drawn.y+drawn.height*.9};
-        window.backgroundPickExpected=await app.getShiftPhotoCompareColorAtPoint(wrap,point.x,point.y);
         window.backgroundPickBefore=app.captureImageEditSnapshot();
         document.querySelector('.shift-photo-compare-blank-bg-toggle').click();
         document.querySelector('.shift-photo-compare-blank-bg-end-color .shift-photo-compare-eyedropper').click();
+        const r=wrap.getBoundingClientRect(),drawn=app.getShiftPhotoCompareRenderedImageRect(image,r.width,r.height),point={x:r.left+drawn.x+drawn.width*.1,y:r.top+drawn.y+drawn.height*.9};
+        window.backgroundPickExpected=await app.getShiftPhotoCompareColorAtPoint(wrap,point.x,point.y);
         return {...point,expected:backgroundPickExpected,target:app._shiftPhotoCompareEyedropperTarget,label:app.getShiftPhotoComparePaletteEyedropperLabel(),endActive:document.querySelector('.shift-photo-compare-blank-bg-end-color').classList.contains('eyedropper-target-active'),startActive:document.querySelector('.shift-photo-compare-blank-bg-color').classList.contains('eyedropper-target-active')};
     })()`);
     assert.match(pick.expected,/^#[0-9a-f]{6}$/); assert.notEqual(pick.expected,'#ffffff');
