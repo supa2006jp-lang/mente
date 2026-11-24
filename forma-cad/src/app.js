@@ -6168,7 +6168,7 @@ function openFaceExtrusionShortcut(shortcut=selectedExtrudeShortcut()){
  selectionPicker?.close({force:true});closeSolidFaceMenu();pendingOperation='new';beginExtrusion('solid',{preserveView:true});
  return stage==='extrusion'&&!pendingExtrude;
 }
-async function openUnextrudedShortcut(shortcut){
+async function openSketchSourceExtrusion(shortcut,{unextrudedOnly=false}={}){
  const regions=[...new Map((shortcut.sketchRegion?[shortcut.sketchRegion]:shortcut.sketchRegions||[])
   .map(region=>region.overlapSource||region).map(region=>[region.id,region])).values()];
  if(!regions.length)return false;
@@ -6177,10 +6177,10 @@ async function openUnextrudedShortcut(shortcut){
  for(const [index,region] of regions.entries())await chooseRegion(region,index>0,new THREE.Vector3(...shortcut.point));
  if(features!==original||chosenRegion?.id!==regions.at(-1).id)return false;
  pendingOperation='new';await beginExtrusion('solid',{preserveView:true});
- if(features!==original||stage!=='extrusion'||pendingExtrude)return false;
- $('overlap-only').checked=false;$('unextruded-only').checked=availableTargets().length>0;applyPreviousUnextrudedSettings();
+ if(features!==original||stage!=='extrusion'||pendingExtrude||chosenRegion?.id!==regions.at(-1).id)return false;
+ if(unextrudedOnly){$('overlap-only').checked=false;$('unextruded-only').checked=availableTargets().length>0;applyPreviousUnextrudedSettings();}
  extrusionManualOperation=true;syncFields();
- $('status').textContent=availableTargets().length?'未押し出しの部分だけを選択しました。距離と操作を指定してください':'既存ソリッドがないため、スケッチ領域全体を押し出します。距離を指定してください';
+ if(unextrudedOnly)$('status').textContent=availableTargets().length?'未押し出しの部分だけを選択しました。距離と操作を指定してください':'既存ソリッドがないため、スケッチ領域全体を押し出します。距離を指定してください';
  return true;
 }
 function selectedBoundaryFillSource(){const ids=selectedSketchSegments.size?[...selectedSketchSegments.keys()]:[selected],items=features.filter(f=>ids.includes(f.id)&&f.kind==='sketch'&&!f.groupHidden&&!f.construction&&!f.textOutline&&!f.closed&&['line','polyline','spline'].includes(f.profile));if(!items.length||items.some(f=>f.groupId!==items[0].groupId))return null;return items[0];}
@@ -6209,7 +6209,9 @@ offsetExtrusionDialog=createOffsetExtrusionDialog({getFeatures:()=>features,noti
  profileOffsetActive=true;profileOffsetDistance=distance;$('name').value='OS押出';$('cap-holes').checked=true;if(hasHoles)$('operation').value='new';extrusionDefaultOperation=$('operation').value;extrusionManualOperation=false;
  scheduleAutoCut();syncFields();$('status').textContent='OS距離 '+fmt(distance)+' mm の輪郭で押し出します。重なるソリッドがあれば自動で切り取ります';return true;
 }});
-faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,onOffset:shortcut=>offsetExtrusionDialog.open(shortcut),onUnextruded:shortcut=>backgroundUI(()=>openUnextrudedShortcut(shortcut)),
+faceExtrudeShortcut=createFaceExtrudeShortcut({host,canvas:renderer.domElement,camera,getSelections:selectedExtrudeShortcuts,onExtrude:openFaceExtrusionShortcut,onOffset:shortcut=>offsetExtrusionDialog.open(shortcut),
+ onWholeSketch:shortcut=>backgroundUI(()=>openSketchSourceExtrusion(shortcut)),
+ onUnextruded:shortcut=>backgroundUI(()=>openSketchSourceExtrusion(shortcut,{unextrudedOnly:true})),
  getSketchObjects:()=>sketchGroup.visible?sketchGroup.children:[],
  onDragStart:(event,owner,start,selection)=>openFaceExtrusionShortcut(selection)&&startExtrusionDrag(event,{owner,start,depth:0,dragged:true}),
  onDragMove:moveExtrusionDrag,onDragEnd:endExtrusionDrag

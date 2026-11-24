@@ -75,7 +75,29 @@ try{
  const before=await save();assert.equal(before.features.length,1);assert((await checkOutlineClearance(before.features[0]))<25);
  const jobs=await page.evaluate(()=>window.shortcutJobs.length);await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.shortcutJobs.length),jobs,'showing a closed sketch shortcut does not run CAD');await page.screenshot({path:'.sites-runtime/sketch-extrude-shortcut-preview.png'});
  // Starting the next rectangle must not destroy the already completed one.
- await selectFace([40,30,0]);await shortcut.waitFor();const view=JSON.parse(await host.getAttribute('data-camera-state'));await shortcut.click();await panel.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),false);const afterView=JSON.parse(await host.getAttribute('data-camera-state'));assert.ok(afterView.slice(3).every((v,i)=>Math.abs(v-view[i+3])<1e-6));assert.equal(await page.locator('#body-count').textContent(),'0');await page.locator('#viewport-depth').fill('5');await ready();await confirm();let data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,1);assert.equal(data.features.find(f=>f.kind==='sketch').id,before.features[0].id);checkSolid(data.features,data.features.at(-1).id,4000,5);await page.keyboard.press('Control+z');assert.equal(await page.locator('#body-count').textContent(),'0');await page.keyboard.press('Control+y');assert.equal(await page.locator('#body-count').textContent(),'1');
+ await selectFace([40,30,0]);await shortcut.waitFor();
+ // Start a line where its floating length field would cover the original shortcut position.
+ await page.locator('#new-line').click();await shortcut.waitFor();
+ await page.locator('#snap-enabled').uncheck();
+ const originalShortcut=await shortcut.boundingBox(),y=originalShortcut.y+originalShortcut.height/2;
+ await page.mouse.click(originalShortcut.x-108,y+20);await page.mouse.move(originalShortcut.x-46,y+36);
+ await page.locator('#sketch-dim-0').waitFor();
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ assert(await shortcut.isVisible());
+ const clear=await page.locator('.sketch-dim-field:visible').evaluateAll(fields=>{
+  const buttons=[...document.querySelectorAll('.face-extrude-shortcut:not([hidden]),.face-extrude-companion:not([hidden])')].map(el=>el.getBoundingClientRect());
+  return fields.length===2&&fields.every(field=>{
+   const box=field.getBoundingClientRect();
+   return buttons.every(button=>button.right<=box.left||button.left>=box.right||button.bottom<=box.top||button.top>=box.bottom);
+  });
+ });
+ assert.ok(clear,'the extrusion shortcuts clear both floating dimension fields');
+ for(const [id,value] of [['sketch-dim-0','27.5'],['sketch-dim-1','17']]){
+  const field=page.locator('#'+id);await field.click();await field.fill(value);
+  assert.equal(await field.inputValue(),value);
+ }
+ const view=JSON.parse(await host.getAttribute('data-camera-state'));await shortcut.click();await panel.waitFor();assert.equal(await page.locator('#sketch-banner').isVisible(),false);const afterView=JSON.parse(await host.getAttribute('data-camera-state'));assert.ok(afterView.slice(3).every((v,i)=>Math.abs(v-view[i+3])<1e-6));assert.equal(await page.locator('#body-count').textContent(),'0');await page.locator('#viewport-depth').fill('5');await ready();await confirm();let data=await save();assert.equal(data.features.filter(f=>f.kind==='sketch').length,1);assert.equal(data.features.find(f=>f.kind==='sketch').id,before.features[0].id);checkSolid(data.features,data.features.at(-1).id,4000,5);await page.keyboard.press('Control+z');assert.equal(await page.locator('#body-count').textContent(),'0');await page.keyboard.press('Control+y');assert.equal(await page.locator('#body-count').textContent(),'1');
+ await page.locator('#snap-enabled').check();
  // Every closed frame keeps its own shortcut and an older frame remains directly extrudable.
  await load([]);await page.locator('#new-rect').click();await selectFace([-40,-20,0]);await selectFace([-10,10,0]);await shortcut.waitFor();const firstRegion=await shortcut.getAttribute('data-region-id'),firstIcon=page.locator('.face-extrude-shortcut[data-region-id="'+firstRegion+'"]');
  await selectFace([10,-20,0]);await selectFace([30,0,0]);await page.waitForFunction(()=>document.querySelectorAll('.face-extrude-shortcut:not([hidden])').length===2);assert.equal(await firstIcon.isVisible(),true,'the older frame keeps its icon');
@@ -103,5 +125,5 @@ try{
  await page.waitForFunction(previous=>document.getElementById('canvas-host').dataset.cameraState!==previous,zoom);
  await page.waitForTimeout(220);await checkOutlineClearance(hexagon,[neighbor]);
  await page.locator('[data-view=iso]').click();await page.waitForTimeout(250);await checkOutlineClearance(hexagon,[neighbor]);
- assert.deepEqual(errors,[]);const proof={allClosedRegionsHaveIcons:true,earlierFrameIconRetained:true,threeIndependentIcons:true,iconsDoNotOverlap:true,olderIconExtrudesItsRegion:true,secondaryIconExtrudesItsRegion:true,allSketchesPreserved:true,noMultipleIconCadJobs:true,rectangleDuringDrawing:true,unfinishedRectangleHidden:true,partialNextRectangleIgnored:true,preserveCompletedSketches:true,lineChainClosed:true,openChainHidden:true,otherSessionExcluded:true,noSelectionCadJobs:true,preserveView:true,actualExtrusion:true,cancelPreservesSketches:true,undoRedo:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/sketch-extrude-shortcut-browser-proof.json',JSON.stringify(proof,null,2));await context.close();
+ assert.deepEqual(errors,[]);const proof={allClosedRegionsHaveIcons:true,earlierFrameIconRetained:true,threeIndependentIcons:true,iconsDoNotOverlap:true,dimensionFieldsClear:true,olderIconExtrudesItsRegion:true,secondaryIconExtrudesItsRegion:true,allSketchesPreserved:true,noMultipleIconCadJobs:true,rectangleDuringDrawing:true,unfinishedRectangleHidden:true,partialNextRectangleIgnored:true,preserveCompletedSketches:true,lineChainClosed:true,openChainHidden:true,otherSessionExcluded:true,noSelectionCadJobs:true,preserveView:true,actualExtrusion:true,cancelPreservesSketches:true,undoRedo:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/sketch-extrude-shortcut-browser-proof.json',JSON.stringify(proof,null,2));await context.close();
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

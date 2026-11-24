@@ -117,16 +117,18 @@ try{
  // from the original contour even when the click selected an outside patch.
  await load([sketch,base]);await page.mouse.click(...await screen([-18,5,0]));
  const normalShortcut=page.locator('#face-extrude-shortcut'),remainingShortcut=page.locator('#face-extrude-shortcut-unextruded');
- await normalShortcut.waitFor();await remainingShortcut.waitFor();
- const normalBox=await normalShortcut.boundingBox(),remainingBox=await remainingShortcut.boundingBox();
- assert(Math.abs(normalBox.y-remainingBox.y)<1);assert(remainingBox.x>=normalBox.x+normalBox.width+4);
+ const wholeShortcut=page.locator('#face-extrude-shortcut-whole-sketch');
+ await normalShortcut.waitFor();await wholeShortcut.waitFor();await remainingShortcut.waitFor();
+ const normalBox=await normalShortcut.boundingBox(),wholeBox=await wholeShortcut.boundingBox(),remainingBox=await remainingShortcut.boundingBox();
+ assert(Math.abs(normalBox.y-wholeBox.y)<1);assert(Math.abs(wholeBox.y-remainingBox.y)<1);
+ assert(wholeBox.x>=normalBox.x+normalBox.width+4);assert(remainingBox.x>=wholeBox.x+wholeBox.width+4);
  const selectionJobs=await page.evaluate(()=>window.shortcutJobs.filter(type=>/extrusion/i.test(type)).length);
  await remainingShortcut.hover();await page.waitForTimeout(150);
  assert.deepEqual(await remainingShortcut.boundingBox(),remainingBox,'the companion stays in place on hover');
  assert.equal(await page.evaluate(()=>window.shortcutJobs.filter(type=>/extrusion/i.test(type)).length),selectionJobs);
  await page.screenshot({path:'.sites-runtime/unextruded-extrusion/shortcuts.png'});
  await remainingShortcut.click();await panel.waitFor();assert(await option.isChecked());assert(await option.isEnabled());
- assert(await remainingShortcut.isHidden());assert(await normalShortcut.isHidden());
+ assert(await remainingShortcut.isHidden());assert(await wholeShortcut.isHidden());assert(await normalShortcut.isHidden());
  await page.locator('#viewport-depth').fill('4');await ready();
  await page.locator('#extrude-distance button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});
  const direct=await save();assert.equal(direct.features.at(-1).unextrudedOnly,true);
@@ -134,7 +136,8 @@ try{
  await load([sketch,base]);await page.mouse.click(...await screen([-18,5,0]));await remainingShortcut.waitFor();
  await remainingShortcut.focus();await page.keyboard.press('Enter');await panel.waitFor();assert(await option.isChecked());
  await page.locator('#cancel').click();
- await load([sketch]);await page.mouse.click(...await screen([-18,5,0]));await remainingShortcut.waitFor();await remainingShortcut.click();
+ await load([sketch]);await page.mouse.click(...await screen([-18,5,0]));await remainingShortcut.waitFor();
+ assert(await wholeShortcut.isHidden());await remainingShortcut.click();
  await panel.waitFor();await page.locator('#viewport-depth').fill('2');await ready();assert(await option.isDisabled());
  await page.locator('#cancel').click();assert.equal((await save()).features.length,1);
  // A rectangle through a box has a covered center and two exposed ends.
@@ -165,15 +168,32 @@ try{
  assert(!joined.features.at(-1).region.overlapSource);
  checkVolume(joined,'base',60*30*24+80*8*20-60*8*15);
 
+ // Both ends are separate patches, but their whole-sketch shortcut creates one body.
+ await load(crossing,'front');await page.mouse.click(...await screen([-35,0,12]));
+ await page.keyboard.down('Control');await page.mouse.click(...await screen([35,0,12]));await page.keyboard.up('Control');
+ assert.equal(await host.getAttribute('data-selected-region-count'),'2');
+ await wholeShortcut.click();await panel.waitFor();assert(await wholeShortcut.isHidden());
+ assert(!(await overlap.isChecked()));assert(!(await option.isChecked()));
+ await depth.fill('6');await ready();assert.equal(await operation.inputValue(),'new');
+ await panel.locator('button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});
+ const whole=await save();assert.equal(whole.features.length,3);assert.equal(whole.features.at(-1).region.area,80*8);
+ checkVolume(whole,whole.features.at(-1).id,80*8*6);checkVolume(whole,'base',60*30*24);
+
+ // The shortcut also appears when the part on the solid face is selected.
+ await load([crossingBody,{...crossingSketch,y:-15}],'front');await page.mouse.click(...await screen([0,-15,12]));
+ await wholeShortcut.waitFor();assert.match(await page.locator('#measurement-title').textContent(),/ソリッドと重なる領域/);
+ await wholeShortcut.focus();await page.keyboard.press('Enter');await panel.waitFor();
+ assert(!(await overlap.isChecked()));await page.locator('#cancel').click();
+
  await load(crossing,'front');await page.keyboard.down('Alt');
  await page.mouse.click(...await screen([0,0,12]));await page.keyboard.up('Alt');
- await normalShortcut.click();await panel.waitFor();
+ await normalShortcut.waitFor();assert(await wholeShortcut.isHidden());await normalShortcut.click();await panel.waitFor();
  assert(!(await overlap.isChecked()));assert(await wholeSketch.isHidden());
  await page.locator('#cancel').click();
- console.log('PASS covered sketch picking and cut, full profile join, and Alt selection through a body');
+ console.log('PASS covered sketch picking and cut, full profile join, whole-sketch shortcut for either partition and Alt selection through a body');
 
  await load([base]);await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([15,0,10]));
- await normalShortcut.waitFor();assert(await remainingShortcut.isHidden(),'solid faces keep their original extrusion action');
+ await normalShortcut.waitFor();assert(await remainingShortcut.isHidden(),'solid faces keep their original extrusion action');assert(await wholeShortcut.isHidden());
  assert.deepEqual(errors,[]);
  console.log('PASS paired sketch shortcuts, stable hover, no selection CAD jobs, mouse/keyboard entry, whole-source remainder, solid-face exclusion, preview/cancel/edit, exact output, undo/redo, reload and empty-area rejection');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
