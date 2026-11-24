@@ -125,5 +125,37 @@ try{
  await page.waitForFunction(previous=>document.getElementById('canvas-host').dataset.cameraState!==previous,zoom);
  await page.waitForTimeout(220);await checkOutlineClearance(hexagon,[neighbor]);
  await page.locator('[data-view=iso]').click();await page.waitForTimeout(250);await checkOutlineClearance(hexagon,[neighbor]);
+
+ // A rectangle across a solid offers the entire outline while drawing remains active.
+ const crossingBody={...boxes[0],id:'crossing-body',x:0,width:60,height:30,depth:24};
+ const whole=page.locator('.face-whole-sketch-shortcut:not([hidden])'),drawing=page.locator('#sketch-banner');
+ await load([crossingBody]);await page.locator('#new-rect').click();
+ await selectFace([-40,-10,0]);assert.equal(await whole.count(),0);
+ await selectFace([40,10,0]);await whole.waitFor();assert(await drawing.isVisible());
+ assert.equal(await host.getAttribute('data-overlap-region-count'),'3');
+ await selectFace([-20,20,0]);await selectFace([0,30,0]);
+ await page.waitForFunction(()=>document.querySelectorAll('.face-extrude-shortcut:not([hidden])').length===2);
+ assert.equal(await whole.count(),1,'only the partially overlapping region offers the shortcut');
+ await whole.click();await panel.waitFor();assert(await drawing.isHidden());
+ const depth=page.locator('#viewport-depth'),operation=page.locator('#viewport-operation'),submit=panel.locator('button[type=submit]');
+ await page.waitForFunction(()=>document.getElementById('viewport-depth').value==='0');
+ assert.equal(await page.locator('#depth').inputValue(),'0');assert(await submit.isDisabled());
+ assert.equal(await page.locator('#viewport-depth-error').textContent(),'');
+ assert.equal(await host.getAttribute('data-auto-cut-pending'),null);
+
+ await page.locator('[data-view=iso]').click();await page.locator('#snap-enabled').uncheck();
+ const arrow=await page.locator('#extrude-handle').boundingBox(),arrowX=arrow.x+arrow.width/2,arrowY=arrow.y+arrow.height/2;
+ const [x0,y0]=await screen([0,0,0]),[x1,y1]=await screen([0,0,5]);
+ await page.mouse.move(arrowX,arrowY);await page.mouse.down();
+ await page.mouse.move(arrowX+x1-x0,arrowY+y1-y0,{steps:6});await page.mouse.up();
+ await page.waitForFunction(()=>document.getElementById('viewport-operation').value==='cut');
+ assert(Math.abs(Number(await depth.inputValue())+5)<.15,'dragging toward the solid starts from zero');await ready();
+ await depth.fill('0');await page.waitForFunction(()=>document.getElementById('viewport-operation').value==='new');assert(await submit.isDisabled());
+ await depth.fill('5');await ready();assert.equal(await operation.inputValue(),'new');await confirm();
+ data=await save();assert.equal(data.features.at(-1).region.area,80*20);
+ checkSolid(data.features,data.features.at(-1).id,80*20*5,0);
+ checkSolid(data.features,crossingBody.id,60*30*24,24);
+ console.log('PASS whole-sketch action during drawing, zero start, inward drag auto-cut and outward whole-profile extrusion');
+
  assert.deepEqual(errors,[]);const proof={allClosedRegionsHaveIcons:true,earlierFrameIconRetained:true,threeIndependentIcons:true,iconsDoNotOverlap:true,dimensionFieldsClear:true,olderIconExtrudesItsRegion:true,secondaryIconExtrudesItsRegion:true,allSketchesPreserved:true,noMultipleIconCadJobs:true,rectangleDuringDrawing:true,unfinishedRectangleHidden:true,partialNextRectangleIgnored:true,preserveCompletedSketches:true,lineChainClosed:true,openChainHidden:true,otherSessionExcluded:true,noSelectionCadJobs:true,preserveView:true,actualExtrusion:true,cancelPreservesSketches:true,undoRedo:true,errors};console.log(JSON.stringify(proof));await fs.writeFile('.sites-runtime/sketch-extrude-shortcut-browser-proof.json',JSON.stringify(proof,null,2));await context.close();
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

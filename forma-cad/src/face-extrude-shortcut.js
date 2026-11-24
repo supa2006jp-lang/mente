@@ -80,7 +80,7 @@ export function createFaceExtrudeShortcut(options){
   if(gesture&&selection!==gesture.selection)cancel();
   if(!selection){hide();return;}
   const regions=selection.sketchRegion?[selection.sketchRegion]:selection.sketchRegions??[];
-  const showWhole=!!whole&&regions.some(region=>region.overlapSource);
+  const showWhole=!!whole&&(selection.sketchHasPartitions||regions.some(region=>region.overlapSource));
   const paired=!!remaining&&regions.length>0;
   projected.fromArray(selection.point).project(camera);
   if(!Number.isFinite(projected.x)||!Number.isFinite(projected.y)||projected.z< -1||projected.z>1||

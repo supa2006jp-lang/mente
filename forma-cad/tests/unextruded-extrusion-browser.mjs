@@ -109,6 +109,7 @@ try{
  assert(await option.isChecked());await page.locator('#cancel').click();
  await load([sketch,{...base,width:60,x:0}]);
  await row.locator('.sketch-remaining-extrude').click();await panel.waitFor();
+ await page.locator('#viewport-depth').fill('2');
  await page.waitForFunction(()=>document.getElementById('viewport-depth-error').textContent.includes('未押し出しの部分がありません'),null,{timeout:60000});
  assert(await page.locator('#extrude-distance button[type=submit]').isDisabled());
  assert(await page.locator('#cad-failure-panel').isHidden());
@@ -174,6 +175,8 @@ try{
  assert.equal(await host.getAttribute('data-selected-region-count'),'2');
  await wholeShortcut.click();await panel.waitFor();assert(await wholeShortcut.isHidden());
  assert(!(await overlap.isChecked()));assert(!(await option.isChecked()));
+ await page.waitForFunction(()=>document.getElementById('viewport-depth').value==='0');
+ await operation.selectOption('new');
  await depth.fill('6');await ready();assert.equal(await operation.inputValue(),'new');
  await panel.locator('button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});
  const whole=await save();assert.equal(whole.features.length,3);assert.equal(whole.features.at(-1).region.area,80*8);
