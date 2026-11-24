@@ -1,4 +1,5 @@
 import * as R from 'replicad';import {nativeSketchFeature} from './native-sketch-arcs.js';import {reverseExtrusionFrame} from './extrusion-direction.js';
+import {extrusionCutCandidates} from './extrusion-auto-cut.js';
 const bounds=shape=>{const box=shape.boundingBox;try{return box.bounds.map(p=>[...p]);}finally{box.delete();}};
 function intersectionVolume(a,b){
  const x=bounds(a),y=bounds(b);if(x[0].some((v,i)=>Math.min(x[1][i],y[1][i])-Math.max(v,y[0][i])<=1e-5))return 0;
@@ -6,10 +7,10 @@ function intersectionVolume(a,b){
  try{args.Append(a.wrapped);tools.Append(b.wrapped);builder.SetArguments(args);builder.SetTools(tools);builder.SetNonDestructive(true);builder.Build();if(builder.HasErrors())throw Error('重なりを確認できませんでした');result=R.cast(builder.Shape());const volume=Math.abs(R.measureVolume(result));if(!Number.isFinite(volume))throw Error('重なりの体積を確認できませんでした');return volume;}finally{result?.delete();builder.delete();args.delete();tools.delete();}
 }
 export function nativeExtrusionProbe(history,spec,{bodies:makeBodies,solid,onProgress}){
- const bodies=makeBodies(history);const matches=(feature,source)=>{
-  const sourceFace=feature.profileOffset===undefined&&!feature.symmetric&&source&&feature.region?.outer&&bodies.has(source);if(sourceFace&&feature.depth<0&&!feature.region.gridSourceBodyId)return [{id:source,volume:Infinity}];
+ const bodies=makeBodies(history),ids=[...bodies.keys()];const matches=(feature,source)=>{
+  const plan=extrusionCutCandidates(feature,source,ids);if(plan.matches)return plan.matches;
   const f=nativeSketchFeature({...feature,operation:'new',holesOnly:false,throughAll:false},history),tool=solid(f,bodies),found=[];
-  try{for(const [id,body]of bodies){if(sourceFace&&feature.depth>=0&&id===source)continue;const volume=intersectionVolume(body,tool);if(volume>1e-5)found.push({id,volume});}return found.sort((a,b)=>b.volume-a.volume);}finally{tool.delete();}
+  try{for(const id of plan.targets){const volume=intersectionVolume(bodies.get(id),tool);if(volume>1e-5)found.push({id,volume});}return found.sort((a,b)=>b.volume-a.volume);}finally{tool.delete();}
  };
  onProgress?.({stage:spec.direction?'押し出し方向を調べています':'対象ボディとの重なりを調べています'});
  try{if(!spec.direction)return {matches:matches(spec.feature,spec.source)};return {features:spec.features.map(feature=>{if(feature.symmetric||feature.operation==='cut'||feature.region?.gridSourceBodyId||!bodies.size)return feature;const probe={...feature,depth:Math.max(.1,Math.abs(feature.depth)),taperAngle:0};if(!matches(probe).length||matches({...probe,depth:-probe.depth}).length)return feature;return reverseExtrusionFrame(feature);})};}finally{bodies.forEach(s=>s.delete());}

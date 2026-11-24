@@ -150,8 +150,9 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   if(faceAlignment){stopPointModes();showAlignmentResult();error.textContent='';hint.textContent='面の選択を中止しました';refreshRotationAngle();return;}
   beginFaceSelection();
  };
- function alignmentHit(event){
-  const rect=canvas.getBoundingClientRect(),moving=previewMeshes();
+ function moveSurfaceHit(event,rect=canvas.getBoundingClientRect(),moving=previewMeshes()){
+  if(!rect.width||!rect.height)return null;
+  camera.updateMatrixWorld(true);
   faceRay.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2),camera);
   for(const mesh of moving)accelerateMeshPicking(mesh);
   return faceRay.intersectObjects([...moving,...getMeshes().filter(mesh=>mesh.visible)],false)[0];
@@ -164,7 +165,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  }
  function hoverAlignmentFace(event){
   if(!faceAlignment||busy)return;
-  const hit=alignmentHit(event);
+  const hit=moveSurfaceHit(event);
   let face=null;
   const role=faceAlignment.role,meshes=role==='source'?previewMeshes():otherMeshes();
   if(hit&&meshes.includes(hit.object))try{face=movePlanarFace(hit);}catch{}
@@ -198,7 +199,7 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  canvas.addEventListener('pointerleave',clearAlignmentHover);
  function pickAlignmentFace(event){
   if(alignmentHoverFrame!==null)cancelAnimationFrame(alignmentHoverFrame);alignmentHoverFrame=null;
-  const hit=alignmentHit(event);
+  const hit=moveSurfaceHit(event);
   const role=faceAlignment.role,meshes=role==='source'?previewMeshes():otherMeshes();
   if(!hit||!meshes.includes(hit.object)){
    error.textContent=role==='target'?'② 表示中の別ボディの平面を選択してください':'① 回転させるボディの平面を選択してください';
@@ -348,7 +349,14 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
  }
  function start({copy=false}={}){if(active){close();return;}method.value=copy?'copy':'move';reverse.checked=false;reverseLabel.hidden=!copy;pointAction=null;chosenCenter=null;chosenAxisPivot=null;chosenEdge=getSelectedEdge?.();const selectedIds=new Set(getSelection());const selectedMeshes=getMeshes().filter(m=>m.visible&&selectedIds.has(m.userData.bodyId));onStart();enabledBefore=getControls().enabled;getControls().enabled=false;active=true;panel.hidden=false;error.textContent='';hint.textContent='移動するボディをクリック';panel.querySelector('#move-apply').disabled=true;fields.forEach((f,i)=>f.value=i<3?'0':'0.0');host.dataset.moveActive='true';mode('translate');updateContactButtons();updateFaceAlignButton();if(selectedMeshes.length)select(selectedMeshes);else if(chosenEdge){const mesh=getMeshes().find(m=>m.userData.bodyId===chosenEdge.bodyId);if(mesh)select(mesh);}}
  let dragPointer=null;canvas.addEventListener('pointerdown',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY,altKey:e.altKey};},{capture:true});canvas.addEventListener('pointermove',e=>{dragPointer={id:e.pointerId,x:e.clientX,y:e.clientY};},{capture:true});
- canvas.addEventListener('pointerdown',e=>{if(!active||busy||e.button!==0||e.shiftKey)return;if(freeMove){followCursor(e);finishFreeMove(false);hint.textContent='自在移動の位置を決めました。「確定」で適用';e.preventDefault();e.stopImmediatePropagation();return;}if(pickingCenter){const candidate=centerPicker.pick(e);if(candidate)chooseCenterCandidate(candidate);else error.textContent='橙色の○で表示された点をクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(pointMove){const candidate=pointPicker.pick(e);if(candidate)chooseMovePoint(candidate);else error.textContent='表示された○のポイントをクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(faceAlignment){pickAlignmentFace(e);e.preventDefault();e.stopImmediatePropagation();return;}if(pickingAxis){pickAxis(e);e.preventDefault();e.stopImmediatePropagation();return;}if(control.axis)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);const hit=ray.intersectObjects(getMeshes().filter(m=>m.visible),false)[0];if(hit){select(hit.object);e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
+ canvas.addEventListener('pointerdown',e=>{
+  if(!active||busy||e.button!==0||e.shiftKey)return;
+  if(freeMove){
+   if(followCursor(e)){finishFreeMove(false);hint.textContent='自在移動の位置を決めました。「確定」で適用';}
+   e.preventDefault();e.stopImmediatePropagation();return;
+  }
+  if(pickingCenter){const candidate=centerPicker.pick(e);if(candidate)chooseCenterCandidate(candidate);else error.textContent='橙色の○で表示された点をクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(pointMove){const candidate=pointPicker.pick(e);if(candidate)chooseMovePoint(candidate);else error.textContent='表示された○のポイントをクリックしてください';e.preventDefault();e.stopImmediatePropagation();return;}if(faceAlignment){pickAlignmentFace(e);e.preventDefault();e.stopImmediatePropagation();return;}if(pickingAxis){pickAxis(e);e.preventDefault();e.stopImmediatePropagation();return;}if(control.axis)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);const hit=ray.intersectObjects(getMeshes().filter(m=>m.visible),false)[0];if(hit){select(hit.object);e.preventDefault();e.stopImmediatePropagation();}
+ },{capture:true});
  let dragStartRotation=null,dragHinge=null,dragStartPosition=null,dragStartBounds=null,snappedRotation=null,rotationSample=null,rotationAlt=false,rotationEdit=null;
  function setRotationSnap(target){
   if(target===snappedRotation)return;
@@ -700,40 +708,50 @@ export function createMoveTool({scene,camera,canvas,host,getMeshes,getSelection=
   return freeMove.targets;
  }
  function refreshFreeSnap(){if(freeMove?.lastPointer)followCursor(freeMove.lastPointer);}
- function freeMoveHint(){return getGridSnap().plane+'基準平面に平行にカーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す';}
+ function freeMoveHint(){return freeMove?.anchor?getGridSnap().plane+'基準平面に平行にカーソルへ追従'+directionNote()+'。クリックで位置決定 ／ Escで開始位置へ戻す':'移動するソリッドにカーソルを合わせてください。Escで中止';}
  function followCursor(event){
-  if(!freeMove||!proxy||busy)return;
+  if(!freeMove||!proxy||busy)return false;
   freeMove.lastPointer={clientX:event.clientX,clientY:event.clientY,altKey:event.altKey===true};
-  const rect=canvas.getBoundingClientRect(),point=cursorMovePoint(camera,rect,event.clientX,event.clientY,freeMove.plane);if(!point){hint.textContent='基準平面が線状に見えています。視点を少し回転してください';return;}
-  hint.textContent=freeMoveHint();
+  const rect=canvas.getBoundingClientRect();
   if(!freeMove.anchor){
-   freeMove.anchor=point;
+   const moving=previewMeshes().filter(mesh=>mesh.visible),hit=moveSurfaceHit(event,rect,moving);
+   if(!hit||!moving.includes(hit.object))return false;
+   const plane=cursorMovePlane(hit.point,getGridPlane().normal);
+   if(Math.abs(faceRay.ray.direction.dot(plane.normal))<1e-6){hint.textContent='基準平面が線状に見えています。視点を少し回転してください';return false;}
+   freeMove.plane=plane;freeMove.anchor=hit.point;
+   freeMove.grab={object:hit.object,point:hit.object.worldToLocal(hit.point.clone())};
    const closest=freeSourceCandidates(rect).candidates.map(candidate=>({candidate,distance:Math.hypot(candidate.screen.x-(event.clientX-rect.left),candidate.screen.y-(event.clientY-rect.top))})).filter(item=>item.distance<=16).sort((a,b)=>a.distance-b.distance)[0];
-   freeMove.gridKey=closest?.candidate.ref.key||null;return;
+   freeMove.gridKey=closest?.candidate.ref.key||null;hint.textContent=freeMoveHint();return false;
   }
+  const point=cursorMovePoint(camera,rect,event.clientX,event.clientY,freeMove.plane);if(!point){hint.textContent='基準平面が線状に見えています。視点を少し回転してください';return false;}
+  hint.textContent=freeMoveHint();
   const delta=constrainMoveDelta(point.sub(freeMove.anchor),directionSelect.value,freeMove.plane.normal);
+  if(!freeMove.moved&&delta.lengthSq()<1e-12)return false;
+  freeMove.moved=true;
   proxy.position.copy(freeMove.basePosition).add(delta);proxy.updateMatrixWorld(true);reflectPreview();
   let snap=null;const released=event.altKey||freeMove.altPressed;
   if(freeSnapEnabled.checked&&!released){
    const sources=freeSourceCandidates(rect),reference=sources.points.find(ref=>ref.key===freeMove.gridKey);
-   snap=findFreeMoveSnap({sources:sources.candidates,targets:freeTargetCandidates(rect),position:proxy.position,pivot:center,direction:directionSelect.value,planeNormal:freeMove.plane.normal,mirrored:copying()&&reverse.checked,camera,width:rect.width,height:rect.height,grid:getGridSnap(),gridSource:{point:reference?new THREE.Vector3(...reference.point):proxy.position.clone(),name:reference?.name||'移動中心'},previous:freeMove.previousSnap});
+   const grip=freeMove.grab,gridSource=reference?{point:new THREE.Vector3(...reference.point),name:reference.name}:{point:grip.object.localToWorld(grip.point.clone()),name:'つかんだ点'};
+   snap=findFreeMoveSnap({sources:sources.candidates,targets:freeTargetCandidates(rect),position:proxy.position,pivot:center,direction:directionSelect.value,planeNormal:freeMove.plane.normal,mirrored:copying()&&reverse.checked,camera,width:rect.width,height:rect.height,grid:getGridSnap(),gridSource,previous:freeMove.previousSnap});
   }
   if(snap)proxy.position.copy(snap.position);freeMove.previousSnap=snap;
   proxy.updateMatrixWorld(true);translationFields();mark();freeSnapStatus.hidden=false;
   if(snap){freeSnapMarker.show(snap);freeSnapStatus.textContent=snap.source+' → '+snap.target+'に吸着';}
   else{freeSnapMarker.close();freeSnapStatus.textContent=released?'Alt：吸着を一時解除中':freeSnapEnabled.checked?'頂点・中点・中心・グリッドに近づくと吸着':'吸着なしで自在移動';}
   host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});
+  return true;
  }
  canvas.addEventListener('pointermove',event=>{if(freeMove){followCursor(event);event.stopImmediatePropagation();}},{capture:true});
  freeButton.onclick=()=>{
   if(!proxy||busy){error.textContent='先に移動するボディを選択してください';return;}
   if(freeMove){finishFreeMove(false);hint.textContent='自在移動の位置を決めました。「確定」で適用';return;}
   stopPointModes();mode('translate');control.enabled=false;helper.visible=false;control.axis=null;error.textContent='';
-  freeMove={startPosition:proxy.position.clone(),basePosition:proxy.position.clone(),anchor:null,sourceReferences:snapshotMoveReferences(previewMeshes()),plane:cursorMovePlane(proxy.position,getGridPlane().normal)};
+  freeMove={startPosition:proxy.position.clone(),basePosition:proxy.position.clone(),anchor:null,sourceReferences:snapshotMoveReferences(previewMeshes())};
   freeSnapStatus.hidden=false;freeSnapStatus.textContent='頂点・中点・中心・グリッドに吸着 ／ Altで一時解除';freeButton.setAttribute('aria-pressed','true');host.dataset.moveFree=JSON.stringify({position:proxy.position.toArray(),direction:directionSelect.value});hint.textContent=freeMoveHint();
  };
  filterBox.onchange=()=>{hideGhost();if(pointMove)pointPicker.open();else if(pickingCenter)centerPicker.open();else if(pickingAxis)axisPicker.open();refreshFreeSnap();};
- directionSelect.onchange=()=>{hideGhost();if(pointResult)closePointPicker();if(pointMove)pointPicker.open();if(freeMove){freeMove.basePosition.copy(proxy.position);freeMove.anchor=null;freeMove.previousSnap=null;freeSnapMarker.close();hint.textContent=freeMoveHint();}};
+ directionSelect.onchange=()=>{hideGhost();if(pointResult)closePointPicker();if(pointMove)pointPicker.open();if(freeMove){freeMove.basePosition.copy(proxy.position);freeMove.anchor=null;freeMove.moved=false;freeMove.lastPointer=null;freeMove.previousSnap=null;freeSnapMarker.close();hint.textContent=freeMoveHint();}};
  freeSnapEnabled.onchange=refreshFreeSnap;
  for(const type of ['keydown','keyup'])window.addEventListener(type,event=>{if(event.key!=='Alt'||!freeMove)return;event.preventDefault();freeMove.altPressed=type==='keydown';if(freeMove.lastPointer){freeMove.lastPointer.altKey=freeMove.altPressed;refreshFreeSnap();}});
  window.addEventListener('blur',()=>{if(freeMove){freeMove.altPressed=false;if(freeMove.lastPointer)freeMove.lastPointer.altKey=false;}});

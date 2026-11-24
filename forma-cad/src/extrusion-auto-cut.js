@@ -49,11 +49,15 @@ export function extrusionIntersections(feature,bodies){
 // Grid profiles deliberately omit CAD-face references so only their clipped
 // polygons are extruded. Keep their source body for the operation decision:
 // outward contact with that source is join, even with tessellation slivers.
+export function extrusionCutCandidates(feature,source,visibleIds){
+ const sourceFace=!feature.symmetric&&feature.profileOffset===undefined&&source&&feature.region?.outer&&visibleIds.includes(source);
+ if(sourceFace&&feature.depth<0&&!feature.region.gridSourceBodyId)return {matches:[{id:source,volume:Infinity}]};
+ const targets=sourceFace&&feature.depth>=0?visibleIds.filter(id=>id!==source):visibleIds;
+ return targets.length?{targets}:{matches:[]};
+}
+
 export function extrusionCutMatches(feature,bodies,source=feature.region?.cadFace?.bodyId||feature.region?.bodyId||feature.region?.gridSourceBodyId){
- if(feature.symmetric)return extrusionIntersections(feature,bodies);
- const sourceFace=feature.profileOffset===undefined&&source&&feature.region?.outer&&bodies.get(source)?.visible;
- if(!sourceFace)return extrusionIntersections(feature,bodies);
- if(feature.depth<0)return feature.region.gridSourceBodyId?extrusionIntersections(feature,bodies):[{id:source,volume:Infinity}];
- const others=new Map([...bodies].filter(([id])=>id!==source));
- return others.size?extrusionIntersections(feature,others):[];
+ const visibleIds=[...bodies].filter(([,mesh])=>mesh.visible).map(([id])=>id);
+ const {matches,targets}=extrusionCutCandidates(feature,source,visibleIds);
+ return matches??extrusionIntersections(feature,new Map(targets.map(id=>[id,bodies.get(id)])));
 }

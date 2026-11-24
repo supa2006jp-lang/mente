@@ -3,10 +3,21 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {defaults,rebuild} from '../src/geometry.js';
 import {planarFace} from '../src/frames.js';
-import {extrusionIntersections,extrusionCutMatches} from '../src/extrusion-auto-cut.js';
+import {extrusionIntersections,extrusionCutMatches,extrusionCutCandidates} from '../src/extrusion-auto-cut.js';
 import {gridCellOccluders} from '../src/grid-cell-occlusion.js';
 import {faceGridCellRegions} from '../src/grid-cell.js';
 import {outwardExtrusion} from '../src/extrusion-direction.js';
+
+test('the known source-face decisions bypass intersection without skipping uncertain targets',()=>{
+ const visible=['body'],profile={...defaults,profile:'region',region:{outer:[[0,0],[5,0],[5,5],[0,5]]}};
+ assert.deepEqual(extrusionCutCandidates({...profile,depth:-2},'body',visible),{matches:[{id:'body',volume:Infinity}]});
+ assert.deepEqual(extrusionCutCandidates(profile,'body',visible),{matches:[]});
+ assert.deepEqual(extrusionCutCandidates(profile,'body',['body','other']),{targets:['other']});
+ assert.deepEqual(extrusionCutCandidates({...profile,depth:-2,symmetric:true},'body',visible),{targets:visible});
+ assert.deepEqual(extrusionCutCandidates({...profile,depth:-2,profileOffset:1},'body',visible),{targets:visible});
+ assert.deepEqual(extrusionCutCandidates({...profile,region:{...profile.region,gridSourceBodyId:'body'},depth:-2},'body',visible),{targets:visible});
+ assert.deepEqual(extrusionCutCandidates(profile,'hidden',visible),{targets:visible});
+});
 
 test('押し出し形状が重なるボディだけ切り取り候補にする',()=>{
  const inside=new THREE.Mesh(new THREE.BoxGeometry(20,20,10));
