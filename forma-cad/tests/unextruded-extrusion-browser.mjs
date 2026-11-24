@@ -37,11 +37,11 @@ try{
  const host=page.locator('#canvas-host'),panel=page.locator('#extrude-distance'),option=page.locator('#viewport-unextruded-only');
  const sketch={...defaults,id:'sketch',name:'全体のスケッチ',kind:'sketch',width:60,height:40,groupId:'g',groupNumber:1,groupHidden:false};
  const base={...defaults,id:'base',name:'右半分',kind:'extrusion',width:30,height:40,x:15,depth:10};
- async function load(features){
+ async function load(features,view='top'){
   await page.locator('#file').setInputFiles({name:'partial.forma.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({format:'forma-cad',version:1,features}))});
   await page.locator('#project-preview-open').click();
   await page.waitForFunction(()=>!document.getElementById('project-load-preview').open);
-  await page.locator('[data-view=top]').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();
+  await page.locator('[data-view='+view+']').dispatchEvent('keydown',{key:'Enter'});await page.locator('#fit').click();
   await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.sketchRegionAnalysis!=='pending');
  }
  async function save(){const download=page.waitForEvent('download');await page.locator('#save').click();return (await decodeProjectDocument(await fs.readFile(await(await download).path(),'utf8'))).document;}
@@ -137,6 +137,41 @@ try{
  await load([sketch]);await page.mouse.click(...await screen([-18,5,0]));await remainingShortcut.waitFor();await remainingShortcut.click();
  await panel.waitFor();await page.locator('#viewport-depth').fill('2');await ready();assert(await option.isDisabled());
  await page.locator('#cancel').click();assert.equal((await save()).features.length,1);
+ // A rectangle through a box has a covered center and two exposed ends.
+ const crossingBody={...base,name:'基準ボディ',width:60,height:30,x:0,depth:24};
+ const crossingSketch={...sketch,name:'ボディを横切る長方形',plane:'XZ',width:80,height:8,z:12};
+ const crossing=[crossingBody,crossingSketch],overlap=page.locator('#viewport-overlap-only');
+ const wholeSketch=page.locator('#viewport-extrude-whole-sketch'),operation=page.locator('#viewport-operation'),depth=page.locator('#viewport-depth');
+ await load(crossing,'front');
+ assert.equal(await host.getAttribute('data-overlap-region-count'),'3');
+ const center=await screen([0,0,12]);
+ await page.locator('#solid-tool').click();await page.mouse.move(...center);
+ await page.waitForFunction(()=>document.getElementById('canvas-host').dataset.hoverRegionSide==='inside');
+ await page.mouse.click(...center);await panel.waitFor();
+ assert(await overlap.isChecked());
+ await operation.selectOption('cut');await depth.fill('6');await ready();
+ await panel.locator('button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});
+ const cut=await save();assert.equal(cut.features.at(-1).region.partitionSide,'inside');
+ assert.deepEqual(cut.features.at(-1).region.sourceIds,['sketch']);
+ checkVolume(cut,'base',60*30*24-60*8*6);
+
+ await load(crossing,'front');await page.mouse.click(...await screen([-35,0,12]));
+ await normalShortcut.click();await panel.waitFor();assert(await overlap.isChecked());
+ await operation.selectOption('join');await depth.fill('20');await wholeSketch.click();
+ assert.equal(await operation.inputValue(),'join');assert.equal(await depth.inputValue(),'20');
+ assert(!(await overlap.isChecked()));assert(await wholeSketch.isHidden());
+ await ready();await panel.locator('button[type=submit]').click();await panel.waitFor({state:'hidden',timeout:60000});
+ const joined=await save();assert.equal(joined.features.at(-1).region.area,80*8);
+ assert(!joined.features.at(-1).region.overlapSource);
+ checkVolume(joined,'base',60*30*24+80*8*20-60*8*15);
+
+ await load(crossing,'front');await page.keyboard.down('Alt');
+ await page.mouse.click(...await screen([0,0,12]));await page.keyboard.up('Alt');
+ await normalShortcut.click();await panel.waitFor();
+ assert(!(await overlap.isChecked()));assert(await wholeSketch.isHidden());
+ await page.locator('#cancel').click();
+ console.log('PASS covered sketch picking and cut, full profile join, and Alt selection through a body');
+
  await load([base]);await page.locator('#selection-mode').selectOption('face');await page.mouse.click(...await screen([15,0,10]));
  await normalShortcut.waitFor();assert(await remainingShortcut.isHidden(),'solid faces keep their original extrusion action');
  assert.deepEqual(errors,[]);

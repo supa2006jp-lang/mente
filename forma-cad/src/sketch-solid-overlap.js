@@ -42,15 +42,17 @@ export function solidSketchBoundarySegments(meshes,b,offset){
 }
 
 // Coplanar hits must prefer the partition over the original filled profile,
-// regardless of insertion order. Alt explicitly selects the original profile.
-export function sketchRegionHit(hits,bodyHit,{whole=false}={}){
- const visible=hits.filter(hit=>hit.object.visible!==false&&hit.object.userData.region&&(!bodyHit||hit.distance<=bodyHit.distance+.05));
+// regardless of insertion order. Intentional profile picking can reach a
+// sketch plane behind a body face. Alt selects the original profile.
+export function sketchRegionHit(hits,bodyHit,{whole=false,throughBody=false}={}){
+ const occluded=hit=>!!bodyHit&&hit.distance>bodyHit.distance+.05;
+ const visible=hits.filter(hit=>hit.object.visible!==false&&hit.object.userData.region&&(whole||throughBody||!occluded(hit)));
  const nearest=visible[0];if(!nearest)return null;
  const samePlane=visible.filter(hit=>Math.abs(hit.distance-nearest.distance)<1e-4);
  const hit=whole?samePlane.find(hit=>!hit.object.userData.region.overlapSource):samePlane.find(hit=>hit.object.userData.region.overlapSource)||nearest;
  if(!hit)return null;
  const region=hit.object.userData.region;
- return {...hit,region:region.overlapSource?{...region,overlapPoint:hit.point.toArray()}:region};
+ return {...hit,occluded:occluded(hit),region:region.overlapSource?{...region,overlapPoint:hit.point.toArray()}:region};
 }
 
 // Display/picking uses the solid's section on the sketch plane, never its
