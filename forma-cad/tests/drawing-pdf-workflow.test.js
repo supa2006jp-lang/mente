@@ -105,10 +105,19 @@ test('placement uses the frame and the actual title block instead of reserving e
  const elements=Object.keys(sheet.layout).map(view=>({dataset:{view}})).concat(labels);
  const svg={querySelectorAll:()=>elements};
  assert.deepEqual(drawingSheetOverflow(svg,sheet),[]);
- assert.ok(sheet.viewTitles.front.y>sheet.layout.front.y+sheet.layout.front.height);
+ assert.equal(sheet.layout.front.y,5);
+ const topCaption=sheet.viewTitles.front;
+ assert.ok(topCaption.y>0);
+ assert.ok(topCaption.y+topCaption.height<sheet.layout.front.y);
  assert.match(sheet.svg,/FRONT \/ SCALE 1:1/);
  assert.match(sheet.svg,/縮尺は各図に記載/);
  assert.match(sheet.svg,/<rect data-view-background="front" x="13" y="5"/);
+
+ const closeToTop=drawingSheet(data,1,true,[],'',{...config,positions:{...config.positions,front:[15,12]}});
+ const caption=closeToTop.viewTitles.front;
+ assert.ok(caption.y>=5);
+ assert.ok(caption.y+caption.height<closeToTop.layout.front.y);
+ assert.equal(caption.height,sheet.viewTitles.top.height);
 
  const blocked=drawingSheet(data,1,true,[],'',{...config,positions:{...config.positions,front:[15,4],top:[35,166],right:[160,181]}});
  const issues=drawingSheetOverflow(svg,blocked).map(({element,reason})=>[element.dataset.view,reason]);
