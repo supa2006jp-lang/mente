@@ -638,7 +638,7 @@ try{
  const isoPosition=await geometry(editor,'iso');
  const firstFront=await viewAt(editor,'front');
  await field('snap').uncheck();
- const grip=await editor.locator('[data-view=top] > text').first().boundingBox();
+ const grip=await viewRect('top').boundingBox();
  const [grabX,grabY]=[grip.x+grip.width/2,grip.y+grip.height/2];
  await page.mouse.move(grabX,grabY);await page.mouse.down();
  await page.mouse.move(grabX-16,grabY,{steps:4});

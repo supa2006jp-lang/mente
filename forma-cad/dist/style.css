@@ -894,7 +894,7 @@ button.form-control-point.invalid { background:#bc2634; }
 #drawing-alignment summary,#drawing-page-assignments summary,#drawing-page-scales summary{cursor:pointer}
 #drawing-alignment .drawing-controls,#drawing-page-assignments .drawing-controls,#drawing-page-scales .drawing-controls{margin-top:7px;gap:8px}
 #drawing-alignment-items,#drawing-page-items,#drawing-page-scales .drawing-controls{max-height:180px;overflow:auto}
-#drawing-scale-manual,#drawing-page-scales input,.drawing-view-scale-row input{width:9em}
+#drawing-scale-manual,#drawing-page-scales input,.drawing-view-scale-row [data-view-scale-input]{width:9em}
 .drawing-view-scale-row{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
 .drawing-view-scale-row button{padding:4px 7px}
 .drawing-inline-scale-badge:disabled{opacity:1;cursor:default}
