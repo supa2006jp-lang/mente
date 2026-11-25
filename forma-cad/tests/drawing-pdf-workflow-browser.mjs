@@ -599,7 +599,7 @@ try{
   closeTo(right[1]+right[3]/2,front[1]+front[3]/2);
   assert(top[1]+top[3]<front[1]+7&&right[0]>front[0]+front[2]);
  };
- const dragView=(id,dx,dy)=>drag(editor.locator('[data-view="'+id+'"] > text').first(),dx,dy);
+ const dragView=(id,dx,dy)=>drag(viewRect(id),dx,dy);
  const projectionNames=['front','top','right'];
  const drawingViews=[...projectionNames,'iso'];
  const transforms=(names=drawingViews)=>Promise.all(names.map(name=>geometry(editor,name)));

@@ -149,8 +149,11 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  for(const key of extraNames){const view=data.views[key],b=view.viewBox,s=scale*frames[key].factor,vw=b[2]*s,vh=b[3]*s;if(extraX>20&&extraX+vw>width-15){extraX=20;extraY+=rowHeight+25;rowHeight=0;}layout[key]={x:extraX,y:extraY,bx:b[0],by:b[1],width:vw,height:vh,scale:s};extraX+=vw+25;rowHeight=Math.max(rowHeight,vh);}
  if(!fixedPaper){height=Math.max(height,extraNames.length?extraY+rowHeight+(options.frame?42:20):0);width=Math.max(width,...extraNames.map(k=>layout[k].x+layout[k].width+20));}
  for(const [key,p] of Object.entries(positions))if(layout[key]){layout[key].x=p[0];layout[key].y=p[1];}
- if(options.linkedProjections)alignLinkedDrawingViews(layout);
- else if(!options.pageSize&&options.projectionLocked&&options.layout!=='compact')alignThirdAngleViews(layout,positions.front??projectionPositions.front);
+ const viewLocks=Object.fromEntries(Object.entries(options.viewLocks??{}).filter(([name])=>layout[name]));
+ for(const [name,{at:[x,y]}] of Object.entries(viewLocks))Object.assign(layout[name],{x,y});
+ if(options.linkedProjections)alignLinkedDrawingViews(Object.fromEntries(Object.entries(layout).filter(([name])=>!viewLocks[name])));
+ else if(!options.pageSize&&options.projectionLocked&&options.layout!=='compact'&&
+  !drawingProjectionNames.some(name=>viewLocks[name]))alignThirdAngleViews(layout,positions.front??projectionPositions.front);
  const inheritedDimensions=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions,!!options.pageViews);
  const tableSize=options.pageHoleTable===false?null:drawingHoleTableSize(options.holeTable,options.pageHoleTable?{[options.holeTable?.view]:true}:layout);
  const holeBox=tableSize?{...tableSize,x:positions.holeTable?.[0]??Math.max(rightEdge+12,width-tableSize.width-12),y:positions.holeTable?.[1]??24}:null;
@@ -235,6 +238,6 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  };
  const dimensionGraphics=inheritedDimensions.map((d,i)=>renderDimension(d,i,true)).join('')+dimensions.map((d,i)=>renderDimension(d,i)).join('');
  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+silhouettes+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+header+dimensionGraphics+viewsSVG+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom,headerBox,
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,viewLocks,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom,headerBox,
   isometricOutline:layout.iso?drawingIsometricOutline(data.bounds):undefined};
 }

@@ -117,6 +117,15 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
   if(!scales||typeof scales!=='object'||Array.isArray(scales)||
    Object.entries(scales).some(([id,scale])=>id!=='iso'&&!viewNames.has(id)||!validDrawingScale(scale)))fail();
  }
+ for(const records of [o.viewTitlePositions,o.pdfViewTitlePositions])if(records!==undefined){
+  if(!records||typeof records!=='object'||Array.isArray(records)||Object.entries(records).some(([id,record])=>
+   id!=='iso'&&!viewNames.has(id)||!point(record?.offset)||record.compact!==undefined&&typeof record.compact!=='boolean'))fail();
+ }
+ for(const records of [o.viewLocks,o.pdfViewLocks])if(records!==undefined){
+  if(!records||typeof records!=='object'||Array.isArray(records)||Object.entries(records).some(([id,record])=>
+   id!=='iso'&&!viewNames.has(id)||!(records===o.pdfViewLocks&&record===null)&&
+    (!point(record?.at)||!validDrawingScale(record.scale))))fail();
+ }
  if(o.pdfPageScales!==undefined&&(!o.pdfPageScales||typeof o.pdfPageScales!=='object'||Array.isArray(o.pdfPageScales)||
   Object.entries(o.pdfPageScales).some(([key,scale])=>!/^(?:[1-9]|[12]\d|3[0-2])$/.test(key)||!validDrawingScale(scale))))fail();
  if(o.pageAssignments!==undefined){

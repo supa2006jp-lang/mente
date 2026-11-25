@@ -7,7 +7,7 @@ import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
 import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmitted,drawingViewBreak} from './drawing-break.js';
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout} from './drawing-leaders.js';
-import {drawingFrameInset,drawingTitleBlock} from './drawing-paper-bounds.js';
+import {drawingBoxPlacementIssue,drawingFrameInset,drawingTitleBlock} from './drawing-paper-bounds.js';
 import {compactDrawingViewTitleScale,drawingViewTitle} from './drawing-view-title.js';
 const minimumGap=3;
 const minimumGaps=[minimumGap,minimumGap];
@@ -45,9 +45,11 @@ export function decoratedDrawingViews(frames,scale,dimensions,options,{titleScal
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
   const view={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
   layout[key]=view;
-  const title=titleScale?drawingViewTitle(key,view,options,mixed,titleScale).bounds:null;
-  const upper=title?.y??-.5;
-  boxes[key]={x:-.5,y:upper,width:title?Math.max(width+1,title.x+title.width+1):width+1,height:height-upper+.5};
+  const title=titleScale||options.viewLocks?.[key]&&options.viewTitlePositions?.[key]?
+   drawingViewTitle(key,view,options,mixed,titleScale||1).bounds:null;
+  const x=Math.min(-.5,title?.x??0),y=Math.min(-.5,title?.y??0);
+  boxes[key]={x,y,width:Math.max(width+.5,title?title.x+title.width+.5:0)-x,
+   height:Math.max(height+.5,title?title.y+title.height+.5:0)-y};
  }
  const include=(key,b,pad=1)=>{const a=boxes[key];if(!a)return;const x=Math.min(a.x,b.x-pad),y=Math.min(a.y,b.y-pad);a.width=Math.max(a.x+a.width,b.x+b.width+pad)-x;a.height=Math.max(a.y+a.height,b.y+b.height+pad)-y;a.x=x;a.y=y;},point=drawingPaperPoint,points=(key,ps,pad=1)=>{include(key,{x:Math.min(...ps.map(p=>p[0])),y:Math.min(...ps.map(p=>p[1])),width:Math.max(...ps.map(p=>p[0]))-Math.min(...ps.map(p=>p[0])),height:Math.max(...ps.map(p=>p[1]))-Math.min(...ps.map(p=>p[1]))},pad);};
  const inherited=drawingDetailDimensions(layout,options.details,options.detailDimensionSources??dimensions,!!options.pageViews);
@@ -105,10 +107,25 @@ function slicingPack(items,width,height,[gapX,gapY],order){
  }
  return variants((1<<items.length)-1)[0]??null;
 }
-function freeRectPack(items,width,height,[gapX,gapY],corner){
+function subtractDrawingRect(free,rect){
+ const right=rect.x+rect.width,bottom=rect.y+rect.height,split=[];
+ for(const region of free){
+  if(!overlap(region,rect)){split.push(region);continue;}
+  const endX=region.x+region.width,endY=region.y+region.height;
+  if(rect.x>region.x)split.push({...region,width:rect.x-region.x});
+  if(right<endX)split.push({...region,x:right,width:endX-right});
+  if(rect.y>region.y)split.push({...region,height:rect.y-region.y});
+  if(bottom<endY)split.push({...region,y:bottom,height:endY-bottom});
+ }
+ return split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&
+  (q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&
+  r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));
+}
+function freeRectPack(items,width,height,[gapX,gapY],corner,reserved=[]){
  const full={x:0,y:0,width:width+gapX,height:height+gapY};
  // The wide upper rectangle and the tall left rectangle share their upper-left area.
- const regions=corner?[{...full,height:corner.y+gapY},{...full,width:corner.x+gapX}]:[full];
+ const paper=corner?[{...full,height:corner.y+gapY},{...full,width:corner.x+gapX}]:[full];
+ const regions=reserved.reduce(subtractDrawingRect,paper);
  const sorts=[(a,b)=>b.height-a.height,(a,b)=>b.width-a.width,(a,b)=>b.width*b.height-a.width*a.height,
   (a,b)=>Math.max(b.width,b.height)-Math.max(a.width,a.height),(a,b)=>b.width/b.height-a.width/a.height,
   (a,b)=>b.height/b.width-a.height/a.width];
@@ -122,18 +139,7 @@ function freeRectPack(items,width,height,[gapX,gapY],corner){
    if(!slot){failed=true;break;}
    const rect={x:slot.x,y:slot.y,width:iw,height:ih},right=rect.x+iw,bottom=rect.y+ih;
    at[item.key]=[rect.x,rect.y];w=Math.max(w,right);h=Math.max(h,bottom);
-   const split=[];
-   for(const region of free){
-    if(!overlap(region,rect)){split.push(region);continue;}
-    const endX=region.x+region.width,endY=region.y+region.height;
-    if(rect.x>region.x)split.push({...region,width:rect.x-region.x});
-    if(right<endX)split.push({...region,x:right,width:endX-right});
-    if(rect.y>region.y)split.push({...region,height:rect.y-region.y});
-    if(bottom<endY)split.push({...region,y:bottom,height:endY-bottom});
-   }
-   free=split.filter((r,i)=>r.width>1e-8&&r.height>1e-8&&!split.some((q,j)=>j!==i&&
-    (q.width*q.height>r.width*r.height+1e-8||j<i)&&r.x>=q.x-1e-8&&r.y>=q.y-1e-8&&
-    r.x+r.width<=q.x+q.width+1e-8&&r.y+r.height<=q.y+q.height+1e-8));
+   free=subtractDrawingRect(free,rect);
   }
   if(!failed&&(!best||w*h<best.w*best.h))best={w,h,at};
  }
@@ -184,7 +190,8 @@ function packDrawingItems(items,width,height,isoOnRight,gaps,order,corner){
  return {w:others.w+iso.width+gapX,h:Math.max(others.h,y+h),at:{...others.at,iso:[others.w,y]}};
 }
 
-function drawingPackingOffset({items,packed,gaps,packingArea,corner}){
+function drawingPackingOffset({items,packed,gaps,packingArea,corner,anchored}){
+ if(anchored)return [packingArea.x,packingArea.y];
  const [gapX,gapY]=gaps;
  let x=(packingArea.width-(packed.w-gapX))/2,y=(packingArea.height-(packed.h-gapY))/2;
  if(corner){
@@ -243,6 +250,15 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  const inset=drawingFrameInset+1,bottom=height-(options.frame?drawingFrameInset:12)-1;
  const area={x:inset,y:inset,width:width-2*inset,height:bottom-inset},frames=drawingViewFrames(data,options);
  const titleBlock=options.frame?drawingTitleBlock(width,height):null;
+ const viewLocks=Object.fromEntries(Object.entries(options.viewLocks??{}).filter(([key,lock])=>frames[key]&&lock));
+ const anchored=Object.keys(viewLocks).length>0;
+ const fixedLayoutError=message=>Object.assign(new Error(message),{code:'drawing-layout-fixed'});
+ for(const [key,{at:[x,y],scale:lockedScale}] of Object.entries(viewLocks)){
+  const frame=frames[key],box={x,y,width:displayedDrawingSpan(frame,0)*lockedScale,height:displayedDrawingSpan(frame,1)*lockedScale};
+  if(!drawingBoxPlacementIssue(box,{width,height,contentBottom:height-12,titleBlock}))continue;
+  if(fixedScale)return null;
+  throw fixedLayoutError('固定した図が図枠または表題欄をはみ出しています。固定を解除するか、用紙を変更してください');
+ }
  const maxNoteWidth=width-2*drawingCommentMargin;
  const notes=options.pageNotes??drawingCommentEntries(comment,options,maxNoteWidth),noteColumns=[notes];
  // Keep longer lines when they fit. Fixed-scale views may leave only a narrow column.
@@ -278,6 +294,20 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
    const packWithGaps=gaps=>{
     const packCount=views.length+annotations.length-(right?1:0);
     const group=options.linkedProjections?linkedDrawingViews:order.length&&packCount>6?['front',...order]:null;
+    if(anchored){
+     const fixed=views.filter(item=>viewLocks[item.key]),moving=views.filter(item=>!viewLocks[item.key]);
+     const items=[...(group?groupProjectionViews(moving,nextFrames,s,gaps,group):moving),...annotations];
+     if(items.length+fixed.length>24)throw Error('自動配置する図が多すぎます');
+     const at={},reserved=fixed.map(({key,box,width,height})=>{
+      const [left,top]=viewLocks[key].at;
+      const x=left+box.x-packingArea.x,y=top+box.y-packingArea.y;
+      at[key]=[x,y];
+      return {x,y,width:width+gaps[0],height:height+gaps[1]};
+     });
+     const packed=freeRectPack(items,packingArea.width,packingArea.height,gaps,corner,reserved);
+     if(!packed)return null;
+     return {items:[...fixed,...items],packed:{...packed,at:{...packed.at,...at}},gaps,packingArea,corner,anchored};
+    }
     const grouped=group?groupProjectionViews(views,nextFrames,s,gaps,group):views;
     const items=[...grouped,...annotations];
     if(items.length>24)throw Error('自動配置する図が多すぎます');
@@ -299,6 +329,10 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   (name!=='iso'||placementOptions.autoIsoScale===undefined));
  const solve=right=>{
   const fit=s=>attempt(s,right,right&&adaptiveIso?minimumIso(s):placementOptions.autoIsoScale);
+  if(anchored&&!fixedScale&&variable){
+   const result=fit(scale);
+   return result?{scale,result}:largestFittingScale(value=>value<=scale?fit(value):null);
+  }
   return !fixedScale&&variable?largestFittingScale(fit):{scale,result:fit(scale)};
  };
  let choice=solve(preferRight);
@@ -306,6 +340,7 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  if(!choice?.result&&preferRight&&(notes.length||table))choice=solve(false);
  if(!choice?.result){
   if(fixedScale)return null;
+  if(anchored)throw fixedLayoutError('固定した図の周りに配置できる空きがありません。縮尺を調整するか、用紙を大きくしてください');
   throw Error('文字・寸法・コメントを用紙に収められません。コメントを短くするか用紙を大きくしてください');
  }
  const {scale:nextScale}=choice;
@@ -345,7 +380,7 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   const [px,py]=packed.at[block.key];
   for(const item of block.children??[block]){
    const [dx,dy]=item.offset??[0,0],x=offset[0]+px+dx,y=offset[1]+py+dy;
-   positions[item.key]=[x-item.box.x,y-item.box.y];
+   positions[item.key]=viewLocks[item.key]?.at.slice()??[x-item.box.x,y-item.box.y];
    boxes.push({key:item.key,x,y,width:item.width,height:item.height});
   }
  }

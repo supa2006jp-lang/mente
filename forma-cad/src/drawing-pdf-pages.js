@@ -57,6 +57,8 @@ export function fitDrawingPDFPage(data,page,{scale,dimensions,options}){
   scale:page.pageScale??scale,dimensions:page.dimensions,fixedScale:true,
   options:{...options,pageSize:[page.width,page.height],pageViews:Object.keys(page.layout),
    pageNotes:page.notes,pageHoleTable:!!page.holeBox,detailDimensionSources:dimensions,
+   viewLocks:page.viewLocks,viewTitlePositions:page.dimensionIndices?
+    {...options.viewTitlePositions,...options.pdfViewTitlePositions}:options.viewTitlePositions,
    viewScales:Object.fromEntries(Object.entries(page.layout).map(([id,view])=>[id,view.scale]))},
  });
 }
@@ -82,7 +84,10 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
    dimensionIndices.push(index);
    return true;
   });
-  const pageOptions={...options,pageViews:views,pageHoleTable:table,comments:notes,detailDimensionSources:dimensions};
+  const locks={...(keep?options.viewLocks:{}),...options.pdfViewLocks};
+  const viewLocks=Object.fromEntries(views.filter(id=>locks[id]).map(id=>[id,locks[id]]));
+  const pageOptions={...options,pageViews:views,pageHoleTable:table,comments:notes,detailDimensionSources:dimensions,
+   viewLocks,viewTitlePositions:{...options.viewTitlePositions,...options.pdfViewTitlePositions}};
   const refitIso=!keep&&selected.has('iso')&&options.autoIsoScale!==undefined;
   if(refitIso)delete pageOptions.autoIsoScale;
   const specified=options.pdfPageScales?.[pages.length+1];
@@ -96,7 +101,7 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
     if(linked!==undefined)for(const id of linkedDrawingViews)pageOptions.viewScales[id]=linked;
    }
   }
-  if(pageScale!==scale||resized.length||refitIso){
+  if(pageScale!==scale||resized.length||refitIso||views.some(id=>viewLocks[id]||options.viewLocks?.[id])){
    originalFrames??=drawingViewFrames(data,options,scale);
    pageDimensions=rescaleDrawingAnnotations(pageDimensions,drawingViewFrames(data,pageOptions,pageScale),scale,pageScale,originalFrames);
   }
@@ -117,7 +122,12 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
   const key=layouts&&!positioned&&JSON.stringify([views,table,text,noteIds,pageScale,resized.map(id=>options.pdfViewScales[id]),fixedScale]);
   let result=layouts?.get(key);
   if(!result){
-   result=!positioned&&items.length?optimizeDrawingLayout(data,{scale:pageScale,dimensions:pageDimensions,comment:text,options:pageOptions,fixedScale}):null;
+   try{
+    result=!positioned&&items.length?optimizeDrawingLayout(data,{scale:pageScale,dimensions:pageDimensions,comment:text,options:pageOptions,fixedScale}):null;
+   }catch(error){
+    if(error.code!=='drawing-layout-fixed')throw error;
+    // Keep the page editable so a fixed view can be moved after it is unlocked.
+   }
    result??={scale:pageScale,dimensions:pageDimensions,positions:{},paper:options.paper==='auto'?'A4':options.paper};
    if(key)layouts.set(key,result);
   }

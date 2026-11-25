@@ -33,7 +33,7 @@ import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-threa
 import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from './drawing-thread-dimensions.js';
 import {followSectionEdit} from './drawing-section-references.js';
 import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,drawingDiameterCandidateVisible,drawingDiameterDraftPosition,drawingIsometricOverallAnchors,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions,unmeasuredDrawingHoles} from './drawing-auto-dimensions.js';
-import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
+import {arrangeDrawingDimensionConflicts,arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
 import {followDrawingFrontChange,planDrawingFrontChange,remapDrawingViewSettings} from './drawing-front-references.js';
@@ -140,7 +140,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-generate').insertAdjacentHTML('afterend','<button id="drawing-front-face" title="CADで平面を1つ選択して三面図を開くと、その面が正面になります">選択した面を正面に</button><button id="drawing-front-reset" hidden>標準の向きに戻す</button><small id="drawing-front-status"></small>');
  const viewportBar=document.createElement('div');viewportBar.className='drawing-controls drawing-viewport-controls';viewportBar.innerHTML='<span>画面表示</span><button id="drawing-zoom-out" aria-label="図面を縮小">−</button><output id="drawing-zoom-percent" aria-live="polite">100%</output><button id="drawing-zoom-in" aria-label="図面を拡大">＋</button><button id="drawing-zoom-fit">用紙全体</button><button id="drawing-expand" aria-pressed="false">作業領域を最大化</button><small>ホイール：拡大・縮小 ／ ホイール押し込み・Space＋ドラッグ：移動</small>';viewportHost.before(viewportBar);
  const scaleRows=document.createElement('details');scaleRows.id='drawing-view-scales';
- scaleRows.innerHTML='<summary>ビュー別の縮尺</summary><div class="drawing-controls"></div><small>縮尺は 1:2.5 や 0.4 のように入力できます。</small>';
+ scaleRows.innerHTML='<summary>ビュー別の縮尺・固定</summary><div class="drawing-controls"></div><small>縮尺は 1:2.5 や 0.4 のように入力できます。見出しは枠をドラッグして移動できます。連動中の TOP・FRONT・RIGHT はまとめて固定します。</small>';
  $('drawing-view-priority').closest('.drawing-controls').after(scaleRows);
  $('drawing-comment').closest('label').insertAdjacentHTML('beforebegin','<div class="drawing-controls"><label>編集するコメント<select id="drawing-comment-target"><option value="comment">共通コメント</option></select></label><button id="drawing-comment-add" type="button">コメントを追加</button><button id="drawing-comment-remove" type="button" hidden>このコメントを削除</button></div>');
  const alignmentPanel=document.createElement('details');alignmentPanel.id='drawing-alignment';
@@ -177,7 +177,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  viewportBar.append(reviewList);
  const conflictList=document.createElement('details');
  conflictList.id='drawing-conflicts';conflictList.hidden=true;
- conflictList.innerHTML='<summary></summary><div id="drawing-conflict-rows"></div>';
+ conflictList.innerHTML='<summary></summary><button id="drawing-conflicts-arrange" type="button" hidden>重なった寸法をまとめて再配置</button><div id="drawing-conflict-rows"></div>';
  viewportBar.append(conflictList);
  $('drawing-undo').closest('.drawing-controls').classList.add('drawing-history-controls');
  $('drawing-dimension-add').closest('.drawing-controls').classList.add('drawing-dimension-controls');$('drawing-dimension-overall').insertAdjacentHTML('afterend','<button id="drawing-dimension-auto" class="accent" type="button" title="図の配置と縮尺を保ったまま、外形・円形部・俯瞰図の寸法を追加します">寸法を自動入力</button>');
@@ -227,7 +227,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  const defaultBreakPercent=70;
  let breakAxis='',breakPercent=defaultBreakPercent,breakRange,holeTable;
  let projectionLocked=false,linkedProjections=true,linkedProjectionScales=true;
- const projectionLockActive=()=>layoutKind==='projection'&&projectionLocked&&!linkedProjections;
+ let viewLocks={},pdfViewLocks={},viewTitlePositions={},pdfViewTitlePositions={};
+ const projectionLockActive=()=>layoutKind==='projection'&&projectionLocked&&!linkedProjections&&
+  !viewSelection.some(name=>viewLocks[name]);
  let leaders=[],pdfLayout='',pdfPlacement='keep',pdfExporting=false,printPalette='screen';
  let mainComment='',comments=[],commentWidths={},activeComment='comment',viewScales={},autoIsoScale;
  let inspectedHole=null;
@@ -235,6 +237,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  let overviewSheet=null,editingPage=-1,editPageCount=0,pdfPositions={},pdfPageScales={},pdfViewScales={};
  const pagePositionMap=()=>editingPage>=0?pdfPositions:positions;
  function setPagePositionMap(value){if(editingPage>=0)pdfPositions=value;else positions=value;}
+ const titlePositionMap=()=>editingPage>=0?pdfViewTitlePositions:viewTitlePositions;
+ function setTitlePositionMap(value){if(editingPage>=0)pdfViewTitlePositions=value;else viewTitlePositions=value;}
  function displayedPositions(page){
   return Object.fromEntries([
    ...Object.entries(page.layout).map(([id,view])=>[id,[view.x,view.y]]),
@@ -311,6 +315,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   ...(Object.keys(pdfPositions).length?{pdfPositions:currentPDFPositions()}:{}),
   ...(Object.keys(pdfPageScales).length?{pdfPageScales}:{}),
   ...(Object.keys(pdfViewScales).length?{pdfViewScales:currentPDFViewScales()}:{}),
+  ...(Object.keys(viewLocks).length?{viewLocks}:{}),
+  ...(Object.keys(pdfViewLocks).length?{pdfViewLocks}:{}),
+  ...(Object.keys(viewTitlePositions).length?{viewTitlePositions}:{}),
+  ...(Object.keys(pdfViewTitlePositions).length?{pdfViewTitlePositions}:{}),
   ...(printPalette==='screen'?{}:{printPalette}),
   ...(comments.length?{comments}:{}),
   ...(Object.keys(viewScales).length?{viewScales}:{}),
@@ -462,6 +470,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-page-reset').onclick=()=>{
   if(!sheet||busy||drag||editingPage<0)return;
   for(const id of Object.keys(sheet.layout))delete pdfViewScales[id];
+  for(const id of Object.keys(sheet.layout))delete pdfViewTitlePositions[id];
   for(const id of [...Object.keys(sheet.layout),...sheet.notes.map(note=>note.id),...(sheet.holeBox?['holeTable']:[])])delete pdfPositions[id];
   for(const index of sheet.dimensionIndices)delete dimensions[index].pdfPlacement;
   details=details.map(detail=>sheet.layout[detail.id]?withoutDetailPDFPlacements(detail):detail);
@@ -473,7 +482,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    .flatMap(([key,{overview}])=>overview?[[key,{overview}]]:[]);
   return {...detail,dimensionPlacements:Object.fromEntries(retained)};
  }
- $('drawing-page-reset').title='このページで変更した図・寸法線・コメントの位置と、ビュー別の縮尺を戻します';
+ $('drawing-page-reset').title='このページで変更した配置・見出し・縮尺を戻します。固定した図はその位置と縮尺を使います。';
  function syncPageScales(){
   const count=sheet&&editPageCount>1?editPageCount:0,host=pageScalePanel.querySelector('div');
   pageScalePanel.hidden=!count;
@@ -542,7 +551,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  };
  function placementItems(){
   if(!sheet)return [];
-  const items=Object.entries(sheet.layout).map(([id,view])=>{
+  const items=Object.entries(sheet.layout).filter(([id])=>!sheet.viewLocks[id]).map(([id,view])=>{
    const boxes=[view];
    for(const d of dimensions)if(d.view===id){
     const p=dimensionPlacement(d,sheet);
@@ -614,10 +623,17 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     select.onchange=()=>changeViewScale(name,select.value?Number(select.value):undefined);
     const input=scaleInput(value=>changeViewScale(name,value),{effectiveScale:()=>sheet?.layout[name]?.scale});
     input.dataset.viewScaleInput=name;input.setAttribute('aria-label',viewLabel(name)+' の縮尺を手入力');
-    row.className='drawing-view-scale-row';row.append(label,input);container.append(row);
+    const lockLabel=document.createElement('label'),lock=document.createElement('input'),reset=document.createElement('button');
+    lock.type='checkbox';lock.dataset.viewLock=name;
+    lock.setAttribute('aria-label',viewLabel(name)+' の位置と縮尺を固定');
+    lock.onchange=()=>toggleViewLock(name,lock.checked);
+    lockLabel.append(lock,'位置と縮尺を固定');
+    reset.type='button';reset.dataset.viewTitleReset=name;reset.textContent='見出しを戻す';
+    reset.setAttribute('aria-label',viewLabel(name)+' の見出し位置を戻す');reset.onclick=()=>resetViewTitle(name);
+    row.className='drawing-view-scale-row';row.append(label,input,lockLabel,reset);container.append(row);
    }
   }
-  const scaleOptions={linkedProjectionScales,viewScales:editingPage>=0?
+  const scaleOptions={linkedProjectionScales,viewLocks:sheet?.viewLocks,viewScales:editingPage>=0?
    Object.fromEntries(names.map(name=>[name,pdfViewScales[name]])):viewScales};
   for(const select of container.querySelectorAll('select')){
    const name=select.dataset.viewScale,value=drawingViewScaleOverride(name,scaleOptions),text=value===undefined?'':String(value);
@@ -628,13 +644,19 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const fitted=drawingViewScale(name,Number($('drawing-scale').value),{isoMode:isoModeInput.value,autoIsoScale});
    select.options[0].textContent=editingPage>=0?'図面の設定を使う':
     name==='iso'&&autoIsoScale!==undefined?'自動縮尺 '+drawingScaleLabel(fitted):'共通縮尺';
-   select.value=text;select.disabled=busy;
-   syncScaleInput(select.parentElement.nextElementSibling,value);
+   const row=select.closest('.drawing-view-scale-row'),fixed=!!sheet.viewLocks[name];
+   select.value=text;select.disabled=busy||fixed;
+   const input=row.querySelector('[data-view-scale-input]');
+   syncScaleInput(input,value);input.disabled||=fixed;
+   const lock=row.querySelector('[data-view-lock]'),reset=row.querySelector('[data-view-title-reset]');
+   lock.checked=fixed;lock.disabled=busy||!!drag;
+   reset.hidden=!titlePositionMap()[name];reset.disabled=busy||!!drag;
   }
  }
  function viewScaleTargets(name,page){
   if(!linkedProjectionScales||!linkedDrawingViews.includes(name))return [name];
-  return page?linkedDrawingViews.filter(id=>sheet.layout[id]):linkedDrawingViews;
+  const fixed=page?sheet.viewLocks:viewLocks;
+  return linkedDrawingViews.filter(id=>!fixed[id]&&(!page||sheet.layout[id]));
  }
  function withViewScale(scales,names,value){
   const next={...scales};
@@ -643,6 +665,34 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    else next[name]=value;
   }
   return next;
+ }
+ function resetViewTitle(name){
+  if(!sheet||busy||drag||!titlePositionMap()[name])return;
+  preserveActivePDFPlacement();
+  const next={...titlePositionMap()};delete next[name];
+  setTitlePositionMap(next);render();status(viewLabel(name)+' の見出し位置を戻しました');
+ }
+ function toggleViewLock(name,enable){
+  if(!sheet?.layout[name]||busy||drag)return;
+  const page=editingPage>=0,targets=(linkedProjections||linkedProjectionScales)&&linkedDrawingViews.includes(name)?
+   linkedDrawingViews.filter(id=>sheet.layout[id]):[name];
+  preserveActivePDFPlacement();
+  const next={...(page?pdfViewLocks:viewLocks)},nextPositions={...pagePositionMap()};
+  retainViewPositions(sheet.layout,nextPositions,Object.keys(sheet.layout));
+  const nextScales={...(page?pdfViewScales:viewScales)};
+  for(const id of targets){
+   const {x,y,scale}=sheet.layout[id];
+   if(enable)next[id]={at:[x,y],scale};
+   else if(page&&viewLocks[id])next[id]=null;
+   else delete next[id];
+   nextPositions[id]=[x,y];
+   if(!enable)nextScales[id]=scale;
+  }
+  if(page){pdfViewLocks=next;pdfViewScales=nextScales;}
+  else{viewLocks=next;viewScales=nextScales;}
+  setPagePositionMap(nextPositions);
+  inlineScales.close();render();
+  status(targets.map(viewLabel).join('・')+(enable?' の位置と縮尺を固定しました':' の固定を解除しました'));
  }
  function updateOverviewViewScales(next,linked=linkedProjectionScales){
   const scale=Number($('drawing-scale').value),previous=options(),previousDimensions=dimensions;
@@ -657,7 +707,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
  }
  function changeViewScale(name,value){
-  if(!sheet||busy||drag)return;
+  if(!sheet||busy||drag||sheet.viewLocks[name])return;
   const targets=viewScaleTargets(name,editingPage>=0);
   if(editingPage>=0){
    pdfViewScales=withViewScale(pdfViewScales,targets,value);
@@ -669,7 +719,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-link-scales').onchange=()=>{
   if(!sheet||busy||drag)return;
   const enable=$('drawing-link-scales').checked;
-  const reference=linkedDrawingViews.find(name=>overviewSheet.layout[name])??'front';
+  const movable=linkedDrawingViews.filter(name=>!viewLocks[name]);
+  const reference=movable.find(name=>overviewSheet.layout[name])??'front';
   const previous=options(),scale=Number($('drawing-scale').value);
   let shared=drawingViewScaleOverride(reference,previous);
   if(enable&&shared===undefined){
@@ -677,11 +728,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const inherited=drawingViewScale(reference,scale,{...previous,viewScales:{},linkedProjectionScales:true});
    if(initial!==undefined&&initial<=maxDrawingScale&&initial!==inherited)shared=initial;
   }
-  const next=withViewScale(viewScales,linkedDrawingViews,shared);
+  const next=withViewScale(viewScales,movable,shared);
   if(!enable&&shared===undefined){
    const fitted=drawingViewScale(reference,scale,previous);
    const separate={...previous,viewScales:next,linkedProjectionScales:false};
-   if(fitted<=maxDrawingScale)for(const name of linkedDrawingViews){
+   if(fitted<=maxDrawingScale)for(const name of movable){
     if(drawingViewScale(name,scale,separate)!==fitted)next[name]=fitted;
    }
   }
@@ -1496,6 +1547,19 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   focusDrawingConflict(index,dimensionPlacement(onSheetDimensions()[index],sheet).box);
   status('寸法 '+(index+1)+' だけを再配置しました。元に戻すで取り消せます');
  }
+ $('drawing-conflicts-arrange').onclick=()=>{
+  if(!sheet||busy||drag)return;
+  const result=arrangeDrawingDimensionConflicts(onSheetDimensions(),sheet,{
+   hitsLinework:drawingLineworkTest(viewportHost.querySelector('svg'),sheet),
+  });
+  if(!result.moved.length){status('重なりを解消できる配置が見つかりませんでした');return;}
+  preserveActivePDFPlacement();
+  for(const index of result.moved)storeDimensionPlacement(index,result.dimensions[index]);
+  picking=null;action=null;selection=null;
+  render();
+  status(result.moved.length+' 件の寸法を再配置しました。'+
+   (result.remaining?' 残り '+result.remaining+' 件は重なり一覧で確認できます。':'')+' 元に戻すで取り消せます。');
+ };
  function focusDrawingViewOverlap(issue){
   if(busy||drag||!sheet)return;
   picking=null;action=null;selection=null;
@@ -1513,6 +1577,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const issue of viewIssues)markDrawingViewOverlap(svg,issue.regions);
   if(drag)return;
   const issues=drawingDimensionConflicts(onSheetDimensions(),sheet);
+  const batch=$('drawing-conflicts-arrange'),hasMovable=issues.some(({index})=>!dimensions[index].pinned&&!dimensions[index].review);
+  batch.hidden=!issues.length;batch.disabled=busy||!hasMovable;
+  batch.toggleAttribute('data-conflict-locked',!hasMovable);
   const rows=$('drawing-conflict-rows');
   rows.replaceChildren();
   const counts=[];
@@ -1591,9 +1658,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  function render(commit=true,{reflowDimensions=false}={}){
  if(!data)return;
- if(commit&&layoutKind==='compact'&&Object.keys(withDetails(data,details).views).some(key=>drawingViewVisible(key,options())&&!positions[key])){
+ let layoutError='';
+ if(commit&&layoutKind==='compact'&&Object.keys(withDetails(data,details).views).some(key=>drawingViewVisible(key,options())&&!positions[key]&&!viewLocks[key])){
   if(applyAutomaticLayout())return;
-  layoutKind='projection';positions={};
+  if(Object.keys(viewLocks).length)layoutError=$('drawing-status').textContent;
+  else {layoutKind='projection';positions={};}
  }
  try{
   const makeSheet=()=>drawingSheet(data,Number($('drawing-scale').value),$('drawing-hidden').checked,dimensions,mainComment,options());
@@ -1629,6 +1698,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  addDrawingHoleHitAreas(viewportHost.querySelector('svg'),sheet);
  $('drawing-svg').disabled=overflow||Object.keys(data.sectionErrors||{}).length>0;$('drawing-pdf').disabled=blockPDFExport();$('drawing-paper').textContent='用紙 '+sheet.width.toFixed(1)+' × '+sheet.height.toFixed(1)+' mm';status(titleBlockOverlap?titleBlockOverlap+'が表題欄と重なっています。図枠内の空いている場所へ移動してください':overflow?'用紙の外にはみ出しています。縮尺を小さくするか、配置・用紙サイズを変更してください':data.bodyCount+' ボディ · 寸法 '+dimensions.filter(d=>sheet.layout[d.view]&&drawingDimensionVisible(d,sheet.layout[d.view])).length+' 個 · 作業ファイルを保存すると再編集できます');
  if(pageError)status('PDFのページを表示できません。'+pageError);
+ else if(layoutError)status(layoutError);
  if(drag?.moved){drawCommentWidthHandle();syncInspectedHole();drawViewResizeHandles();}else controls();
  if($('drawing-layout-mode').checked&&!picking&&!action){
   for(const g of viewportHost.querySelectorAll('[data-view]')){
@@ -1721,6 +1791,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    const remap=settings=>remapDrawingViewSettings(settings,plan.moves);
    hiddenViews=remap(hiddenViews);viewScales=remap(viewScales);positions=remap(positions);
    pdfPositions=remap(pdfPositions);pdfViewScales=remap(pdfViewScales);
+   viewLocks=remap(viewLocks);pdfViewLocks=remap(pdfViewLocks);
+   viewTitlePositions=remap(viewTitlePositions);pdfViewTitlePositions=remap(pdfViewTitlePositions);
    pageAssignments={...pageAssignments,views:remap(pageAssignments.views)};
    setViewSelection(plan.viewSelection);
    picking=null;action=null;selection=null;inspectedHole=null;selectedPlacements.clear();
@@ -1903,7 +1975,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  dialog.addEventListener('close',()=>{viewport.cancel();clearTransient();persist();revision++;busy=false;worker.reset();$('drawing-generate').disabled=false;});
  $('drawing-scale').onchange=()=>changeCommonScale(Number($('drawing-scale').value));
  $('drawing-layout-label').onchange=()=>render();
- for(const id of ['drawing-hidden','drawing-paper-size','drawing-orientation','drawing-frame','drawing-date'])$(id).onchange=()=>{if(layoutKind==='compact'&&['drawing-paper-size','drawing-orientation','drawing-frame'].includes(id))applyAutomaticLayout();else cancelPick();};for(const id of ['drawing-name','drawing-revision','drawing-material']){$(id).oninput=()=>{picking=null;render(false);};$(id).onchange=()=>persist();}
+ for(const id of ['drawing-hidden','drawing-paper-size','drawing-orientation','drawing-frame','drawing-date'])$(id).onchange=()=>{
+  if(layoutKind!=='compact'||!['drawing-paper-size','drawing-orientation','drawing-frame'].includes(id)){cancelPick();return;}
+  if(!applyAutomaticLayout()&&Object.keys(overviewSheet?.viewLocks??{}).length){
+   const message=$('drawing-status').textContent;render();status(message);
+  }
+ };
+ for(const id of ['drawing-name','drawing-revision','drawing-material']){$(id).oninput=()=>{picking=null;render(false);};$(id).onchange=()=>persist();}
  async function changeDrawingViews(next,reflow=false){
   const previous=options();
   try{
@@ -1912,7 +1990,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    setViewSelection(next.viewSelection);
    setIsoMode(next.isoMode);
    selection=null;picking=null;action=null;
-   if(!reflow||!applyAutomaticLayout())render();
+   const current=options(),newlyVisible=Object.keys(data.views).some(name=>drawingViewVisible(name,current)&&!overviewSheet?.layout[name]);
+   if(!(reflow||newlyVisible&&Object.keys(overviewSheet?.viewLocks??{}).length)||!applyAutomaticLayout())render();
   }catch(error){
    if(!dialog.open)return;
    setViewSelection(previous.viewSelection);
@@ -1937,7 +2016,29 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   dimensions=rescaleDrawingAnnotations(dimensions,drawingViewFrames(data,options(),scale),scale,scale,drawingViewFrames(data,previous,scale));
   if(!applyAutomaticLayout()){dimensions=previousDimensions;$('drawing-view-priority').value=previous.viewPriority;}
  };
- $('drawing-layout-mode').onchange=cancelPick;$('drawing-auto-layout').onclick=()=>{if(!busy)applyAutomaticLayout();};$('drawing-arrange').onclick=()=>{layoutKind='projection';projectionLocked=!linkedProjections;positions={};cancelPick();};$('drawing-fit').onclick=()=>{layoutKind='projection';projectionLocked=!linkedProjections;positions={};picking=null;for(const scale of scales){setScale(scale);render(false);if(sheet&&!overflow)break;}persist();};
+ function arrangeCurrentLockedSheet(){
+  if(!sheet||busy||drag)return;
+  if(editingPage<0){applyAutomaticLayout();return;}
+  try{status(fitPDFPreviewPage(editingPage,makePDFPages()).notice);}
+  catch(error){status(error.message);}
+ }
+ const hasLockedViews=()=>Object.keys(sheet?.viewLocks??{}).length>0;
+ $('drawing-layout-mode').onchange=cancelPick;
+ $('drawing-auto-layout').onclick=()=>{
+  if(busy||drag)return;
+  if(hasLockedViews())arrangeCurrentLockedSheet();
+  else applyAutomaticLayout();
+ };
+ $('drawing-arrange').onclick=()=>{
+  if(hasLockedViews()){arrangeCurrentLockedSheet();return;}
+  layoutKind='projection';projectionLocked=!linkedProjections;positions={};cancelPick();
+ };
+ $('drawing-fit').onclick=()=>{
+  if(hasLockedViews()){arrangeCurrentLockedSheet();return;}
+  layoutKind='projection';projectionLocked=!linkedProjections;positions={};picking=null;
+  for(const scale of scales){setScale(scale);render(false);if(sheet&&!overflow)break;}
+  persist();
+ };
  $('drawing-svg').onclick=async()=>{
   if(!sheet||overflow||Object.keys(data.sectionErrors||{}).length)return;
   const pending=referenceReviewItems().filter(entry=>entry.kind==='dimension'?dimensions[entry.index].unplaced:entry.kind!=='hole');
@@ -1999,9 +2100,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const sourceDimensions=fromSingle?dimensions.map(({pdfPlacement,...dimension})=>dimension):dimensions;
   const sourceDetails=fromSingle?details.map(withoutDetailPDFPlacements):details;
   const next=preparePDF(makePDFPages({...options(),pdfLayout:'manual',pdfPlacement:placement,details:sourceDetails,
-   pageAssignments:assignments,pdfPageScales:scales,...(fromSingle?{pdfPositions:{},pdfViewScales:{}}:{})},
+   pageAssignments:assignments,pdfPageScales:scales,...(fromSingle?{pdfPositions:{},pdfViewScales:{},pdfViewLocks:{},pdfViewTitlePositions:{}}:{})},
    overviewSheet,sourceDimensions));
-  if(fromSingle){pdfPositions={};pdfViewScales={};dimensions=sourceDimensions;details=sourceDetails;}
+  if(fromSingle){pdfPositions={};pdfViewScales={};pdfViewLocks={};pdfViewTitlePositions={};dimensions=sourceDimensions;details=sourceDetails;}
   pdfLayout='manual';pdfPlacement=placement;pageAssignments=assignments;pdfPageScales=scales;
   if(editingPage>=0){
    const remapped=order.indexOf(editingPage);
@@ -2122,7 +2223,13 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }catch(error){status('PDF保存に失敗しました。'+error.message);}
  };
 
- function clearViewAnnotations(id){leaders=leaders.filter(note=>note.view!==id);dimensions=dimensions.filter(d=>d.view!==id);dimensionPoints=dimensionPoints.filter(point=>point.view!==id);markers=markers.filter(m=>m.view!==id);for(const d of details.filter(d=>d.view===id)){clearViewAnnotations(d.id);delete positions[d.id];delete viewScales[d.id];}details=details.filter(d=>d.view!==id);pruneHiddenViews();}
+ function clearViewAnnotations(id){
+  delete viewLocks[id];delete pdfViewLocks[id];delete viewTitlePositions[id];delete pdfViewTitlePositions[id];
+  leaders=leaders.filter(note=>note.view!==id);dimensions=dimensions.filter(d=>d.view!==id);
+  dimensionPoints=dimensionPoints.filter(point=>point.view!==id);markers=markers.filter(m=>m.view!==id);
+  for(const detail of details.filter(d=>d.view===id)){clearViewAnnotations(detail.id);delete positions[detail.id];delete viewScales[detail.id];}
+  details=details.filter(d=>d.view!==id);pruneHiddenViews();
+ }
  function extraControls(){
   const list=[...sections.map((s,i)=>({id:s.id,label:'断面 '+String.fromCharCode(65+i)+'–'+String.fromCharCode(65+i)+(s.review?'（要確認）':'')})),
    ...details.map((d,i)=>({id:d.id,label:'詳細 D'+(i+1)+(d.review?'（要確認）':'')}))];
@@ -2917,6 +3024,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   const ns='http://www.w3.org/2000/svg';
   for(const [name,view] of Object.entries(sheet.layout)){
+   if(sheet.viewLocks[name])continue;
    const x=view.x+view.width,y=view.y+view.height,size=3.6;
    const handle=document.createElementNS(ns,'rect'),title=document.createElementNS(ns,'title');
    title.textContent=viewLabel(name)+'の右下の角をドラッグして縮尺を変更';
@@ -2924,7 +3032,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     fill:'#0787a3',stroke:'#ffffff','stroke-width':'1.4','vector-effect':'non-scaling-stroke','pointer-events':'all'}))handle.setAttribute(key,value);
    handle.append(title);svg.append(handle);
   }
-  inlineScales.sync(drag?null:svg,drag?{}:sheet.layout,sheet.viewTitles);
+  inlineScales.sync(drag?null:svg,drag?{}:sheet.layout,sheet.viewTitles,sheet.viewLocks);
  }
  function drawingViewResizeState(name){
   const view=sheet.layout[name],page=editingPage+1,scale=Number($('drawing-scale').value),before=options();
@@ -2938,6 +3046,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    previousViewScales:viewScales,frames:page?null:drawingViewFrames(data,before,scale)};
  }
  function beginViewResize(event,name){
+  if(sheet.viewLocks[name])return;
   startPaperDrag(event,drawingViewResizeState(name),true);
  }
  function resizeDrawingView(state,dx,dy){
@@ -2977,7 +3086,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
  }
  function changeInlineViewScale(name,value){
-  if(!sheet?.layout[name]||busy||drag||value===sheet.layout[name].scale)return;
+  if(!sheet?.layout[name]||sheet.viewLocks[name]||busy||drag||value===sheet.layout[name].scale)return;
   const state=drawingViewResizeState(name),ratio=value/state.view.scale;
   if(ratio<state.minimum*(1-1e-10)||ratio>state.maximum*(1+1e-10)){
    status('連動する図を含め、指定の縮尺は設定範囲を超えています。');return;
@@ -3112,7 +3221,11 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const note=event.target.closest('[data-comment]'),view=event.target.closest('[data-view]');
   return note?(note.dataset.comment==='true'?'comment':note.dataset.comment):view?.dataset.view??event.target.closest('[data-hole-labels]')?.dataset.holeLabels;
  }
- const selectingPlacement=e=>(e.ctrlKey||e.metaKey)&&!picking&&!action&&!busy&&sheet&&placementTarget(e);
+ const selectingPlacement=e=>{
+  if(!(e.ctrlKey||e.metaKey)||picking||action||busy||!sheet)return false;
+  const target=placementTarget(e);
+  return target&&!sheet.viewLocks[target]&&target;
+ };
  host.addEventListener('pointerdown',e=>{
   if(e.button!==0||drag)return;
   suppressClick=false;
@@ -3132,19 +3245,41 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   drag={...state,start:paperPoint(event),inverse:matrix.inverse(),viewBox:svg.getAttribute('viewBox'),
    pixelsPerAxis:[Math.hypot(matrix.a,matrix.b),Math.hypot(matrix.c,matrix.d)],
    pointerId:event.pointerId,cancelPositions:structuredClone(pagePositionMap())};
-  if(linkedProjections&&state.type==='view')drag.followers=linkedDrawingFollowers(state.name,sheet.layout).map(([name,axis])=>{
+  if(linkedProjections&&state.type==='view')drag.followers=linkedDrawingFollowers(state.name,sheet.layout).filter(([name])=>!sheet.viewLocks[name]).map(([name,axis])=>{
    const {x,y}=sheet.layout[name];
    return {name,axis,origin:[x,y]};
   });
-  if(editingPage>=0&&pdfPlacement==='auto'&&['view','viewResize','dimension','comment','holeTable'].includes(state.type))drag.pdfLayouts=new Map();
+  if(editingPage>=0&&pdfPlacement==='auto'&&['view','viewResize','viewTitle','dimension','comment','holeTable'].includes(state.type))drag.pdfLayouts=new Map();
   drag.guideBox=drawingDragBox(drag);
   if(capture)host.setPointerCapture(event.pointerId);
+ }
+ function viewTitleOffset(name){
+  const title=sheet.viewTitles[name],view=sheet.layout[name];
+  return [title.x-view.x,title.y-view.y];
+ }
+ function beginViewTitleDrag(event,element,name){
+  const compact=element.closest('[data-view]').querySelector('[data-view-title-compact]')!==null;
+  startPaperDrag(event,{type:'viewTitle',name,compact,origin:viewTitleOffset(name),previousTitles:titlePositionMap(),
+   previousPdfScales:pdfPageScales},true);
+ }
+ function moveViewTitle(state,dx,dy){
+  if(Math.hypot(dx,dy)<1e-6){
+   restorePaperDrag(state);state.titleMoved=false;render(false);return;
+  }
+  if(!state.titleMoved)preserveActivePDFPlacement();
+  state.titleMoved=true;
+  setTitlePositionMap({...titlePositionMap(),[state.name]:{
+   offset:[state.origin[0]+dx,state.origin[1]+dy],...(state.compact?{compact:true}:{}),
+  }});
+  render(false);
  }
  function restorePaperDrag(state){
   setPagePositionMap(structuredClone(state.cancelPositions));
   if(state.type==='viewResize'){
    setScale(state.scale);dimensions=state.previousDimensions;viewScales=state.previousViewScales;
    pdfPageScales=state.previousPdfScales;pdfViewScales=state.previousPdfViews;
+  }else if(state.type==='viewTitle'){
+   setTitlePositionMap(state.previousTitles);pdfPageScales=state.previousPdfScales;
   }else if(state.type==='commentWidth'){
    if(state.previousWidth===undefined)delete commentWidths[state.note.id];
    else commentWidths[state.note.id]=state.previousWidth;
@@ -3182,6 +3317,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    startPaperDrag(e,{type:'section',id:section.id,origin:section.coordinate},true);extraControls();return;
   }
   if(!$('drawing-layout-mode').checked)return;
+  const title=e.target.closest('[data-view-title-frame],[data-view-title-label]');
+  if(title){beginViewTitleDrag(e,title,title.closest('[data-view]').dataset.view);return;}
   const dimension=dimensionHit(e,'[data-dimension],[data-detail-dimension-index]'),comment=e.target.closest('[data-comment]'),
    table=e.target.closest('[data-hole-table]'),leader=e.target.closest('[data-leader]');
   const view=e.target.closest('[data-view]')?.dataset.view??e.target.closest('[data-hole-labels]')?.dataset.holeLabels;
@@ -3193,7 +3330,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    beginDimensionDrag(e,Number(index??dimension.dataset.dimension),index!==undefined);
   }else if(comment)startPaperDrag(e,beginCommentDrag(comment.dataset.comment));
   else if(table)startPaperDrag(e,{type:'holeTable',name:'holeTable',origin:[sheet.holeBox.x,sheet.holeBox.y]});
-  else if(view)startPaperDrag(e,{type:'view',name:view,origin:[sheet.layout[view].x,sheet.layout[view].y]});
+  else if(view){
+   if(sheet.viewLocks[view]){status(viewLabel(view)+' の位置と縮尺は固定されています');return;}
+   startPaperDrag(e,{type:'view',name:view,origin:[sheet.layout[view].x,sheet.layout[view].y]});
+  }
  });
  function movePaperDrag(e){
   if(!sheet||!drag||e.pointerId!==drag.pointerId)return;
@@ -3204,6 +3344,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    drag.moved=true;host.setPointerCapture(e.pointerId);
   }
   if(drag.type==='viewResize')resizeDrawingView(drag,dx,dy);
+  else if(drag.type==='viewTitle')moveViewTitle(drag,dx,dy);
   else if(drag.type==='commentWidth'){
    if(Math.abs(dx)<1e-6)restorePaperDrag(drag);
    else{
@@ -3237,6 +3378,14 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(host.hasPointerCapture(finished.pointerId))host.releasePointerCapture(finished.pointerId);
   if(!finished.moved)return;
   if(!commit){restorePaperDrag(finished);render(false);return;}
+  if(finished.type==='viewTitle'){
+   if(!sheet?.viewTitles[finished.name]){restorePaperDrag(finished);render(false);return;}
+   const offset=viewTitleOffset(finished.name);
+   if(!finished.titleMoved||offset.every((n,i)=>Math.abs(n-finished.origin[i])<1e-6)){
+    restorePaperDrag(finished);render(false);return;
+   }
+   setTitlePositionMap({...titlePositionMap(),[finished.name]:{...titlePositionMap()[finished.name],offset}});
+  }
   if(finished.followers?.length&&sheet)retainViewPositions(sheet.layout,pagePositionMap(),linkedDrawingViews);
   if(finished.type==='break'){
    breakRange=finished.next;if(!applyAutomaticLayout())render();
@@ -3256,6 +3405,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   pdfPositions=structuredClone(s?.options.pdfPositions??{});
   pdfPageScales=structuredClone(s?.options.pdfPageScales??{});
   pdfViewScales=structuredClone(s?.options.pdfViewScales??{});
+  viewLocks=structuredClone(s?.options.viewLocks??{});
+  pdfViewLocks=structuredClone(s?.options.pdfViewLocks??{});
+  viewTitlePositions=structuredClone(s?.options.viewTitlePositions??{});
+  pdfViewTitlePositions=structuredClone(s?.options.pdfViewTitlePositions??{});
   dimensionPoints=structuredClone(s?.dimensionPoints??[]);
   autoDimensionTypesEnabled=[...(s?.options.autoDimensionTypes??autoDimensionKeys)];groupRepeatedDimensions=s?.options.groupRepeatedDimensions??true;dimensionList?.clear();
   uniqueOverallDimensions=s?.options.uniqueOverallDimensions??false;pdfPlacement=s?.options.pdfPlacement??'keep';

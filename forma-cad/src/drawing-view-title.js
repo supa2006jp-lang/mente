@@ -19,6 +19,8 @@ export function drawingViewTitle(name,view,options,showScale,factor=1){
  }
  if(view.break)label+=' / 省略表示';
  if(showScale)label+=(detail>=0?' / ':' / SCALE ')+drawingScaleLabel(view.scale);
+ const manual=options.viewTitlePositions?.[name];
+ if(manual)factor=manual.compact?compactDrawingViewTitleScale:1;
  const textWidth=[...label].reduce((width,char)=>width+(/\s/.test(char)?.35:char.codePointAt(0)>255?1:/[MW]/.test(char)?.95:.72)*fontSize,0);
  const width=(accentOffset+textWidth+1.7)*factor,height=titleHeight*factor,stroke=border*factor;
  const x=view.x+1.3;
@@ -31,7 +33,8 @@ export function drawingViewTitle(name,view,options,showScale,factor=1){
  });
  const gap=overSectionLetter?8.7:factor<1?.7:2.3;
  const y=view.y-height-gap;
- return {label,x,y,width,height,factor,stroke,bounds:{x:x-stroke/2,y:y-stroke/2,width:width+stroke,height:height+stroke}};
+ const title={label,x,y,width,height,factor,stroke,bounds:{x:x-stroke/2,y:y-stroke/2,width:width+stroke,height:height+stroke}};
+ return manual?moveTitle(title,view.x+manual.offset[0],view.y+manual.offset[1]):title;
 }
 
 const clamp=(value,low,high)=>Math.max(low,Math.min(value,high));
@@ -75,6 +78,16 @@ export function layoutDrawingViewTitles(layout,options,showScale,paper,annotatio
   occupied.push({x:x+2,y:view.y-7.5,width:3.5,height:4});
  }
  for(const [name,view] of views){
+  if(!options.viewTitlePositions?.[name])continue;
+  const title=drawingViewTitle(name,view,options,showScale);
+  const x=clamp(title.bounds.x,inset,rightEdge(paper,title));
+  const table=paper.titleBlock,maxY=table&&x+title.bounds.width+clearance>table.x?
+   table.y-clearance-title.bounds.height:bottomEdge(paper,title);
+  titles[name]=moveTitle(title,x,clamp(title.bounds.y,inset,maxY));
+  occupied.push(titles[name].bounds);
+ }
+ for(const [name,view] of views){
+  if(titles[name])continue;
   const choices=[1,compactDrawingViewTitleScale].map(factor=>drawingViewTitle(name,view,options,showScale,factor));
   const obstacles=[...drawings,...occupied],right=view.x+view.width;
   const alignedX=title=>clamp(title.bounds.x,inset,rightEdge(paper,title));
@@ -109,8 +122,8 @@ export function layoutDrawingViewTitles(layout,options,showScale,paper,annotatio
 
 export function drawingViewTitleSVG({label,x,y,width,height,factor,stroke}){
  const right=x+width,bottom=y+height,corner=1.15*factor;
- return '<path data-view-title-frame="true" d="M '+x+' '+y+' H '+(right-corner)+' L '+right+' '+(y+corner)+
+ return '<path data-view-title-frame="true"'+(factor<1?' data-view-title-compact="true"':'')+' d="M '+x+' '+y+' H '+(right-corner)+' L '+right+' '+(y+corner)+
   ' V '+bottom+' H '+x+' Z" fill="white" stroke="#486071" stroke-width="'+stroke+'"/>'+
-  '<path d="M '+(x+1.45*factor)+' '+(y+1.2*factor)+' V '+(bottom-1.2*factor)+'" fill="none" stroke="#16879a" stroke-width="'+(.63*factor)+'"/>'+
-  '<text x="'+(x+accentOffset*factor)+'" y="'+(y+3.95*factor)+'" font-size="'+(fontSize*factor)+'" font-weight="bold" fill="#20394c">'+escapeDrawingText(label)+'</text>';
+  '<path d="M '+(x+1.45*factor)+' '+(y+1.2*factor)+' V '+(bottom-1.2*factor)+'" fill="none" stroke="#16879a" stroke-width="'+(.63*factor)+'" pointer-events="none"/>'+
+  '<text data-view-title-label="true" x="'+(x+accentOffset*factor)+'" y="'+(y+3.95*factor)+'" font-size="'+(fontSize*factor)+'" font-weight="bold" fill="#20394c">'+escapeDrawingText(label)+'</text>';
 }

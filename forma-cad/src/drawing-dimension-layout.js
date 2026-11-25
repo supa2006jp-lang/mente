@@ -358,6 +358,28 @@ export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearb
  }
  return {dimensions:placed,unresolved};
 }
+
+export function arrangeDrawingDimensionConflicts(dimensions,sheet,{hitsLinework}={}){
+ const issues=drawingDimensionConflicts(dimensions,sheet);
+ const adjusted=dimensions.slice(),placements=adjusted.map(d=>dimensionPlacement(d,sheet));
+ const obstacles=dimensionObstacles(sheet),moved=[];
+ for(const {index} of issues){
+  const d=adjusted[index],placement=placements[index];
+  if(d.pinned||d.review)continue;
+  if(!obstacleOverlap(placement,obstacles)&&
+   !placements.some((other,i)=>i!==index&&other&&dimensionOverlap(placement,other)))continue;
+  // Keep the current positions of the other notes available even if they cannot be repaired.
+  const next=arrangeDrawingDimensions([d],sheet,adjusted.filter((_,i)=>i!==index),{
+   preferNearby:true,requireClear:true,allowAnchorChanges:false,hitsLinework,
+  });
+  if(next.unresolved.length)continue;
+  adjusted[index]=next.dimensions[0];
+  placements[index]=dimensionPlacement(adjusted[index],sheet);
+  moved.push(index);
+ }
+ return {dimensions:adjusted,moved,remaining:drawingDimensionConflicts(adjusted,sheet).length};
+}
+
 export function reflowResizedDrawingDimensions(dimensions,sheet,{radiiOnly=false,getIsoAnchors,allowAnchorChanges=true}={}){
  const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall)&&(!radiiOnly||d.kind==='radius');
  const fixed=dimensions.filter(d=>!automatic(d));

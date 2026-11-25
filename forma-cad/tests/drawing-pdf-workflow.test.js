@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {autoDrawingDimensions,drawingIsometricOverallAnchors,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
-import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts} from '../src/drawing-dimension-layout.js';
+import {arrangeDrawingDimensionConflicts,arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts} from '../src/drawing-dimension-layout.js';
 import {drawingBoxPlacementIssue} from '../src/drawing-paper-bounds.js';
 import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
@@ -155,6 +155,70 @@ test('initial large layout keeps every caption inside the frame and clears the a
  const front=sheet.viewTitles.front;
  assert.ok(front.y+front.height<sheet.layout.front.y);
  assert.match(sheet.svg,/TOP \/ SCALE 1\.8:1/);
+});
+
+test('adjusted view captions follow their view and a PDF page can use its own caption position',()=>{
+ const config={...options,sections:[],layout:'compact',viewSelection:['front'],isoMode:'hidden',projectionLocked:false,
+  positions:{front:[42,60]},viewTitlePositions:{front:{offset:[31,-20],compact:true}},
+  pdfLayout:'manual',pageAssignments:{pageCount:2,views:{front:2},comments:{}},
+  pdfViewTitlePositions:{front:{offset:[-12,40]}},pdfPositions:{front:[60,80]}};
+ const overview=drawingSheet(part,1,true,[],'',config);
+ const caption=overview.viewTitles.front;
+ assert.deepEqual([caption.x,caption.y],[73,40]);
+ const moved=drawingSheet(part,1,true,[],'',{...config,positions:{front:[57,68]}});
+ assert.deepEqual([moved.viewTitles.front.x,moved.viewTitles.front.y],[88,48]);
+ const [,page]=drawingPDFPages(part,1,true,[],'',config,overview);
+ assert.deepEqual([page.viewTitles.front.x,page.viewTitles.front.y],[48,120]);
+ assert.ok(page.viewTitles.front.height>caption.height);
+ const clamped=drawingSheet(part,1,true,[],'',{...config,positions:{front:[5,5]},
+  viewTitlePositions:{front:{offset:[-1000,-1000]}}});
+ assert.equal(drawingBoxPlacementIssue(clamped.viewTitles.front,clamped),null);
+});
+
+test('automatic packing fits unlocked views into the space around fixed views',()=>{
+ const data={...part,views:{...part.views,iso:{...rect(60,45),viewBox:[0,-45,60,45]}}};
+ const viewLocks={
+  top:{at:[16,18],scale:1.5},front:{at:[16,92],scale:1.5},right:{at:[118,92],scale:1.5},
+ };
+ const config={...options,layout:'compact',isoMode:'full',linkedProjections:true,linkedProjectionScales:true,viewLocks,
+  details:[{id:'detail-a',view:'front',center:[30,-10],radius:4,factor:2}]};
+ const packed=optimizeDrawingLayout(data,{scale:1,options:config,isoOnRight:true,spreadViews:true});
+ const lockedSheet=drawingSheet(data,packed.scale,true,[],'',{...config,positions:packed.positions,autoIsoScale:packed.autoIsoScale});
+ for(const [name,{at,scale}] of Object.entries(viewLocks)){
+  assert.deepEqual(packed.positions[name],at);
+  assert.deepEqual([lockedSheet.layout[name].x,lockedSheet.layout[name].y,lockedSheet.layout[name].scale],[...at,scale]);
+ }
+ for(const id of ['iso','section-a','detail-a']){
+  assert.ok(lockedSheet.layout[id]);
+  assert.equal(drawingBoxPlacementIssue(lockedSheet.layout[id],lockedSheet),null);
+ }
+ assert.deepEqual(drawingViewOverlaps(lockedSheet),[]);
+ assert.equal(optimizeDrawingLayout(data,{scale:1,fixedScale:true,options:{...config,viewLocks:{front:{at:[290,40],scale:1}}}}),null);
+
+ const pdfOptions={...config,pdfLayout:'manual',pageAssignments:{pageCount:2,views:{right:2},comments:{}},
+  pdfViewLocks:{front:{at:[25,97],scale:1.25},right:null},pdfViewScales:{right:.75}};
+ const [first,second]=drawingPDFPages(data,packed.scale,true,[],'',pdfOptions,lockedSheet);
+ assert.deepEqual([first.layout.front.x,first.layout.front.y,first.layout.front.scale],[25,97,1.25]);
+ assert.equal(second.viewLocks.right,undefined);
+ assert.equal(second.layout.right.scale,.75);
+ const state={version:1,signature:'sample',targets:['part'],targetMode:'visible',scale:1,hidden:true,comment:'',dimensions:[],
+  options:{...pdfOptions,viewTitlePositions:{front:{offset:[0,-9]}}}};
+ assert.deepEqual(readDrawingState(state),state);
+});
+
+test('batch repair moves only warned and movable dimensions and retains the measured points',()=>{
+ const sheet=drawingSheet(part,1,true,[],'',{...options,sections:[],positions:{front:[70,70]},
+  layout:'compact',projectionLocked:false,viewSelection:['front'],isoMode:'hidden'});
+ const fixed={...frontDimension,pinned:true},stacked={...frontDimension},clear={...frontDimension,at:[25,34]};
+ const dimensions=[fixed,stacked,clear];
+ assert.deepEqual(drawingDimensionConflicts(dimensions,sheet).map(issue=>issue.index),[0,1]);
+ const result=arrangeDrawingDimensionConflicts(dimensions,sheet);
+ assert.deepEqual(result.moved,[1]);
+ assert.equal(result.remaining,0);
+ assert.strictEqual(result.dimensions[0],fixed);assert.strictEqual(result.dimensions[2],clear);
+ assert.notDeepEqual(result.dimensions[1].at,stacked.at);
+ assert.deepEqual([result.dimensions[1].a,result.dimensions[1].b],[stacked.a,stacked.b]);
+ assert.deepEqual(arrangeDrawingDimensionConflicts([fixed,{...stacked,pinned:true}],sheet).moved,[]);
 });
 
 test('automatic placement packs beside the title block without shrinking a tall view',()=>{

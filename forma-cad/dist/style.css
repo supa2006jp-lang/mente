@@ -221,6 +221,7 @@
 #drawing-review-list[hidden] { display:none; }
 #drawing-conflicts { flex:1 0 100%; font-size:.88rem; color:#ffd5af; }
 #drawing-conflicts summary { cursor:pointer; width:max-content; }
+#drawing-conflicts-arrange { margin-top:5px; padding:4px 8px; }
 #drawing-conflict-rows { display:grid; gap:4px; max-height:120px; overflow:auto; margin-top:5px; }
 #drawing-conflict-rows > div { display:flex; flex-wrap:wrap; gap:4px 8px; }
 #drawing-conflict-rows button { padding:4px 8px; }
@@ -895,6 +896,8 @@ button.form-control-point.invalid { background:#bc2634; }
 #drawing-alignment-items,#drawing-page-items,#drawing-page-scales .drawing-controls{max-height:180px;overflow:auto}
 #drawing-scale-manual,#drawing-page-scales input,.drawing-view-scale-row input{width:9em}
 .drawing-view-scale-row{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.drawing-view-scale-row button{padding:4px 7px}
+.drawing-inline-scale-badge:disabled{opacity:1;cursor:default}
 #drawing-preview [data-view-resize]{cursor:nwse-resize}
 #drawing-alignment-items label{white-space:nowrap}
 #drawing-page-items label{display:inline-flex;align-items:center;gap:6px}

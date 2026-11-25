@@ -95,9 +95,11 @@ export function drawingProjectedFrame(name,bounds){
 }
 export const drawingViewFactor=(name,options={})=>name==='front'&&options.viewPriority==='front'?1.4:name==='iso'&&options.isoMode==='small'?.5:1;
 export function drawingViewScaleOverride(name,options={}){
+ const fixed=options.viewLocks?.[name];
+ if(fixed)return fixed.scale;
  const scales=options.viewScales;
  if(options.linkedProjectionScales&&linkedDrawingViews.includes(name)){
-  for(const view of linkedDrawingViews)if(scales?.[view]!==undefined)return scales[view];
+  for(const view of linkedDrawingViews)if(!options.viewLocks?.[view]&&scales?.[view]!==undefined)return scales[view];
   return undefined;
  }
  return scales?.[name];

@@ -5,7 +5,7 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
  element.className='drawing-inline-scales';
  editor.className='drawing-inline-scale-editor';editor.hidden=true;editor.setAttribute('role','group');
  const badges=new Map();
- let active=null,svg=null,views={},viewTitles={};
+ let active=null,svg=null,views={},viewTitles={},viewLocks={};
  const scale=()=>views[active]?.scale;
  const input=makeInput(apply,{optional:false,effectiveScale:scale});
  input.dataset.inlineScaleInput='true';
@@ -39,6 +39,7 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
   syncEditor(true);
  }
  function open(name){
+  if(viewLocks[name])return;
   active=name;
   const label=viewLabel(name)+' の縮尺';
   editor.setAttribute('aria-label',label);input.setAttribute('aria-label',label+'を入力');
@@ -88,9 +89,9 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
   }
   if(active!==null)place(editor,views[active],true);
  }
- function sync(nextSVG,nextViews,nextTitles={}){
-  svg=nextSVG;views=nextViews;viewTitles=nextTitles;
-  if(active!==null&&!Object.hasOwn(views,active))close();
+ function sync(nextSVG,nextViews,nextTitles={},nextLocks={}){
+  svg=nextSVG;views=nextViews;viewTitles=nextTitles;viewLocks=nextLocks;
+  if(active!==null&&(!Object.hasOwn(views,active)||viewLocks[active]))close();
   for(const [name,badge] of badges){
    if(!Object.hasOwn(views,name)){badge.remove();badges.delete(name);}
   }
@@ -101,8 +102,10 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
     badge.dataset.inlineViewScale=name;badge.onclick=()=>open(name);
     badges.set(name,badge);element.insertBefore(badge,editor);
    }
-   badge.textContent=drawingScaleLabel(view.scale);
-   badge.title=viewLabel(name)+' の縮尺を編集';
+   const fixed=!!viewLocks[name];
+   badge.disabled=fixed;
+   badge.textContent=(fixed?'固定 ':'')+drawingScaleLabel(view.scale);
+   badge.title=viewLabel(name)+(fixed?' の位置と縮尺を固定中':' の縮尺を編集');
    badge.setAttribute('aria-label',badge.title+'（'+badge.textContent+'）');
   }
   syncEditor();position();
