@@ -5,7 +5,7 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
  element.className='drawing-inline-scales';
  editor.className='drawing-inline-scale-editor';editor.hidden=true;editor.setAttribute('role','group');
  const badges=new Map();
- let active=null,svg=null,views={};
+ let active=null,svg=null,views={},viewTitles={};
  const scale=()=>views[active]?.scale;
  const input=makeInput(apply,{optional:false,effectiveScale:scale});
  input.dataset.inlineScaleInput='true';
@@ -61,6 +61,11 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
   if(!width||!height)return;
   const gap=1.8*Math.hypot(matrix.a,matrix.b)+4;
   const inset=4,clamp=(value,limit)=>Math.max(inset,Math.min(value,limit-inset));
+  const titles=Object.values(viewTitles).map(box=>{
+   const a=new DOMPoint(box.x,box.y).matrixTransform(matrix);
+   const b=new DOMPoint(box.x+box.width,box.y+box.height).matrixTransform(matrix);
+   return {left:a.x-left,top:a.y-top,right:b.x-left,bottom:b.y-top};
+  });
   function place(control,view,keepVisible){
    const corner=new DOMPoint(view.x+view.width,view.y+view.height).matrixTransform(matrix);
    const x=corner.x-left,y=corner.y-top;
@@ -68,8 +73,14 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
    if(control.hidden)return;
    const w=control.offsetWidth,h=control.offsetHeight;
    const right=x+gap+w<=width-inset,below=y+gap+h<=height-inset;
-   control.style.left=clamp(right?x+gap:x-w,width-w)+'px';
-   control.style.top=clamp(right?y-h/2:below?y+gap:y-gap-h,height-h)+'px';
+   const choices=[
+    ...(right?[[x+gap,y-h/2]]:[]),
+    ...(below?[[x-w,y+gap]]:[]),
+    [x-w,y-gap-h],[x-gap-w,y-h/2],
+   ].map(([x,y])=>[clamp(x,width-w),clamp(y,height-h)]);
+   const [controlX,controlY]=choices.find(([x,y])=>!titles.some(t=>
+    x<t.right+1&&x+w>t.left-1&&y<t.bottom+1&&y+h>t.top-1))??choices[0];
+   control.style.left=controlX+'px';control.style.top=controlY+'px';
   }
   for(const [name,badge] of badges){
    if(name===active)badge.hidden=true;
@@ -77,8 +88,8 @@ export function installDrawingInlineScales({makeInput,syncInput,changeScale,view
   }
   if(active!==null)place(editor,views[active],true);
  }
- function sync(nextSVG,nextViews){
-  svg=nextSVG;views=nextViews;
+ function sync(nextSVG,nextViews,nextTitles={}){
+  svg=nextSVG;views=nextViews;viewTitles=nextTitles;
   if(active!==null&&!Object.hasOwn(views,active))close();
   for(const [name,badge] of badges){
    if(!Object.hasOwn(views,name)){badge.remove();badges.delete(name);}

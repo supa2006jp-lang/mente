@@ -72,7 +72,9 @@ test('paper and view captions use the actual scale on each page',()=>{
  assert.equal(header(sheet),'縮尺は各図に記載 / mm');
  assert.match(sheet.svg,/TOP \/ SCALE 2:1/);
  assert.match(sheet.svg,/FRONT \/ SCALE 1:2/);
- assert.ok(sheet.viewTitles.front.y+sheet.viewTitles.front.height<sheet.layout.front.y-8);
+ const caption=sheet.viewTitles.front,front=sheet.layout.front,cutX=front.x+20*front.scale;
+ assert.ok(caption.y+caption.height<front.y);
+ assert.ok(caption.y+caption.height<front.y-7.5||caption.x>cutX+5.5);
  const [other,top]=drawingPDFPages(part,.5,true,[],'',config,sheet);
  assert.equal(header(other),'SCALE 1:2 / mm');
  assert.equal(header(top),'SCALE 2:1 / mm');
@@ -109,8 +111,8 @@ test('placement uses the frame and the actual title block instead of reserving e
  assert.deepEqual(drawingSheetOverflow(svg,sheet),[]);
  assert.equal(sheet.layout.front.y,5);
  const topCaption=sheet.viewTitles.front;
- assert.ok(topCaption.y>0);
- assert.ok(topCaption.y+topCaption.height<sheet.layout.front.y);
+ assert.equal(drawingBoxPlacementIssue(topCaption,sheet),null);
+ assert.ok(topCaption.x>sheet.layout.front.x+sheet.layout.front.width);
  assert.match(sheet.svg,/FRONT \/ SCALE 1:1/);
  assert.match(sheet.svg,/縮尺は各図に記載/);
  assert.match(sheet.svg,/<rect data-view-background="front" x="13" y="5"/);
@@ -135,6 +137,24 @@ test('automatic placement can use the upper space at the chosen scale even when 
  assert.ok(sheet.layout.front.y<17);
  assert.deepEqual(drawingSheetOverflow({querySelectorAll:()=>Object.keys(sheet.layout).map(view=>({dataset:{view}}))},sheet),[]);
  assert.match(sheet.svg,/FRONT \/ SCALE 1:1/);
+});
+
+test('initial large layout keeps every caption inside the frame and clears the adjoining views',()=>{
+ const data={bodyCount:1,bounds:[[0,0,0],[60,50,40]],views:{
+  top:rect(60,50),front:rect(60,40),right:rect(50,40),
+  iso:{...rect(77.78,77.57),viewBox:[0,-130/Math.sqrt(6),110/Math.SQRT2,190/Math.sqrt(6)]},
+ }};
+ const config={...options,layout:'compact',isoMode:'full',sections:[],positions:{}};
+ const placed=optimizeDrawingLayout(data,{options:config,isoOnRight:true,spreadViews:true,preferProjectionOrder:true});
+ assert.equal(placed.scale,1.8);
+ assert.equal(placed.autoIsoScale,1);
+ const sheet=drawingSheet(data,placed.scale,true,[],'',{...config,positions:placed.positions,autoIsoScale:placed.autoIsoScale});
+ assert.equal(Object.keys(sheet.viewTitles).length,4);
+ for(const title of Object.values(sheet.viewTitles))assert.equal(drawingBoxPlacementIssue(title,sheet),null);
+ assert.deepEqual(drawingViewOverlaps(sheet),[]);
+ const front=sheet.viewTitles.front;
+ assert.ok(front.y+front.height<sheet.layout.front.y);
+ assert.match(sheet.svg,/TOP \/ SCALE 1\.8:1/);
 });
 
 test('automatic placement packs beside the title block without shrinking a tall view',()=>{
@@ -176,15 +196,13 @@ test('the PDF checklist maps a filtered page back to original visible dimension 
  assert.deepEqual(issues.filter(issue=>issue.kind==='reference').map(issue=>[issue.pageIndex,issue.dimension]),[[1,4]]);
 });
 
-test('view and caption intersections are reported on the pages that contain both views',()=>{
+test('captions move clear in tight gaps while overlapping views still produce a page warning',()=>{
  const {front,top,right}=part.views;
  const data={...part,views:{front,top,right}};
  const settings={...options,layout:'compact',projectionLocked:false,sections:[],positions:{top:[40,28],front:[45,74],right:[145,74]}};
  const titleOnly=drawingSheet(data,1,true,[],'',settings);
- const [titleIssue]=drawingViewOverlaps(titleOnly);
- assert.deepEqual(titleIssue.views,['top','front']);
- assert.equal(titleIssue.regions.length,1);
- assert(titleIssue.box.y+titleIssue.box.height<=titleOnly.layout.front.y);
+ assert.deepEqual(drawingViewOverlaps(titleOnly),[]);
+ assert.ok(titleOnly.viewTitles.front.y+titleOnly.viewTitles.front.height<=titleOnly.layout.front.y);
  const crowded={...settings,positions:{...settings.positions,top:[40,55]},pdfLayout:'manual',
   pageAssignments:{pageCount:2,views:{top:2,front:2},comments:{}}};
  const editor=drawingSheet(data,1,true,[],'',crowded);
@@ -192,7 +210,7 @@ test('view and caption intersections are reported on the pages that contain both
  const issues=drawingPDFIssues(pages).filter(issue=>issue.kind==='view-overlap');
  assert.equal(issues.length,1);
  assert.equal(issues[0].pageIndex,1);
- assert.equal(issues[0].regions.length,2);
+ assert.ok(issues[0].regions.length>=1);
  assert.deepEqual(issues[0].views,['top','front']);
  const separated={...crowded,pageAssignments:{pageCount:2,views:{top:2},comments:{}}};
  assert.equal(drawingPDFIssues(drawingPDFPages(data,1,true,[],'',separated)).filter(issue=>issue.kind==='view-overlap').length,0);

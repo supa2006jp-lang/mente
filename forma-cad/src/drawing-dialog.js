@@ -226,7 +226,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  let commentColor=defaultDrawingCommentColor,commentFont='',requestedCommentFonts='';
  const defaultBreakPercent=70;
  let breakAxis='',breakPercent=defaultBreakPercent,breakRange,holeTable;
- let projectionLocked=true,linkedProjections=false,linkedProjectionScales=false;
+ let projectionLocked=false,linkedProjections=true,linkedProjectionScales=true;
  const projectionLockActive=()=>layoutKind==='projection'&&projectionLocked&&!linkedProjections;
  let leaders=[],pdfLayout='',pdfPlacement='keep',pdfExporting=false,printPalette='screen';
  let mainComment='',comments=[],commentWidths={},activeComment='comment',viewScales={},autoIsoScale;
@@ -2924,7 +2924,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     fill:'#0787a3',stroke:'#ffffff','stroke-width':'1.4','vector-effect':'non-scaling-stroke','pointer-events':'all'}))handle.setAttribute(key,value);
    handle.append(title);svg.append(handle);
   }
-  inlineScales.sync(drag?null:svg,drag?{}:sheet.layout);
+  inlineScales.sync(drag?null:svg,drag?{}:sheet.layout,sheet.viewTitles);
  }
  function drawingViewResizeState(name){
   const view=sheet.layout[name],page=editingPage+1,scale=Number($('drawing-scale').value),before=options();
@@ -3259,8 +3259,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   dimensionPoints=structuredClone(s?.dimensionPoints??[]);
   autoDimensionTypesEnabled=[...(s?.options.autoDimensionTypes??autoDimensionKeys)];groupRepeatedDimensions=s?.options.groupRepeatedDimensions??true;dimensionList?.clear();
   uniqueOverallDimensions=s?.options.uniqueOverallDimensions??false;pdfPlacement=s?.options.pdfPlacement??'keep';
-  linkedProjections=s?.options.linkedProjections??false;
-  linkedProjectionScales=s?.options.linkedProjectionScales??false;
+  linkedProjections=s?!!s.options.linkedProjections:true;
+  linkedProjectionScales=s?!!s.options.linkedProjectionScales:true;
   autoIsoScale=s?.options.autoIsoScale;
   commentWidths=structuredClone(s?.options.commentWidths??{});inspectedHole=null;
   const lastColors=s?{}:readDrawingColorPreferences();
@@ -3270,7 +3270,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const lastDimensions=Object.fromEntries(colorFields.map(([key])=>[key,lastColors[key]])
    .filter(([,color])=>color&&color!==defaultDrawingDimensionColor));
   dimensionColors=structuredClone(s?.options.dimensionColors??lastDimensions);
-  leaders=structuredClone(s?.options.leaders||[]);pdfLayout=s?.options.pdfLayout??'';pageAssignments=structuredClone(s?.options.pageAssignments??{pageCount:2,views:{},comments:{}});selectedPlacements.clear();holeTable=s?.options.holeTable?structuredClone(s.options.holeTable):undefined;breakRange=s?.options.breakRange?.slice();breakAxis=s?.options.breakAxis??'';breakPercent=s?.options.breakPercent??defaultBreakPercent;commentFont=s?.options.commentFont??'';hiddenViews=structuredClone(s?.options.hiddenViews||{});dimensionReferences=structuredClone(s?.options.dimensionReferences||{});frontFrame=s?.options.frontFrame;autoDimensionViews=structuredClone(s?.options.autoDimensionViews||{});dimensionFontSize=s?.options.dimensionFontSize??standardDimensionFont;setViewSelection(s?.options.viewSelection??defaultDrawingViews);$('drawing-view-priority').value=s?.options.viewPriority??'balanced';setIsoMode(s?.options.isoMode??'full');sections=structuredClone(s?.options.sections||[]);details=structuredClone(s?.options.details||[]);markers=structuredClone(s?.options.markers||[]);action=null;comments=structuredClone(s?.options.comments||[]);activeComment='comment';mainComment=s?.comment||'';viewScales=structuredClone(s?.options.viewScales||{});commentSize=s?.options.commentSize??3.5;dimensions=structuredClone(s?.dimensions||[]);positions=structuredClone(s?.options.positions||{});layoutKind=s?.options.layout??'projection';projectionLocked=s?.options.projectionLocked??!drawingProjectionNames.some(name=>positions[name]);setScale(s?.scale||1);$('drawing-hidden').checked=s?.hidden??true;$('drawing-comment').value=s?.comment||'';for(const key of ['paper','orientation','name','revision','material','date']){const id={paper:'paper-size'}[key]||key;$('drawing-'+id).value=s?.options[key]??({paper:'A4',orientation:'landscape',date:new Date().toLocaleDateString('sv-SE')}[key]||'');}$('drawing-frame').checked=s?.options.frame??true;}
+  leaders=structuredClone(s?.options.leaders||[]);pdfLayout=s?.options.pdfLayout??'';pageAssignments=structuredClone(s?.options.pageAssignments??{pageCount:2,views:{},comments:{}});selectedPlacements.clear();holeTable=s?.options.holeTable?structuredClone(s.options.holeTable):undefined;breakRange=s?.options.breakRange?.slice();breakAxis=s?.options.breakAxis??'';breakPercent=s?.options.breakPercent??defaultBreakPercent;commentFont=s?.options.commentFont??'';hiddenViews=structuredClone(s?.options.hiddenViews||{});dimensionReferences=structuredClone(s?.options.dimensionReferences||{});frontFrame=s?.options.frontFrame;autoDimensionViews=structuredClone(s?.options.autoDimensionViews||{});dimensionFontSize=s?.options.dimensionFontSize??standardDimensionFont;setViewSelection(s?.options.viewSelection??defaultDrawingViews);$('drawing-view-priority').value=s?.options.viewPriority??'balanced';setIsoMode(s?.options.isoMode??'full');sections=structuredClone(s?.options.sections||[]);details=structuredClone(s?.options.details||[]);markers=structuredClone(s?.options.markers||[]);action=null;comments=structuredClone(s?.options.comments||[]);activeComment='comment';mainComment=s?.comment||'';viewScales=structuredClone(s?.options.viewScales||{});commentSize=s?.options.commentSize??3.5;dimensions=structuredClone(s?.dimensions||[]);positions=structuredClone(s?.options.positions||{});layoutKind=s?.options.layout??'projection';projectionLocked=s?(s.options.projectionLocked??(!linkedProjections&&!drawingProjectionNames.some(name=>positions[name]))):false;setScale(s?.scale||1);$('drawing-hidden').checked=s?.hidden??true;$('drawing-comment').value=s?.comment||'';for(const key of ['paper','orientation','name','revision','material','date']){const id={paper:'paper-size'}[key]||key;$('drawing-'+id).value=s?.options[key]??({paper:'A4',orientation:'landscape',date:new Date().toLocaleDateString('sv-SE')}[key]||'');}$('drawing-frame').checked=s?.options.frame??true;}
  dimensionList=installDrawingDimensionList(viewportBar,{
   read:()=>({dimensions,colors:dimensionColors,ready:!!data&&!!sheet&&!busy}),notify:status,
   onChange(next,{reflow=false}={}){if(!sheet||busy)return;dimensions=next;selection=null;picking=null;action=null;render(true,{reflowDimensions:reflow});},

@@ -603,7 +603,10 @@ try{
  const projectionNames=['front','top','right'];
  const drawingViews=[...projectionNames,'iso'];
  const transforms=(names=drawingViews)=>Promise.all(names.map(name=>geometry(editor,name)));
- assert.equal(await link.isChecked(),false);
+ assert.equal(await field('projection-lock').isChecked(),false);
+ assert.equal(await link.isChecked(),true);
+ assert.equal(await field('link-scales').isChecked(),true);
+ assert.equal(await field('layout-mode').isChecked(),true);
  const [isoX]=await viewBox('iso');
  for(const view of ['top','front','right']){
   const [x,,width]=await viewBox(view);

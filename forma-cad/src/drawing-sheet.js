@@ -5,7 +5,7 @@ import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingComm
 import {dimensionLabelWidth,dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
-import {drawingViewTitle,drawingViewTitleSVG} from './drawing-view-title.js';
+import {layoutDrawingViewTitles,drawingViewTitleSVG} from './drawing-view-title.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
 import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout,drawingLeadersSVG} from './drawing-leaders.js';
@@ -170,9 +170,14 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const leaderLabels=leaderGeometry.map(([,geometry])=>geometry?.label).filter(Boolean);
  const viewBoxes={};
  const scaleSummary=drawingScaleSummary(Object.values(layout).map(view=>view.scale));
+ const thirdAngle=drawingProjectionNames.some(name=>layout[name])&&isThirdAngleLayout(layout)&&(!layout.front||drawingViewFactor('front',options)===1);
+ const sheetTitle='FORMA CAD / '+(options.layout==='compact'?'AUTO LAYOUT':thirdAngle?'THIRD ANGLE':'VIEW LAYOUT');
+ const headerText=(options.showLayoutLabel===false?'':sheetTitle+'    ')+scaleSummary.header;
+ const headerWidth=dimensionLabelWidth(headerText,3.5);
+ const headerBox={x:width-15-headerWidth,y:8.5,width:headerWidth,height:4.5};
  const contentBottom=height-(options.frame?35:12);
  const paper={width,height,contentBottom,titleBlock:options.frame?drawingTitleBlock(width,height):null};
- const titles=Object.fromEntries(Object.entries(layout).map(([name,view])=>[name,drawingViewTitle(name,view,options,scaleSummary.mixed,paper)]));
+ const titles=layoutDrawingViewTitles(layout,options,scaleSummary.mixed,paper,[headerBox,...notes,holeBox,...leaderLabels]);
  const viewTitles=Object.fromEntries(Object.entries(titles).map(([name,title])=>[name,title.bounds]));
  if(viewColor){
   for(const [name,{x,y,width,height}] of Object.entries(layout))viewBoxes[name]=[{x,y,width,height},viewTitles[name]];
@@ -221,11 +226,6 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const viewsSVG=viewNames.map(name=>view(name)).join('');
  const silhouettes=color?viewNames.map(name=>view(name,true)).join(''):'';
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor,paper)).join(''):'';
- const thirdAngle=drawingProjectionNames.some(name=>layout[name])&&isThirdAngleLayout(layout)&&(!layout.front||drawingViewFactor('front',options)===1);
- const sheetTitle='FORMA CAD / '+(options.layout==='compact'?'AUTO LAYOUT':thirdAngle?'THIRD ANGLE':'VIEW LAYOUT');
- const headerText=(options.showLayoutLabel===false?'':sheetTitle+'    ')+scaleSummary.header;
- const headerWidth=dimensionLabelWidth(headerText,3.5);
- const headerBox={x:width-15-headerWidth,y:8.5,width:headerWidth,height:4.5};
  const header='<text data-sheet-header="true" x="'+(width-15)+'" y="12" font-size="3.5" text-anchor="end" xml:space="preserve">'+
   (options.showLayoutLabel===false?'':'<tspan data-sheet-title="true">'+esc(sheetTitle)+'</tspan>    ')+
   '<tspan data-sheet-scale="true">'+esc(scaleSummary.header)+'</tspan></text>';
