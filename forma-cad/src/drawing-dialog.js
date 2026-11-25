@@ -32,7 +32,7 @@ import {associateDrawingHoleSources,drawingHoleCandidates,drawingHoleCenterRefer
 import {drawingThreadLeader,reconcileDrawingThreadLeaders} from './drawing-thread-annotations.js';
 import {drawingThreadDimensionTarget,restoreAdjustedThreadDimensions} from './drawing-thread-dimensions.js';
 import {followSectionEdit} from './drawing-section-references.js';
-import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,drawingDiameterCandidateVisible,drawingDiameterDraftPosition,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions,unmeasuredDrawingHoles} from './drawing-auto-dimensions.js';
+import {autoDimensionKeys,autoDimensionViewTypes,autoDrawingDimensions,drawingDiameterCandidateVisible,drawingDiameterDraftPosition,drawingIsometricOverallAnchors,hideDuplicateOverallDimensions,overallDrawingDimensions,reconcileAutomaticOverallDimensions,unmeasuredDrawingHoles} from './drawing-auto-dimensions.js';
 import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts,keepDrawingDimensionClear,reflowResizedDrawingDimensions} from './drawing-dimension-layout.js';
 import {drawingLineworkTest} from './drawing-linework.js';
 import {drawingFrontFrame,sameDrawingFront} from './drawing-front.js';
@@ -1486,7 +1486,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function repositionConflictingDimension(index){
   const placed=onSheetDimensions(),d=placed[index];
   if(!sheet||busy||drag||!d||d.pinned||d.review)return;
-  const result=arrangeDrawingDimensions([d],sheet,placed.filter((_,i)=>i!==index),{preferNearby:true,requireClear:true});
+  const result=arrangeDrawingDimensions([d],sheet,placed.filter((_,i)=>i!==index),{
+   preferNearby:true,requireClear:true,allowAnchorChanges:editingPage<0,
+  });
   if(result.unresolved.length){status('この寸法を重なりなく置ける場所が見つかりませんでした');return;}
   storeDimensionPlacement(index,result.dimensions[0]);
   picking=null;action=null;selection={type:'dimension',index};
@@ -1597,7 +1599,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const makeSheet=()=>drawingSheet(data,Number($('drawing-scale').value),$('drawing-hidden').checked,dimensions,mainComment,options());
   overviewSheet=makeSheet();
   if(reflowDimensions){
-   const adjusted=reflowResizedDrawingDimensions(dimensions,overviewSheet);
+   const adjusted=reflowResizedDrawingDimensions(dimensions,overviewSheet,{
+    getIsoAnchors:commit?()=>drawingIsometricOverallAnchors(data,overviewSheet):undefined,
+   });
    if(adjusted.moved){dimensions=adjusted.dimensions;overviewSheet=makeSheet();}
   }
   sheet=overviewSheet;
@@ -1817,7 +1821,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   });
  }
  function renderResizedDimensions(){
-  const adjusted=reflowResizedDrawingDimensions(dimensions,sheet);
+  const adjusted=reflowResizedDrawingDimensions(dimensions,sheet,{allowAnchorChanges:editingPage<0});
   dimensions=adjusted.dimensions;
   render();
   if(adjusted.moved&&sheet&&!overflow)status($('drawing-status').textContent+' · 自動寸法 '+adjusted.moved+' 件の位置を調整しました');
@@ -2544,7 +2548,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(omittedHoleAdd.disabled)return;
   const d=selectedOmittedHole.dimension;
   const draft=applyDimensionFont({...d,automatic:true,at:drawingDiameterDraftPosition(d,sheet.layout[d.view])});
-  const placed=arrangeDrawingDimensions([draft],sheet,[...onSheetDimensions(),...sheet.inheritedDimensions],{preferNearby:true,keepOnPaper:true});
+  const placed=arrangeDrawingDimensions([draft],sheet,onSheetDimensions(),{
+   preferNearby:true,hitsLinework:drawingLineworkTest(viewportHost.querySelector('svg'),sheet),
+  });
   const added=editingPage<0?placed.dimensions:addedPageDimensions(placed.dimensions,Number($('drawing-scale').value));
   preserveActivePDFPlacement();
   dimensions=[...dimensions,...added];selectedOmittedHole=null;
@@ -2560,7 +2566,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const placed=sheet.dimensionIndices?.map((index,i)=>({...sheet.dimensions[i],hidden:current.dimensions[index].hidden}))??current.dimensions;
   const result=autoDrawingDimensions(data,scale,current.dimensions,sheet,{
    views:autoDimensionViews,types:autoDimensionTypesEnabled,groupRepeated:groupRepeatedDimensions,uniqueAxes:unique,
-   fontSize:dimensionFontSize===standardDimensionFont?undefined:dimensionFontSize,details,placed});
+   fontSize:dimensionFontSize===standardDimensionFont?undefined:dimensionFontSize,details,placed,
+   hitsLinework:drawingLineworkTest(viewportHost.querySelector('svg'),sheet),
+  });
   let added=result.dimensions;
   if(editingPage>=0&&added.length)added=addedPageDimensions(added,scale);
   if(added.length||result.updated||current.hidden)preserveActivePDFPlacement();
@@ -2593,9 +2601,18 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-dimension-arrange').onclick=()=>{
   if(!data||!sheet||busy||!dimensions.length)return;
   picking=null;action=null;selection=null;
-  const layout=arrangeDrawingDimensions(onSheetDimensions(),sheet);
+  const placed=onSheetDimensions();
+  const layout=arrangeDrawingDimensions(placed,sheet,[],{
+   allowAnchorChanges:editingPage<0,
+   isoAnchors:editingPage<0?drawingIsometricOverallAnchors(data,sheet):undefined,
+   hitsLinework:drawingLineworkTest(viewportHost.querySelector('svg'),sheet),
+  });
   if(editingPage<0)dimensions=layout.dimensions;
-  else for(const index of sheet.dimensionIndices)storeDimensionPlacement(index,layout.dimensions[index]);
+  else{
+   const moved=sheet.dimensionIndices.filter(index=>layout.dimensions[index].at.some((n,i)=>n!==placed[index].at[i]));
+   if(moved.length)preserveActivePDFPlacement();
+   for(const index of moved)storeDimensionPlacement(index,layout.dimensions[index]);
+  }
   render();
   if(!overflow)status('寸法を自動配置しました。元に戻すで配置を戻せます。'+(layout.unresolved.length?' '+layout.unresolved.length+' 個は重なりを解消できませんでした。縮尺・用紙サイズを調整してください。':''));
  };

@@ -76,8 +76,10 @@ function followPoint(point,{points,round,follow},reference,box,view){
 }
 function overall(d,box,reference){
  const [x,y,w,h]=box,axis=d.kind==='vertical'?0:1;
- const a=d.kind==='vertical'?[x,y]:[x,y+h],b=d.kind==='vertical'?[x,y+h]:[x+w,y+h];
- const oldBox=reference?.box,at=translate(d.at,midpoint(d.a,d.b),midpoint(a,b));
+ const oldBox=reference?.box,side=atBound(d.a[axis],oldBox??box,axis)??axis;
+ const anchor=box[axis]+side*box[axis+2];
+ const a=d.kind==='vertical'?[anchor,y]:[x,anchor],b=d.kind==='vertical'?[anchor,y+h]:[x+w,anchor];
+ const at=translate(d.at,midpoint(d.a,d.b),midpoint(a,b));
  if(oldBox){
   const side=d.at[axis]<oldBox[axis]+oldBox[axis+2]/2?0:1;
   at[axis]=d.at[axis]+box[axis]+side*box[axis+2]-oldBox[axis]-side*oldBox[axis+2];

@@ -179,9 +179,9 @@ function spansIsoAxis(a,b,axis,[min,max]){
   a.every((coordinate,i)=>i===axis||isoNear(coordinate,b[i]));
 }
 
-function isoOverallDimension(vertices,bounds,axis,scale,outline){
+function isoOverallDimensionOptions(vertices,bounds,axis,scale,outline){
  const [min,max]=bounds,[u,v]=[0,1,2].filter(i=>i!==axis);
- if(max[axis]-min[axis]<=2*isoVertexTolerance)return null;
+ if(max[axis]-min[axis]<=2*isoVertexTolerance)return [];
  const cell=n=>Math.floor(n/isoVertexTolerance),far=new Map();
  for(const vertex of vertices){
   if(!isoNear(vertex.model[axis],max[axis]))continue;
@@ -189,7 +189,8 @@ function isoOverallDimension(vertices,bounds,axis,scale,outline){
   if(!far.has(id))far.set(id,[]);
   far.get(id).push(vertex);
  }
- let best=null,distance=Infinity,normal,lower=Infinity,upper=-Infinity;
+ const options=[null,null];
+ let normal,lower=Infinity,upper=-Infinity;
  const cross=p=>normal[0]*p[0]+normal[1]*p[1];
  for(const {point:a,model:modelA} of vertices){
   if(!isoNear(modelA[axis],min[axis]))continue;
@@ -206,15 +207,23 @@ function isoOverallDimension(vertices,bounds,axis,scale,outline){
     }
    }
    const edge=cross(a);
-   const side=edge-lower<upper-edge?-1:1;
-   const gap=(side<0?edge-lower:upper-edge)+8/scale;
-   if(gap>=distance)continue;
-   distance=gap;
-   const at=a.map((value,k)=>(value+b[k])/2+side*normal[k]*gap);
-   best={view:'iso',kind:'aligned',a,b,modelA,modelB,at,overall:isoOverallKeys[axis]};
+   for(const [index,gap] of [upper-edge+8/scale,edge-lower+8/scale].entries()){
+    if(options[index]&&options[index].gap<=gap+1e-6)continue;
+    const side=index===0?1:-1,at=a.map((value,k)=>(value+b[k])/2+side*normal[k]*gap);
+    options[index]={gap,dimension:{view:'iso',kind:'aligned',a,b,modelA,modelB,at,overall:isoOverallKeys[axis]}};
+   }
   }
  }
- return best;
+ // Equally short anchors prefer the lower faces and the right-hand height edge.
+ return options.filter(Boolean).sort((a,b)=>Math.abs(a.gap-b.gap)<1e-6?0:a.gap-b.gap).map(option=>option.dimension);
+}
+
+export function drawingIsometricOverallAnchors(data,sheet){
+ const iso=sheet.layout.iso,vertices=data.views.iso?.dimensionVertices;
+ if(!iso||!vertices?.length)return {};
+ const outline=sheet.isometricOutline??drawingIsometricOutline(data.bounds);
+ return Object.fromEntries(isoOverallKeys.map((key,axis)=>
+  [key,isoOverallDimensionOptions(vertices,data.bounds,axis,iso.scale,outline)]));
 }
 
 function isOverallDimension(d){
@@ -259,7 +268,7 @@ export function reconcileAutomaticOverallDimensions(data,dimensions,viewScale){
   }
   const scale=viewScale(d.view);
   const measure=d.view==='iso'?
-   isoOverallDimension(data.views.iso.dimensionVertices??[],data.bounds,isoOverallKeys.indexOf(d.overall),scale,drawingIsometricOutline(data.bounds)):
+   isoOverallDimensionOptions(data.views.iso.dimensionVertices??[],data.bounds,isoOverallKeys.indexOf(d.overall),scale,drawingIsometricOutline(data.bounds))[0]:
    projectionOverallDimensions(data,d.view,scale)[d.kind==='horizontal'?0:1];
   if(!measure||dimensionValue(measure)<=1e-6){
    return [d];
@@ -277,7 +286,7 @@ export function reconcileAutomaticOverallDimensions(data,dimensions,viewScale){
 // hidden arcs are deliberately excluded; they cannot identify a complete hole.
 export function completeDrawingCircles(view,arcs=drawingCurves(view.visible).arcs){const groups=new Map();for(const a of arcs){const id=circleKey(a);if(!groups.has(id))groups.set(id,{center:a.center,radius:a.radius,intervals:[]});let start=Math.atan2(a.a[1]-a.center[1],a.a[0]-a.center[0]),end=Math.atan2(a.b[1]-a.center[1],a.b[0]-a.center[0]);if(!a.sweep)[start,end]=[end,start];while(start<0)start+=Math.PI*2;while(start>=Math.PI*2)start-=Math.PI*2;while(end<=start)end+=Math.PI*2;const list=groups.get(id).intervals;list.push([start,Math.min(end,Math.PI*2)]);if(end>Math.PI*2)list.push([0,end-Math.PI*2]);}return [...groups.values()].filter(c=>{let covered=0,end=0;for(const [a,b]of c.intervals.sort((a,b)=>a[0]-b[0])){if(b>end){covered+=b-Math.max(a,end);end=b;}}return covered>=Math.PI*2-1e-4;}).map(({center,radius})=>({center,radius}));}
 
-export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},types=autoDimensionKeys,groupRepeated=true,uniqueAxes=false,fontSize,details=[],placed=existing}={}){
+export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},types=autoDimensionKeys,groupRepeated=true,uniqueAxes=false,fontSize,details=[],placed=existing,hitsLinework}={}){
  const enabled=(view,type)=>types.includes(type)&&(views[view]?.includes(type)??true);
  const projected=withDetails(data,details).views,limit=500-existing.length;
  const {updates,split:added}=updateAutomaticBoreDimensions(existing,projected,sheet,enabled,limit,groupRepeated);
@@ -306,14 +315,13 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
   if(axes?.has(axis))continue;
   if(push(d))axes?.add(axis);
  }
- const iso=sheet.layout.iso,vertices=data.views.iso?.dimensionVertices;
- if(iso&&vertices?.length>1&&(views.iso?.includes('outline')??true)){
+ const isoAnchors=(views.iso?.includes('outline')??true)?drawingIsometricOverallAnchors(data,sheet):{};
+ if(Object.keys(isoAnchors).length){
   const existingIso=current.filter(d=>d.view==='iso'&&!d.review);
-  const outline=sheet.isometricOutline??vertices.map(vertex=>vertex.point);
   for(const axis of [0,1,2]){
    if(axes?.has(axis)||!types.includes(axis===2?'vertical':'horizontal')||
     existingIso.some(d=>spansIsoAxis(d.modelA,d.modelB,axis,data.bounds)))continue;
-   const dimension=isoOverallDimension(vertices,data.bounds,axis,iso.scale,outline);
+   const dimension=isoAnchors[isoOverallKeys[axis]][0];
    if(dimension)push(dimension);
   }
  }
@@ -371,7 +379,7 @@ export function autoDrawingDimensions(data,scale,existing=[],sheet,{views={},typ
    for(const d of groupRepeated?groupDrawingDimensions(round,projected):round)push(d);
   }
  }
- const layout=arrangeDrawingDimensions(added,sheet,locked,{keepOnPaper:true});
+ const layout=arrangeDrawingDimensions(added,sheet,locked,{isoAnchors,hitsLinework});
  const omitted=candidates.filter(({dimension})=>!circleMeasured(dimension,keys));
  return {dimensions:layout.dimensions,existing:current,updated:updates.size,skipped,omitted,layoutWarnings:layout.unresolved.length};
 }

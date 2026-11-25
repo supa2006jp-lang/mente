@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {autoDrawingDimensions,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
+import {autoDrawingDimensions,drawingIsometricOverallAnchors,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
+import {arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts} from '../src/drawing-dimension-layout.js';
+import {drawingBoxPlacementIssue} from '../src/drawing-paper-bounds.js';
 import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
 import {dimensionLabel,dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
@@ -211,6 +213,63 @@ test('manufacturing dimensions choose a visible enabled view for each axis',()=>
  assert.strictEqual(compact.dimensions.find(d=>d.overall===pinned.overall),pinned);
  assert.equal(autoDrawingDimensions(part,1,compact.dimensions,sheet,{uniqueAxes:true}).dimensions.length,0);
  assert.equal(current.some(d=>d.hidden),false);
+});
+
+test('automatic arrangement keeps crowded overview dimensions outside the views and shortens isometric extensions',()=>{
+ const modelBounds=[[0,0,0],[50,50,30]];
+ const vertices=[[0,0,0],[50,0,0],[50,50,0],[50,50,30],[0,50,30],[0,0,30],[50,0,30]]
+  .map(model=>({model,point:projectDrawingIsometric(model)}));
+ const iso={visible:['M '+vertices.slice(0,6).map(({point})=>point.join(' ')).join(' L ')+' Z'],hidden:[],
+  viewBox:[0,-110/Math.sqrt(6),100/Math.SQRT2,160/Math.sqrt(6)],dimensionVertices:vertices};
+ const data={...part,bounds:modelBounds,views:{front:rect(50,30),top:rect(50,50),right:rect(50,30),iso}};
+ const config={...options,sections:[],layout:'compact',projectionLocked:false,isoMode:'full',viewScales:{iso:1.2},
+  positions:{top:[14,26],front:[14,124],right:[106,124],iso:[188,28]}};
+ const sheet=drawingSheet(data,1.6,true,[],'',config),anchors=drawingIsometricOverallAnchors(data,sheet);
+ const generated=autoDrawingDimensions(data,1.6,[],sheet);
+ assert.equal(generated.layoutWarnings,0);
+ const existing=generated.dimensions.map(d=>{
+  // Legacy ISO dimensions can point to the back of the opening even with a dimension line below it.
+  if(d.overall==='iso-x'||d.overall==='iso-y'){
+   const back=anchors[d.overall].find(draft=>draft.modelA[2]===30);
+   return {...d,...back,at:d.at};
+  }
+  if(d.overall==='tophorizontal')return {...d,at:[d.at[0],d.a[1]+.6]};
+  return d;
+ });
+ const result=arrangeDrawingDimensions(existing,sheet,[],{isoAnchors:anchors});
+ assert.deepEqual(result.unresolved,[]);
+ assert.deepEqual(result.dimensions.map(dimensionValue),existing.map(dimensionValue));
+ assert.deepEqual(drawingDimensionConflicts(result.dimensions,sheet),[]);
+ for(const d of result.dimensions){
+  const view=sheet.layout[d.view],placement=dimensionPlacement(d,sheet);
+  assert.ok([placement.box,...placement.main,...placement.extensions,...placement.arrowBoxes].every(box=>!drawingBoxPlacementIssue(box,sheet)));
+  if(d.view==='iso'){
+   for(const [a,b] of drawingDimensionGeometry(d,view).extensions)
+    assert.ok(Math.hypot(b[0]-a[0],b[1]-a[1])<13,`short exterior extension for ${d.overall}`);
+   if(d.overall!=='iso-z')assert.equal(d.modelA[2],0);
+  }else{
+   const label=placement.box,clear=d.kind==='horizontal'?
+    label.y+label.height<view.y-1||label.y>view.y+view.height+1:
+    label.x+label.width<view.x-1||label.x>view.x+view.width+1;
+   assert.ok(clear,`label clearance for ${d.overall}`);
+  }
+ }
+ const fixed={...existing.find(d=>d.overall==='iso-x'),pinned:true};
+ assert.deepEqual(arrangeDrawingDimensions([fixed],sheet,[],{isoAnchors:anchors}).dimensions,[fixed]);
+});
+
+test('the shortest parallel dimension uses the first lane and dimensions use the space beside the title block',()=>{
+ const drawing=drawingSheet(part,1.6,true,[],'',{...options,sections:[],layout:'compact',viewSelection:['front'],
+  isoMode:'hidden',projectionLocked:false,positions:{front:[20,151]}});
+ const long={view:'front',kind:'horizontal',a:[0,0],b:[60,0],at:[30,1],overall:'fronthorizontal'};
+ const short={...long,b:[24,0],overall:undefined};
+ const result=arrangeDrawingDimensions([long,short],drawing);
+ assert.deepEqual(result.unresolved,[]);
+ const [outer,inner]=result.dimensions.map(d=>drawingDimensionGeometry(d,drawing.layout.front).at[1]);
+ assert.equal(inner,drawing.layout.front.y+drawing.layout.front.height+8);
+ assert.equal(outer-inner,6);
+ assert.ok(outer>drawing.titleBlock.y);
+ assert.ok(result.dimensions.every(d=>!drawingBoxPlacementIssue(dimensionPlacement(d,drawing).box,drawing)));
 });
 
 test('automatic isometric dimensions use full spans between visible model vertices',()=>{

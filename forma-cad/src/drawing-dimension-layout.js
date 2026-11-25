@@ -1,5 +1,7 @@
-import {dimensionLabel,dimensionLabelWidth,drawingDimensionGeometry} from './drawing-dimensions.js';
+import {dimensionLabel,dimensionLabelWidth,dimensionValue,drawingDimensionGeometry} from './drawing-dimensions.js';
 import {drawingDimensionVisible,drawingModelPoint as local,drawingPaperPoint as map} from './drawing-break.js';
+import {drawingBoxPlacementIssue} from './drawing-paper-bounds.js';
+import {projectDrawingIsometric} from './drawing-view-preferences.js';
 const overlaps=(a,b,p=0)=>a.x<b.x+b.width+p&&a.x+a.width+p>b.x&&a.y<b.y+b.height+p&&a.y+a.height+p>b.y;
 const bounds=(points,pad=0)=>{
  const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
@@ -36,7 +38,7 @@ export function dimensionPlacement(d,sheet){
  const box={x:x-width/2,y:y-font*.75,width,height:font*1.45};
  return {box,main:main.map(line=>bounds(line,.1)),
   extensions:g.extensions.map(line=>bounds(line,.1)),arrowBoxes,strokes:[...main,...g.extensions],
-  primary:d.center?[g.extensions[0]]:main,radius:d.kind==='radius'};
+  primary:d.center?[g.extensions[0]]:main,radius:d.kind==='radius',linear:!!g.direction};
 }
 const labelHitsInk=(box,placement)=>placement.arrowBoxes.some(arrow=>overlaps(box,arrow,.6))||
  placement.strokes.some(stroke=>segmentHitsBox(stroke,box,.7));
@@ -61,10 +63,10 @@ function collinearOverlap([a,b],[c,d]){
  return bounds([lo,hi].map(t=>[a[0]+dx*t/length,a[1]+dy*t/length]),.15);
 }
 function collisionEnvelope(p){
- return p.envelope??=bounds([p.box,...p.main,...p.extensions,...p.arrowBoxes].flatMap(b=>[[b.x,b.y],[b.x+b.width,b.y+b.height]]),.2);
+ return p.envelope??=bounds([...p.strokes.flat(),...(p.arrowBoxes.concat(p.box)).flatMap(boxCorners)]);
 }
 function dimensionOverlap(a,b){
- if(!overlaps(collisionEnvelope(a),collisionEnvelope(b)))return null;
+ if(!overlaps(collisionEnvelope(a),collisionEnvelope(b),.4))return null;
  if(overlaps(a.box,b.box))return {reason:'文字同士',box:hitArea(a.box,b.box)};
  for(const [p,q] of [[a,b],[b,a]]){
   const arrow=q.arrowBoxes.find(box=>overlaps(p.box,box));
@@ -84,6 +86,7 @@ function dimensionOverlap(a,b){
 function dimensionObstacles(sheet){
  return [
   ...Object.values(sheet.viewTitles||{}).map(box=>({box,reason:'見出し枠'})),
+  ...(sheet.headerBox?[{box:sheet.headerBox,reason:'用紙の見出し'}]:[]),
   ...[...(sheet.notes??[sheet.note]).map(note=>[note,'コメント']),[sheet.holeBox,'穴位置表'],...(sheet.leaderLabels||[]).map(box=>[box,'矢印付き注記'])]
    .filter(([box])=>box).map(([box,reason])=>({box,reason})),
  ];
@@ -115,8 +118,63 @@ export function drawingDimensionConflicts(dimensions,sheet){
  }
  return [...issues.values()].sort((a,b)=>a.index-b.index);
 }
-function candidates(d,v){const result=[],push=p=>result.push({...d,at:local(v,p)}),at=map(v,d.at),a=d.a&&map(v,d.a),b=d.b&&map(v,d.b),sides=d.kind==='horizontal'?['bottom','top']:d.kind==='vertical'?['left','right']:['right','left','bottom','top'];
- for(let lane=0;lane<16;lane++){const gap=8+lane*(d.kind==='vertical'?4:6);for(const side of sides){if(d.kind==='horizontal')push([at[0],side==='bottom'?v.y+v.height+gap:v.y-gap-3]);else if(d.kind==='vertical')push([side==='left'?v.x-gap:v.x+v.width+gap,at[1]]);else if(d.kind==='aligned'){const u=[b[0]-a[0],b[1]-a[1]],l=Math.hypot(...u)||1,n=[-u[1]/l,u[0]/l],sign=side==='right'||side==='top'?1:-1,offset=Math.hypot(v.width,v.height)/2+gap;push([(a[0]+b[0])/2+n[0]*offset*sign,(a[1]+b[1])/2+n[1]*offset*sign]);}else{const c=map(v,d.center);if(side==='right'||side==='left'){const x=side==='right'?v.x+v.width+gap:v.x-gap;for(const dy of [0,-6,6,-12,12])push([x,c[1]+dy]);}else{const y=side==='bottom'?v.y+v.height+gap:v.y-gap-3;for(const dx of [0,-10,10])push([c[0]+dx,y]);}}}}
+const boxCorners=({x,y,width,height})=>[[x,y],[x+width,y],[x+width,y+height],[x,y+height]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1];
+const normalTo=([x,y])=>[-y,x];
+const projectionRange=(points,normal)=>{
+ const projected=points.map(p=>dot(p,normal));
+ return {normal,min:Math.min(...projected),max:Math.max(...projected)};
+};
+const orthogonalNormals=[[1,0],[0,1]];
+const isoNormals=orthogonalNormals.concat([[1,0,0],[0,1,0]].map(axis=>{
+ const direction=projectDrawingIsometric(axis),length=Math.hypot(...direction);
+ return normalTo(direction.map(n=>n/length));
+}));
+function drawingViewShapes(sheet){
+ return Object.entries(sheet.layout).map(([name,view])=>{
+  const iso=name==='iso'&&sheet.isometricOutline?.length;
+  const points=iso?sheet.isometricOutline.map(point=>map(view,point)):boxCorners(view);
+  const limits=(iso?isoNormals:orthogonalNormals).map(normal=>projectionRange(points,normal));
+  return {name,points,limits,box:bounds(points)};
+ });
+}
+
+// Use the angle of the measured edge to place each lane beyond the actual projected outline.
+function linearCandidates(d,v,shape,{moveOverallAnchors=false}={}){
+ const geometry=drawingDimensionGeometry(d,v);
+ if(!geometry?.direction)return [d];
+ const normal=normalTo(geometry.direction);
+ const {min,max}=projectionRange(shape.points,normal),at=map(v,d.at),coordinate=dot(at,normal);
+ const laneSpacing=Math.max(6,(d.fontSize??3.2)*1.45+1);
+ const gaps=[...Array.from({length:12},(_,i)=>8+i*laneSpacing),5,3];
+ // Prefer the lower edge for widths and the right edge for heights.
+ const positive=normal[1]>0||Math.abs(normal[1])<1e-9&&normal[0]>0;
+ const anchor=moveOverallAnchors?map(v,d.a):null;
+ const result=[];
+ for(const gap of gaps){
+  const lanes=[[min,min-gap],[max,max+gap]];
+  if(positive)lanes.reverse();
+  for(const [edge,lane] of lanes){
+   const candidate={...d,at:local(v,at.map((n,i)=>n+normal[i]*(lane-coordinate)))};
+   if(anchor){
+    // Only change the perpendicular coordinate of a full-width or full-height measurement.
+    const axis=d.kind==='vertical'?0:1;
+    candidate.a=[...d.a];candidate.b=[...d.b];
+    const first=local(v,anchor.map((n,i)=>n+normal[i]*(edge-dot(anchor,normal))));
+    candidate.a[axis]=candidate.b[axis]=first[axis];
+   }
+   result.push(candidate);
+  }
+ }
+ return result;
+}
+function circularCandidates(d,v){
+ const result=[],c=map(v,d.center),push=(x,y)=>result.push({...d,at:local(v,[x,y])});
+ for(let lane=0;lane<16;lane++){
+  const gap=8+lane*6;
+  for(const x of [v.x+v.width+gap,v.x-gap])for(const dy of [0,-6,6,-12,12])push(x,c[1]+dy);
+  for(const y of [v.y+v.height+gap,v.y-gap-3])for(const dx of [0,-10,10])push(c[0]+dx,y);
+ }
  return result;
 }
 function nearbyCandidates(d,v){
@@ -188,86 +246,145 @@ export function keepDrawingDimensionClear(d,sheet,hitsLinework,snappedAt=d.at){
  return null;
 }
 
-function isometricClearance(d,view,outline){
- const a=map(view,d.a),b=map(view,d.b),dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
- if(length<1e-6)return;
- const nx=-dy/length,ny=dx/length;
- const cross=([x,y])=>nx*x+ny*y;
- const offsets=outline.map(cross),lower=Math.min(...offsets)-1,upper=Math.max(...offsets)+1;
- return ({box,primary})=>{
-  const line=cross(primary[0][0]),center=cross([box.x+box.width/2,box.y+box.height/2]);
-  const half=(Math.abs(nx)*box.width+Math.abs(ny)*box.height)/2;
-  return Math.min(line,center-half)>upper||Math.max(line,center+half)<lower;
- };
+function boxHitsShape(box,{limits},clearance){
+ const center=[box.x+box.width/2,box.y+box.height/2];
+ return limits.every(({normal,min,max})=>{
+  const position=dot(center,normal),half=(box.width*Math.abs(normal[0])+box.height*Math.abs(normal[1]))/2;
+  return position+half>min-clearance&&position-half<max+clearance;
+ });
+}
+function strokeLengthInShape([a,b],{limits},clearance){
+ let start=0,end=1;
+ for(const {normal,min,max} of limits){
+  const low=min-clearance,high=max+clearance,origin=dot(a,normal),delta=dot(b,normal)-origin;
+  if(high<=low)return 0;
+  if(Math.abs(delta)<1e-9){
+   if(origin<=low||origin>=high)return 0;
+   continue;
+  }
+  const u=(low-origin)/delta,v=(high-origin)/delta;
+  start=Math.max(start,Math.min(u,v));end=Math.min(end,Math.max(u,v));
+  if(end<=start)return 0;
+ }
+ return (end-start)*Math.hypot(b[0]-a[0],b[1]-a[1]);
+}
+function viewInterference(placement,d,shapes){
+ const envelope=collisionEnvelope(placement);
+ let neighbors=0,inside=false,extension=0;
+ for(const shape of shapes){
+  if(!overlaps(envelope,shape.box,1))continue;
+  const hitsLabel=boxHitsShape(placement.box,shape,1);
+  if(shape.name===d.view){
+   inside=hitsLabel;
+   if(!placement.linear)continue;
+   inside=inside||placement.primary.some(line=>strokeLengthInShape(line,shape,.5)>0);
+   extension=placement.strokes.slice(placement.primary.length).reduce((sum,line)=>sum+strokeLengthInShape(line,shape,-.3),0);
+  }else if(hitsLabel||placement.arrowBoxes.some(box=>boxHitsShape(box,shape,.5))||
+   placement.strokes.some(line=>strokeLengthInShape(line,shape,.5)>0)){
+   neighbors++;
+  }
+ }
+ return {neighbors,inside,extension};
+}
+function strokesCross([a,b],[c,d]){
+ const x=b[0]-a[0],y=b[1]-a[1],u=d[0]-c[0],v=d[1]-c[1],det=x*v-y*u;
+ if(Math.abs(det)<1e-9)return false;
+ const dx=c[0]-a[0],dy=c[1]-a[1],t=(dx*v-dy*u)/det,s=(dx*y-dy*x)/det;
+ return t>1e-6&&t<1-1e-6&&s>1e-6&&s<1-1e-6;
+}
+function placementChoices(d,v,shape,{isoAnchors,preferNearby,allowAnchorChanges}){
+ if(d.kind==='radius')return radiusCandidates(d,v);
+ const nearby=preferNearby?nearbyCandidates(d,v):[d];
+ if(d.kind==='angle')return nearby;
+ if(d.center)return [...nearby,...circularCandidates(d,v)];
+ const editable=allowAnchorChanges&&!d.pdfPlacement;
+ const equivalents=editable&&d.automatic&&d.view==='iso'?
+  (isoAnchors?.[d.overall]??[]).filter(anchor=>Math.abs(dimensionValue(anchor)-dimensionValue(d))<1e-5&&
+   (anchor.a[0]!==d.a[0]||anchor.a[1]!==d.a[1]||anchor.b[0]!==d.b[0]||anchor.b[1]!==d.b[1])):[];
+ const moveOverallAnchors=editable&&!v.break&&d.view!=='iso'&&d.overall===d.view+d.kind;
+ return [...nearby,...linearCandidates(d,v,shape,{moveOverallAnchors}),...equivalents.flatMap(anchor=>
+  linearCandidates({...d,...anchor},v,shape))];
+}
+function linearSpacingCost(placement,shape){
+ const [a,b]=placement.primary[0],length=Math.hypot(b[0]-a[0],b[1]-a[1]);
+ if(length<1e-8)return 0;
+ const normal=normalTo([(b[0]-a[0])/length,(b[1]-a[1])/length]);
+ const {min,max}=projectionRange(shape.points,normal),line=dot(a,normal);
+ const gap=Math.max(min-line,line-max,0);
+ const extension=placement.strokes.slice(placement.primary.length).reduce((sum,[start,end])=>
+  sum+Math.hypot(end[0]-start[0],end[1]-start[1]),0);
+ return (gap<8?(8-gap)*2:(gap-8)*.35)+extension*.25;
 }
 
 // Move only requested dimensions; callers pass existing annotations as locked.
 // Geometry is in paper mm, independent of screen zoom and printed scale.
-export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false,keepOnPaper=false}={}){
- const bodies=Object.entries(sheet.layout).map(([name,v])=>({name,x:v.x,y:v.y-7,width:v.width,height:v.height+7}));
- const isoOutline=sheet.layout.iso&&sheet.isometricOutline?.map(point=>map(sheet.layout.iso,point));
- const labels=[...(sheet.notes??[sheet.note]),sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
- const obstacles=requireClear?dimensionObstacles(sheet):[];
- const placedGeometry=[...locked,...dimensions.filter(d=>d.pinned)].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
+export function arrangeDrawingDimensions(dimensions,sheet,locked=[],{preferNearby=false,requireClear=false,isoAnchors,hitsLinework,allowAnchorChanges=true}={}){
+ const shapes=drawingViewShapes(sheet),byName=new Map(shapes.map(shape=>[shape.name,shape]));
+ const obstacles=dimensionObstacles(sheet);
+ const placedGeometry=[...locked,...(sheet.inheritedDimensions??[]),...dimensions.filter(d=>d.pinned||d.review)]
+  .map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
  const placed=dimensions.map(d=>({...d,at:[...d.at]})),unresolved=[];
  const order=placed.map((_,i)=>i).sort((a,b)=>Number(placed[a].kind==='radius')-Number(placed[b].kind==='radius')||
-  Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(placed[a].kind==='diameter')-Number(placed[b].kind==='diameter'));
+  Number(!!placed[a].overall)-Number(!!placed[b].overall)||Number(!!placed[a].center)-Number(!!placed[b].center)||
+  dimensionValue(placed[a])-dimensionValue(placed[b]));
  for(const i of order){
   const d=placed[i],v=sheet.layout[d.view];
-  if(d.pinned||!v||!drawingDimensionVisible(d,v))continue;
-  const radius=d.kind==='radius',choices=radius?radiusCandidates(d,v):d.kind==='angle'?[d]:candidates(d,v);
-  const nearby=preferNearby||d.view==='iso';
-  if(nearby&&!radius)choices.unshift(...nearbyCandidates(d,v));
-  const outsideIso=d.view==='iso'&&d.kind==='aligned'&&isoOutline?.length?isometricClearance(d,v,isoOutline):null;
-  let best=radius?choices[0]:d,bestGeometry=dimensionPlacement(best,sheet),bestConflicts=Infinity,bestScore=Infinity;
+  if(d.pinned||d.review||!v||!drawingDimensionVisible(d,v))continue;
+  const shape=byName.get(d.view),choices=placementChoices(d,v,shape,{isoAnchors,preferNearby,allowAnchorChanges});
+  let best=d,bestGeometry=dimensionPlacement(d,sheet),bestConflicts=Infinity,bestScore=Infinity;
   if(!bestGeometry)continue;
   for(const candidate of choices){
-   const p=dimensionPlacement(candidate,sheet),box=p.box;
-   if(!insidePaper(box,sheet))continue;
-   if((keepOnPaper||requireClear)&&
-    [...p.main,...p.extensions,...p.arrowBoxes].some(b=>b.x<4.99||b.y<16.99||b.x+b.width>sheet.width-4.99||b.y+b.height>sheet.contentBottom+.01))continue;
-   if(requireClear&&(obstacleOverlap(p,obstacles)||placedGeometry.some(other=>dimensionOverlap(p,other))))continue;
-   const conflicts=labels.filter(label=>overlaps(box,label,1)||labelHitsInk(label,p)).length+
-    placedGeometry.filter(other=>labelConflict(p,other)).length;
-   if(conflicts>bestConflicts)continue;
-   const clearOfIso=outsideIso?.(p);
-   const bodyConflicts=bodies.filter(body=>!(clearOfIso&&body.name==='iso')&&
-    (overlaps(box,body,1)||p.main.some(line=>overlaps(line,body,.5)))).length;
-   const lineConflicts=placedGeometry.filter(other=>arrowConflict(p,other)||
-    p.main.some(line=>other.main.some(otherLine=>overlaps(line,otherLine,.5)))).length;
-   const distance=nearby&&!radius?Math.min(9,Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale/100):0;
-   const score=100*bodyConflicts+10*lineConflicts+distance;
-   if(conflicts<bestConflicts||score<bestScore){bestConflicts=conflicts;bestScore=score;best=candidate;bestGeometry=p;}
-   if(!conflicts&&!score)break;
+   const p=dimensionPlacement(candidate,sheet);
+   if(!p||drawingBoxPlacementIssue(collisionEnvelope(p),sheet))continue;
+   const interference=viewInterference(p,candidate,shapes);
+   let conflicts=interference.neighbors+Number(!!obstacleOverlap(p,obstacles))+Number(!!hitsLinework?.(p.box));
+   let crowding=0,crossings=0;
+   for(const other of placedGeometry){
+    if(!overlaps(collisionEnvelope(p),collisionEnvelope(other),1))continue;
+    if(dimensionOverlap(p,other))conflicts++;
+    else if(labelConflict(p,other)||arrowConflict(p,other))crowding++;
+    else if(p.primary.some(line=>other.strokes.some(stroke=>strokesCross(line,stroke)))||
+     other.primary.some(line=>p.strokes.some(stroke=>strokesCross(line,stroke))))crossings++;
+   }
+   if(conflicts>bestConflicts||requireClear&&conflicts)continue;
+   const movement=Math.hypot(candidate.at[0]-d.at[0],candidate.at[1]-d.at[1])*v.scale;
+   const score=(interference.inside?60:0)+4*interference.extension+24*crowding+12*crossings+
+    (p.linear?linearSpacingCost(p,shape):0)+(preferNearby?Math.min(12,movement*.12):movement*.001);
+   if(conflicts<bestConflicts||score<bestScore-1e-7){bestConflicts=conflicts;bestScore=score;best=candidate;bestGeometry=p;}
   }
-  if(!requireClear||Number.isFinite(bestScore))placed[i]=best;
-  if(requireClear?!Number.isFinite(bestScore):bestConflicts||bestScore>=10)unresolved.push(i);
-  placedGeometry.push(requireClear&&!Number.isFinite(bestScore)?dimensionPlacement(d,sheet):bestGeometry);
+  placed[i]=best;
+  if(bestConflicts)unresolved.push(i);
+  placedGeometry.push(bestGeometry);
  }
  return {dimensions:placed,unresolved};
 }
-export function reflowResizedDrawingDimensions(dimensions,sheet,{radiiOnly=false}={}){
+export function reflowResizedDrawingDimensions(dimensions,sheet,{radiiOnly=false,getIsoAnchors,allowAnchorChanges=true}={}){
  const automatic=d=>!d.pinned&&!d.review&&(d.automatic||d.overall)&&(!radiiOnly||d.kind==='radius');
  const fixed=dimensions.filter(d=>!automatic(d));
- const taken=fixed.map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
- const labels=[...(sheet.notes??[sheet.note]),sheet.holeBox,...(sheet.leaderLabels||[]),...Object.values(sheet.viewTitles||{})].filter(Boolean);
+ const taken=[...fixed,...(sheet.inheritedDimensions??[])].map(d=>dimensionPlacement(d,sheet)).filter(Boolean);
+ const obstacles=dimensionObstacles(sheet),shapes=drawingViewShapes(sheet);
  const move=[],indices=[];
  const order=dimensions.map((_,i)=>i).filter(i=>automatic(dimensions[i])).sort((a,b)=>Number(dimensions[a].kind==='radius')-Number(dimensions[b].kind==='radius'));
  for(const index of order){
   const d=dimensions[index],placement=dimensionPlacement(d,sheet);
   if(!placement)continue;
   const {box}=placement;
-  if(longRadiusLeader(d,sheet.layout[d.view])||!insidePaper(box,sheet)||labels.some(label=>overlaps(box,label,1)||labelHitsInk(label,placement))||
+  const interference=viewInterference(placement,d,shapes);
+  if(longRadiusLeader(d,sheet.layout[d.view])||drawingBoxPlacementIssue(collisionEnvelope(placement),sheet)||
+   obstacles.some(({box:label})=>overlaps(box,label,1)||labelHitsInk(label,placement))||
+   interference.neighbors||d.overall&&interference.inside||d.view==='iso'&&interference.extension>3||
    taken.some(other=>overlaps(box,other.box,1)||(placement.radius||other.radius)&&(labelConflict(placement,other)||arrowConflict(placement,other)))){
    move.push(d);indices.push(index);
   }else{taken.push(placement);fixed.push(d);}
  }
  if(!move.length)return {dimensions,moved:0};
- const next=dimensions.slice(),arranged=arrangeDrawingDimensions(move,sheet,fixed,{preferNearby:true});
+ const isoAnchors=move.some(d=>d.view==='iso'&&d.automatic&&d.overall&&!d.pdfPlacement)?getIsoAnchors?.():undefined;
+ const next=dimensions.slice(),arranged=arrangeDrawingDimensions(move,sheet,fixed,{preferNearby:true,isoAnchors,allowAnchorChanges});
  let moved=0;
  indices.forEach((index,i)=>{
   const d=arranged.dimensions[i];
-  if(d.at[0]===dimensions[index].at[0]&&d.at[1]===dimensions[index].at[1])return;
+  if(d.at[0]===dimensions[index].at[0]&&d.at[1]===dimensions[index].at[1]&&
+   d.a===dimensions[index].a&&d.b===dimensions[index].b)return;
   next[index]=d;moved++;
  });
  return {dimensions:next,moved};

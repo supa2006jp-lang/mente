@@ -2,7 +2,7 @@ import {alignLinkedDrawingViews,alignThirdAngleViews,isThirdAngleLayout,drawingI
 import {withDetails,hatchPaths,annotationSVG} from './drawing-annotations.js';
 import {decoratedDrawingViews,drawingViewFrames} from './drawing-auto-layout.js';
 import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingCommentEntries,drawingCommentLayout,drawingCommentMargin} from './drawing-comments.js';
-import {dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
+import {dimensionLabelWidth,dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
 import {drawingViewTitle,drawingViewTitleSVG} from './drawing-view-title.js';
@@ -223,6 +223,9 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const backgrounds=viewColor?Object.entries(viewBoxes).map(([name,boxes])=>viewBackgroundSVG(name,boxes,viewColor,paper)).join(''):'';
  const thirdAngle=drawingProjectionNames.some(name=>layout[name])&&isThirdAngleLayout(layout)&&(!layout.front||drawingViewFactor('front',options)===1);
  const sheetTitle='FORMA CAD / '+(options.layout==='compact'?'AUTO LAYOUT':thirdAngle?'THIRD ANGLE':'VIEW LAYOUT');
+ const headerText=(options.showLayoutLabel===false?'':sheetTitle+'    ')+scaleSummary.header;
+ const headerWidth=dimensionLabelWidth(headerText,3.5);
+ const headerBox={x:width-15-headerWidth,y:8.5,width:headerWidth,height:4.5};
  const header='<text data-sheet-header="true" x="'+(width-15)+'" y="12" font-size="3.5" text-anchor="end" xml:space="preserve">'+
   (options.showLayoutLabel===false?'':'<tspan data-sheet-title="true">'+esc(sheetTitle)+'</tspan>    ')+
   '<tspan data-sheet-scale="true">'+esc(scaleSummary.header)+'</tspan></text>';
@@ -232,6 +235,6 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  };
  const dimensionGraphics=inheritedDimensions.map((d,i)=>renderDimension(d,i,true)).join('')+dimensions.map((d,i)=>renderDimension(d,i)).join('');
  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+silhouettes+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+header+dimensionGraphics+viewsSVG+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom,
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom,headerBox,
   isometricOutline:layout.iso?drawingIsometricOutline(data.bounds):undefined};
 }
