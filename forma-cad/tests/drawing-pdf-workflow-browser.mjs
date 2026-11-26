@@ -637,6 +637,40 @@ try{
  assert.equal(await editor.locator('[data-overflow-outline]').count(),0);
  const isoPosition=await geometry(editor,'iso');
  const firstFront=await viewAt(editor,'front');
+ const caption=name=>editor.locator('[data-view="'+name+'"] > [data-view-title-frame]');
+ const captionAt=name=>caption(name).evaluate(frame=>{
+  const {x,y}=frame.getBBox(),halfStroke=Number(frame.getAttribute('stroke-width'))/2;
+  return [x-halfStroke,y-halfStroke];
+ });
+ const originalCaption=await captionAt('front'),[,rowY]=await captionAt('right');
+ const captionGuide=axis=>editor.locator('[data-view-title-guide="'+axis+'"]');
+ async function dragCaptionNearGuides(){
+  await caption('front').scrollIntoViewIfNeeded();
+  const {x,y,width,height}=await caption('front').boundingBox(),start=[x+width/2,y+height/2];
+  const factors=await editor.locator('svg').evaluate(svg=>{const {a,b,c,d}=svg.getScreenCTM();return [Math.hypot(a,b),Math.hypot(c,d)];});
+  const end=[firstFront[0],rowY].map((value,axis)=>start[axis]+(value-originalCaption[axis])*factors[axis]+5);
+  await page.mouse.move(...start);await page.mouse.down();await page.mouse.move(...end,{steps:4});
+ }
+ await field('snap').check();
+ const beforeHeadingDrag=await transforms();
+ await dragCaptionNearGuides();
+ closeTo(Number(await captionGuide(0).getAttribute('x1')),firstFront[0]);
+ closeTo(Number(await captionGuide(1).getAttribute('y1')),rowY);
+ await page.mouse.up();
+ const [snappedX,snappedY]=await captionAt('front');
+ closeTo(snappedX,firstFront[0]);closeTo(snappedY,rowY);
+ assert.equal(await editor.locator('[data-view-title-guide]').count(),0);
+ assert.deepEqual(await transforms(),beforeHeadingDrag);
+ await field('undo').click();assert.deepEqual(await captionAt('front'),originalCaption);
+ await page.keyboard.down('Alt');
+ try{
+  await dragCaptionNearGuides();
+  assert.equal(await editor.locator('[data-view-title-guide]').count(),0);
+  const [freeX,freeY]=await captionAt('front');
+  assert(Math.abs(freeX-firstFront[0])>.05&&Math.abs(freeY-rowY)>.05);
+  await page.mouse.up();
+ }finally{await page.keyboard.up('Alt');}
+ await field('undo').click();assert.deepEqual(await captionAt('front'),originalCaption);
  await field('snap').uncheck();
  const grip=await viewRect('top').boundingBox();
  const [grabX,grabY]=[grip.x+grip.width/2,grip.y+grip.height/2];

@@ -24,7 +24,7 @@ import {drawingViewport} from './drawing-viewport.js';
 import {installDrawingWorkspace} from './drawing-workspace.js';
 import {installDrawingInlineScales} from './drawing-inline-scales.js';
 import {drawingPrintPalettes,drawingPrintSVG,validDrawingPrintPalette} from './drawing-print-palette.js';
-import {snapDrawingDragAxis,snapDrawingPlacement} from './drawing-placement-guides.js';
+import {snapDrawingDragAxis,snapDrawingPlacement,snapDrawingViewTitle} from './drawing-placement-guides.js';
 import {alignDrawingItems,drawingAlignmentActions} from './drawing-alignment.js';
 import {drawingDimensionVisible,drawingModelPoint,drawingPaperPoint,drawingPointOmitted,moveDrawingBreakEdge} from './drawing-break.js';
 import {addDrawingHoleHitAreas,drawingHoleFilters,drawingHolesInFilter,maxDrawingTableHoles} from './drawing-hole-table.js';
@@ -140,7 +140,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  $('drawing-generate').insertAdjacentHTML('afterend','<button id="drawing-front-face" title="CADで平面を1つ選択して三面図を開くと、その面が正面になります">選択した面を正面に</button><button id="drawing-front-reset" hidden>標準の向きに戻す</button><small id="drawing-front-status"></small>');
  const viewportBar=document.createElement('div');viewportBar.className='drawing-controls drawing-viewport-controls';viewportBar.innerHTML='<span>画面表示</span><button id="drawing-zoom-out" aria-label="図面を縮小">−</button><output id="drawing-zoom-percent" aria-live="polite">100%</output><button id="drawing-zoom-in" aria-label="図面を拡大">＋</button><button id="drawing-zoom-fit">用紙全体</button><button id="drawing-expand" aria-pressed="false">作業領域を最大化</button><small>ホイール：拡大・縮小 ／ ホイール押し込み・Space＋ドラッグ：移動</small>';viewportHost.before(viewportBar);
  const scaleRows=document.createElement('details');scaleRows.id='drawing-view-scales';
- scaleRows.innerHTML='<summary>ビュー別の縮尺・固定</summary><div class="drawing-controls"></div><small>縮尺は 1:2.5 や 0.4 のように入力できます。見出しは枠をドラッグして移動できます。連動中の TOP・FRONT・RIGHT はまとめて固定します。</small>';
+ scaleRows.innerHTML='<summary>ビュー別の縮尺・固定</summary><div class="drawing-controls"></div><small>縮尺は 1:2.5 や 0.4 のように入力できます。見出しの枠をドラッグすると、図の左端や他の見出しの高さに吸着します（Altで解除）。連動中の TOP・FRONT・RIGHT はまとめて固定します。</small>';
  $('drawing-view-priority').closest('.drawing-controls').after(scaleRows);
  $('drawing-comment').closest('label').insertAdjacentHTML('beforebegin','<div class="drawing-controls"><label>編集するコメント<select id="drawing-comment-target"><option value="comment">共通コメント</option></select></label><button id="drawing-comment-add" type="button">コメントを追加</button><button id="drawing-comment-remove" type="button" hidden>このコメントを削除</button></div>');
  const alignmentPanel=document.createElement('details');alignmentPanel.id='drawing-alignment';
@@ -3260,18 +3260,28 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function beginViewTitleDrag(event,element,name){
   const compact=element.closest('[data-view]').querySelector('[data-view-title-compact]')!==null;
   startPaperDrag(event,{type:'viewTitle',name,compact,origin:viewTitleOffset(name),previousTitles:titlePositionMap(),
-   previousPdfScales:pdfPageScales},true);
+   previousPdfScales:pdfPageScales,titleSheet:sheet},true);
  }
- function moveViewTitle(state,dx,dy){
+ function moveViewTitle(state,dx,dy,event){
   if(Math.hypot(dx,dy)<1e-6){
    restorePaperDrag(state);state.titleMoved=false;render(false);return;
   }
   if(!state.titleMoved)preserveActivePDFPlacement();
   state.titleMoved=true;
+  const {delta,guides}=$('drawing-snap').checked&&!event.altKey?
+   snapDrawingViewTitle([dx,dy],state.name,state.titleSheet,state.pixelsPerAxis):{delta:[dx,dy],guides:[]};
   setTitlePositionMap({...titlePositionMap(),[state.name]:{
-   offset:[state.origin[0]+dx,state.origin[1]+dy],...(state.compact?{compact:true}:{}),
+   offset:state.origin.map((value,axis)=>value+delta[axis]),...(state.compact?{compact:true}:{}),
   }});
   render(false);
+  const title=sheet?.viewTitles[state.name];
+  if(!title)return;
+  for(const {axis,position} of guides){
+   const coord=axis?'y':'x';
+   if(Math.abs(title[coord]-position)>1e-6)continue;
+   if(axis&&!Object.entries(sheet.viewTitles).some(([name,other])=>name!==state.name&&Math.abs(other.y-position)<1e-6))continue;
+   drawPaperGuide(axis,position,'data-view-title-guide');
+  }
  }
  function restorePaperDrag(state){
   setPagePositionMap(structuredClone(state.cancelPositions));
@@ -3344,7 +3354,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    drag.moved=true;host.setPointerCapture(e.pointerId);
   }
   if(drag.type==='viewResize')resizeDrawingView(drag,dx,dy);
-  else if(drag.type==='viewTitle')moveViewTitle(drag,dx,dy);
+  else if(drag.type==='viewTitle')moveViewTitle(drag,dx,dy,e);
   else if(drag.type==='commentWidth'){
    if(Math.abs(dx)<1e-6)restorePaperDrag(drag);
    else{
