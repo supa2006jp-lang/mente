@@ -8,7 +8,7 @@ import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmit
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout} from './drawing-leaders.js';
 import {drawingBoxPlacementIssue,drawingFrameInset,drawingTitleBlock} from './drawing-paper-bounds.js';
-import {compactDrawingViewTitleScale,drawingViewTitle} from './drawing-view-title.js';
+import {drawingViewTitle} from './drawing-view-title.js';
 const minimumGap=3;
 const minimumGaps=[minimumGap,minimumGap];
 const preferredGap=12;
@@ -39,15 +39,15 @@ export function rescaleDrawingAnnotations(dimensions,frames,fromScale,toScale,pr
  else if(d.kind==='angle'){for(let i=0;i<2;i++)at[i]=d.vertex[i]+(at[i]-d.vertex[i])*old/next;}
  else{const u=d.b.map((v,i)=>v-d.a[i]),length=Math.hypot(...u)||1,n=[-u[1]/length,u[0]/length],offset=(at[0]-d.a[0])*n[0]+(at[1]-d.a[1])*n[1];for(let i=0;i<2;i++)at[i]+=n[i]*offset*(old/next-1);}
  return {...structuredClone(d),at,...(d.alongOffset===undefined?{}:{alongOffset:d.alongOffset*old/next})};});}
-export function decoratedDrawingViews(frames,scale,dimensions,options,{titleScale=1,topTitleScale=titleScale}={}){const boxes={},layout={};
- const mixed=(titleScale>0||topTitleScale>0)&&drawingScaleSummary(Object.values(frames).map(frame=>scale*frame.factor)).mixed;
+export function decoratedDrawingViews(frames,scale,dimensions,options,{titleViews='all'}={}){const boxes={},layout={};
+ const mixed=titleViews!=='none'&&drawingScaleSummary(Object.values(frames).map(frame=>scale*frame.factor)).mixed;
+ const titleGap=titleViews==='top'?.7:undefined;
  for(const [key,f] of Object.entries(frames)){
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
   const view={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
   layout[key]=view;
-  const titleFactor=key==='top'?topTitleScale:titleScale;
-  const title=titleFactor||options.viewLocks?.[key]&&options.viewTitlePositions?.[key]?
-   drawingViewTitle(key,view,options,mixed,titleFactor||1).bounds:null;
+  const includeTitle=titleViews==='all'||titleViews==='top'&&key==='top'||options.viewLocks?.[key]&&options.viewTitlePositions?.[key];
+  const title=includeTitle?drawingViewTitle(key,view,options,mixed,titleGap).bounds:null;
   const x=Math.min(-.5,title?.x??0),y=Math.min(-.5,title?.y??0);
   boxes[key]={x,y,width:Math.max(width+.5,title?title.x+title.width+.5:0)-x,
    height:Math.max(height+.5,title?title.y+title.height+.5:0)-y};
@@ -280,14 +280,14 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
   return largestFittingScale(value=>value<=limit+1e-12?true:null)?.scale??minDrawingScale;
  };
  const attempt=(s,right,autoIsoScale=placementOptions.autoIsoScale,{
-  packingArea=area,titleScale=0,topTitleScale=titleScale,tableTopClearance=titleBlockClearance,order=[],
+  packingArea=area,titleViews='none',tableTopClearance=titleBlockClearance,order=[],
  }={})=>{
   const corner=titleBlock?{x:titleBlock.x-titleBlockClearance-packingArea.x,y:titleBlock.y-tableTopClearance-packingArea.y}:null;
   const upperArea=corner?{...packingArea,height:corner.y}:packingArea;
   const nextOptions={...placementOptions,autoIsoScale};
   const nextFrames=drawingViewFrames(data,nextOptions,s);
   const resized=rescaleDrawingAnnotations(dimensions,nextFrames,scale,s,previousFrames);
-  const views=decoratedDrawingViews(nextFrames,s,resized,nextOptions,{titleScale,topTitleScale});
+  const views=decoratedDrawingViews(nextFrames,s,resized,nextOptions,{titleViews});
   for(const column of noteColumns){
    const annotations=[];
    for(const [key,block] of [...column.map(note=>[note.id,note]),['holeTable',table]])if(block){
@@ -362,10 +362,9 @@ export function optimizeDrawingLayout(data,{scale=1,dimensions=[],comment='',opt
  const withHeadroom={...area,y:18,height:bottom-18};
  const right=result.isoOnRight,isoScale=result.autoIsoScale;
  const reserveTopTitle=frames.top&&!viewLocks.top&&!options.viewTitlePositions?.top;
- const withCaptions=(size,order=[])=>attempt(nextScale,right,size,{packingArea:withHeadroom,titleScale:1,order})??
-  attempt(nextScale,right,size,{titleScale:1,order})??
-  attempt(nextScale,right,size,{titleScale:compactDrawingViewTitleScale,order})??
-  (reserveTopTitle?attempt(nextScale,right,size,{topTitleScale:compactDrawingViewTitleScale,tableTopClearance:1,order}):null);
+ const withCaptions=(size,order=[])=>attempt(nextScale,right,size,{packingArea:withHeadroom,titleViews:'all',order})??
+  attempt(nextScale,right,size,{titleViews:'all',order})??
+  (reserveTopTitle?attempt(nextScale,right,size,{titleViews:'top',tableTopClearance:1,order}):null);
  const ordered=(order,size)=>withCaptions(size,order)??attempt(nextScale,right,size,{order});
  result=withCaptions(isoScale)??result;
  if(preferProjectionOrder&&!options.linkedProjections&&frames.front&&(frames.top||frames.right)){

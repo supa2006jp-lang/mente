@@ -3257,9 +3257,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const title=sheet.viewTitles[name],view=sheet.layout[name];
   return [title.x-view.x,title.y-view.y];
  }
- function beginViewTitleDrag(event,element,name){
-  const compact=element.closest('[data-view]').querySelector('[data-view-title-compact]')!==null;
-  startPaperDrag(event,{type:'viewTitle',name,compact,origin:viewTitleOffset(name),previousTitles:titlePositionMap(),
+ function beginViewTitleDrag(event,name){
+  startPaperDrag(event,{type:'viewTitle',name,origin:viewTitleOffset(name),previousTitles:titlePositionMap(),
    previousPdfScales:pdfPageScales,titleSheet:sheet},true);
  }
  function moveViewTitle(state,dx,dy,event){
@@ -3271,7 +3270,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const {delta,guides}=$('drawing-snap').checked&&!event.altKey?
    snapDrawingViewTitle([dx,dy],state.name,state.titleSheet,state.pixelsPerAxis):{delta:[dx,dy],guides:[]};
   setTitlePositionMap({...titlePositionMap(),[state.name]:{
-   offset:state.origin.map((value,axis)=>value+delta[axis]),...(state.compact?{compact:true}:{}),
+   offset:state.origin.map((value,axis)=>value+delta[axis]),
   }});
   render(false);
   const title=sheet?.viewTitles[state.name];
@@ -3328,7 +3327,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   if(!$('drawing-layout-mode').checked)return;
   const title=e.target.closest('[data-view-title-frame],[data-view-title-label]');
-  if(title){beginViewTitleDrag(e,title,title.closest('[data-view]').dataset.view);return;}
+  if(title){beginViewTitleDrag(e,title.closest('[data-view]').dataset.view);return;}
   const dimension=dimensionHit(e,'[data-dimension],[data-detail-dimension-index]'),comment=e.target.closest('[data-comment]'),
    table=e.target.closest('[data-hole-table]'),leader=e.target.closest('[data-leader]');
   const view=e.target.closest('[data-view]')?.dataset.view??e.target.closest('[data-hole-labels]')?.dataset.holeLabels;

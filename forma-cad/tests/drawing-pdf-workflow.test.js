@@ -177,13 +177,21 @@ test('a tight initial layout fits the TOP heading above its view at the fitted s
  const saved={...config,positions:{...result.positions,top:[top.x,6.5]},autoIsoScale:result.autoIsoScale,
   pdfLayout:'manual',pageAssignments:{pageCount:2,views:{iso:2},comments:{}}};
  const restored=drawingSheet(data,2,true,[],'',saved);
- const [page]=drawingPDFPages(data,2,true,[],'',saved,restored);
+ const pages=drawingPDFPages(data,2,true,[],'',saved,restored);
+ const [page]=pages;
  for(const s of [restored,page]){
   const view=s.layout.top,heading=s.viewTitles.top;
   assert.deepEqual([view.y,view.scale],[6.5,2]);
   assert.ok(heading.x>=view.x&&heading.x+heading.width<=view.x+view.width);
   assert.ok(heading.y>=view.y&&heading.y+heading.height<view.y+9);
   assert.equal(drawingBoxPlacementIssue(heading,s),null);
+ }
+ for(const s of [sheet,restored,...pages]){
+  const heights=Object.values(s.viewTitles).map(heading=>heading.height);
+  const fontSizes=[...s.svg.matchAll(/<text data-view-title-label="true"[^>]*font-size="([^"]+)"/g)].map(([,size])=>size);
+  assert.deepEqual([...new Set(heights)],[title.height]);
+  assert.equal(fontSizes.length,heights.length);
+  assert.deepEqual([...new Set(fontSizes)],['3.1']);
  }
 });
 
@@ -199,7 +207,7 @@ test('adjusted view captions follow their view and a PDF page can use its own ca
  assert.deepEqual([moved.viewTitles.front.x,moved.viewTitles.front.y],[88,48]);
  const [,page]=drawingPDFPages(part,1,true,[],'',config,overview);
  assert.deepEqual([page.viewTitles.front.x,page.viewTitles.front.y],[48,120]);
- assert.ok(page.viewTitles.front.height>caption.height);
+ assert.equal(page.viewTitles.front.height,caption.height);
  const clamped=drawingSheet(part,1,true,[],'',{...config,positions:{front:[5,5]},
   viewTitlePositions:{front:{offset:[-1000,-1000]}}});
  assert.equal(drawingBoxPlacementIssue(clamped.viewTitles.front,clamped),null);

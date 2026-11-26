@@ -3,11 +3,10 @@ import {drawingPaperPoint,drawingPointOmitted} from './drawing-break.js';
 import {drawingFrameInset} from './drawing-paper-bounds.js';
 import {drawingProjections,drawingScaleLabel} from './drawing-view-preferences.js';
 
-const fontSize=3.1,accentOffset=3.15,titleHeight=5.8,border=.24;
+const fontSize=3.1,accentOffset=3.15,titleHeight=4,border=.24;
 const clearance=.35,sideGap=1.5;
-export const compactDrawingViewTitleScale=.7;
 
-export function drawingViewTitle(name,view,options,showScale,factor=1){
+export function drawingViewTitle(name,view,options,showScale,aboveGap=4.1){
  const section=(options.sections||[]).findIndex(item=>item.id===name);
  const detail=(options.details||[]).findIndex(item=>item.id===name);
  let label=drawingProjections[name]?.label??'ISOMETRIC';
@@ -20,9 +19,8 @@ export function drawingViewTitle(name,view,options,showScale,factor=1){
  if(view.break)label+=' / 省略表示';
  if(showScale)label+=(detail>=0?' / ':' / SCALE ')+drawingScaleLabel(view.scale);
  const manual=options.viewTitlePositions?.[name];
- if(manual)factor=manual.compact?compactDrawingViewTitleScale:1;
  const textWidth=[...label].reduce((width,char)=>width+(/\s/.test(char)?.35:char.codePointAt(0)>255?1:/[MW]/.test(char)?.95:.72)*fontSize,0);
- const width=(accentOffset+textWidth+1.7)*factor,height=titleHeight*factor,stroke=border*factor;
+ const width=accentOffset+textWidth+1.7,height=titleHeight,stroke=border;
  const x=view.x+1.3;
  const overSectionLetter=(options.sections??[]).some(cut=>{
   if(cut.view!==name||cut.review||cut.orientation!=='vertical')return false;
@@ -31,9 +29,9 @@ export function drawingViewTitle(name,view,options,showScale,factor=1){
   const [cutX]=drawingPaperPoint(view,point);
   return cutX+5.5>x&&cutX+2<x+width;
  });
- const gap=overSectionLetter?8.7:factor<1?.7:2.3;
+ const gap=overSectionLetter?8.7:aboveGap;
  const y=view.y-height-gap;
- const title={label,x,y,width,height,factor,stroke,bounds:{x:x-stroke/2,y:y-stroke/2,width:width+stroke,height:height+stroke}};
+ const title={label,x,y,width,height,stroke,bounds:{x:x-stroke/2,y:y-stroke/2,width:width+stroke,height:height+stroke}};
  return manual?moveTitle(title,view.x+manual.offset[0],view.y+manual.offset[1]):title;
 }
 
@@ -88,36 +86,29 @@ export function layoutDrawingViewTitles(layout,options,showScale,paper,annotatio
  }
  for(const [name,view] of views){
   if(titles[name])continue;
-  const choices=[1,compactDrawingViewTitleScale].map(factor=>drawingViewTitle(name,view,options,showScale,factor));
+  const title=drawingViewTitle(name,view,options,showScale);
   const obstacles=[...drawings,...occupied],right=view.x+view.width;
-  const alignedX=title=>clamp(title.bounds.x,inset,rightEdge(paper,title));
-  let placed=null;
-  for(const title of choices){
-   const left=alignedX(title);
-   placed=titleInBand(title,paper,obstacles,{
-    left,right:Math.max(left,right-6),top:title.bounds.y-3,bottom:view.y-title.bounds.height-clearance,
-   });
-   if(placed)break;
-  }
-  const compact=choices[1],left=alignedX(compact);
+  const left=clamp(title.bounds.x,inset,rightEdge(paper,title));
+  let placed=titleInBand(title,paper,obstacles,{
+   left,right:Math.max(left,right-6),top:title.bounds.y-3,bottom:view.y-title.bounds.height-clearance,
+  });
   if(!placed&&name==='top'){
-   const inside={left,right:right-compact.bounds.width-sideGap,top:view.y+sideGap,
-    bottom:Math.min(view.y+9,view.y+view.height-compact.bounds.height-sideGap)};
-   placed=titleInBand(compact,paper,[...drawings.filter(other=>other!==view),...occupied],inside);
-  }
-  if(!placed)for(const title of choices){
-   const top=view.y-2.3,bottom=view.y+8,left=view.x-title.bounds.width-sideGap;
-   placed=titleInBand(title,paper,obstacles,{left:right+sideGap,right:right+10,top,bottom})??
-    titleInBand(title,paper,obstacles,{left:left-8,right:left,top,bottom});
-   if(placed)break;
+   const inside={left,right:right-title.bounds.width-sideGap,top:view.y+sideGap,
+    bottom:Math.min(view.y+9,view.y+view.height-title.bounds.height-sideGap)};
+   placed=titleInBand(title,paper,[...drawings.filter(other=>other!==view),...occupied],inside);
   }
   if(!placed){
-   // A view can fill the frame. In that case keep its compact caption inside its upper edge.
-   const inside={left,right:Math.max(left,right-compact.bounds.width-sideGap),top:view.y+sideGap,bottom:view.y+9};
-   placed=titleInBand(compact,paper,[...drawings.filter(other=>other!==view),...occupied],inside);
+   const top=view.y-2.3,bottom=view.y+8,beside=view.x-title.bounds.width-sideGap;
+   placed=titleInBand(title,paper,obstacles,{left:right+sideGap,right:right+10,top,bottom})??
+    titleInBand(title,paper,obstacles,{left:beside-8,right:beside,top,bottom});
+  }
+  if(!placed){
+   // A view can fill the frame. In that case keep its caption inside its upper edge.
+   const inside={left,right:Math.max(left,right-title.bounds.width-sideGap),top:view.y+sideGap,bottom:view.y+9};
+   placed=titleInBand(title,paper,[...drawings.filter(other=>other!==view),...occupied],inside);
    if(!placed){
-    const top=paper.titleBlock&&left+compact.bounds.width+clearance>paper.titleBlock.x?paper.titleBlock.y-clearance-compact.bounds.height:bottomEdge(paper,compact);
-    placed=moveTitle(compact,left,clamp(view.y+sideGap,inset,top));
+    const top=paper.titleBlock&&left+title.bounds.width+clearance>paper.titleBlock.x?paper.titleBlock.y-clearance-title.bounds.height:bottomEdge(paper,title);
+    placed=moveTitle(title,left,clamp(view.y+sideGap,inset,top));
    }
   }
   titles[name]=placed;occupied.push(placed.bounds);
@@ -125,10 +116,10 @@ export function layoutDrawingViewTitles(layout,options,showScale,paper,annotatio
  return titles;
 }
 
-export function drawingViewTitleSVG({label,x,y,width,height,factor,stroke}){
- const right=x+width,bottom=y+height,corner=1.15*factor;
- return '<path data-view-title-frame="true"'+(factor<1?' data-view-title-compact="true"':'')+' d="M '+x+' '+y+' H '+(right-corner)+' L '+right+' '+(y+corner)+
+export function drawingViewTitleSVG({label,x,y,width,height,stroke}){
+ const right=x+width,bottom=y+height,corner=.9;
+ return '<path data-view-title-frame="true" d="M '+x+' '+y+' H '+(right-corner)+' L '+right+' '+(y+corner)+
   ' V '+bottom+' H '+x+' Z" fill="white" stroke="#486071" stroke-width="'+stroke+'"/>'+
-  '<path d="M '+(x+1.45*factor)+' '+(y+1.2*factor)+' V '+(bottom-1.2*factor)+'" fill="none" stroke="#16879a" stroke-width="'+(.63*factor)+'" pointer-events="none"/>'+
-  '<text data-view-title-label="true" x="'+(x+accentOffset*factor)+'" y="'+(y+3.95*factor)+'" font-size="'+(fontSize*factor)+'" font-weight="bold" fill="#20394c">'+escapeDrawingText(label)+'</text>';
+  '<path d="M '+(x+1.45)+' '+(y+.8)+' V '+(bottom-.8)+'" fill="none" stroke="#16879a" stroke-width=".63" pointer-events="none"/>'+
+  '<text data-view-title-label="true" x="'+(x+accentOffset)+'" y="'+(y+3.05)+'" font-size="'+fontSize+'" font-weight="bold" fill="#20394c">'+escapeDrawingText(label)+'</text>';
 }
