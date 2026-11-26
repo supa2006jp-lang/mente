@@ -187,12 +187,20 @@ test('a tight initial layout fits the TOP heading above its view at the fitted s
   assert.equal(drawingBoxPlacementIssue(heading,s),null);
  }
  for(const s of [sheet,restored,...pages]){
-  const heights=Object.values(s.viewTitles).map(heading=>heading.height);
+  const headings=Object.values(s.viewTitles);
+  const heights=headings.map(heading=>heading.height),widths=headings.map(heading=>heading.width);
   const fontSizes=[...s.svg.matchAll(/<text data-view-title-label="true"[^>]*font-size="([^"]+)"/g)].map(([,size])=>size);
   assert.deepEqual([...new Set(heights)],[title.height]);
+  assert.deepEqual([...new Set(widths)],[title.width]);
   assert.equal(fontSizes.length,heights.length);
   assert.deepEqual([...new Set(fontSizes)],['3.1']);
  }
+ const longLabel={...saved,pdfViewScales:{iso:.0001},pageAssignments:{...saved.pageAssignments,views:{right:2,iso:2}}};
+ const widePages=drawingPDFPages(data,2,true,[],'',longLabel,restored);
+ const isoHeading=widePages[1].viewTitles.iso;
+ assert.match(widePages[1].svg,/ISOMETRIC \/ SCALE 1:10000/);
+ assert.ok(isoHeading.width>title.width);
+ assert.deepEqual([...new Set(widePages.flatMap(page=>Object.values(page.viewTitles).map(heading=>heading.width)))],[isoHeading.width]);
 });
 
 test('adjusted view captions follow their view and a PDF page can use its own caption position',()=>{

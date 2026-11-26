@@ -1,12 +1,13 @@
 import {escapeDrawingText} from './drawing-dimensions.js';
 import {drawingPaperPoint,drawingPointOmitted} from './drawing-break.js';
 import {drawingFrameInset} from './drawing-paper-bounds.js';
-import {drawingProjections,drawingScaleLabel} from './drawing-view-preferences.js';
+import {drawingProjections,drawingScaleLabel,drawingScaleSummary} from './drawing-view-preferences.js';
 
 const fontSize=3.1,accentOffset=3.15,titleHeight=4,border=.24;
 const clearance=.35,sideGap=1.5;
+const commonWidthViews=['top','front','right','iso'];
 
-export function drawingViewTitle(name,view,options,showScale,aboveGap=4.1){
+function drawingViewTitleLabel(name,view,options,showScale){
  const section=(options.sections||[]).findIndex(item=>item.id===name);
  const detail=(options.details||[]).findIndex(item=>item.id===name);
  let label=drawingProjections[name]?.label??'ISOMETRIC';
@@ -18,9 +19,23 @@ export function drawingViewTitle(name,view,options,showScale,aboveGap=4.1){
  }
  if(view.break)label+=' / 省略表示';
  if(showScale)label+=(detail>=0?' / ':' / SCALE ')+drawingScaleLabel(view.scale);
- const manual=options.viewTitlePositions?.[name];
+ return label;
+}
+
+function titleWidth(label){
  const textWidth=[...label].reduce((width,char)=>width+(/\s/.test(char)?.35:char.codePointAt(0)>255?1:/[MW]/.test(char)?.95:.72)*fontSize,0);
- const width=accentOffset+textWidth+1.7,height=titleHeight,stroke=border;
+ return accentOffset+textWidth+1.7;
+}
+
+export function sharedDrawingViewTitleWidth(layout,options,showScale=drawingScaleSummary(Object.values(layout).map(view=>view.scale)).mixed){
+ const widths=commonWidthViews.filter(name=>layout[name]).map(name=>titleWidth(drawingViewTitleLabel(name,layout[name],options,showScale)));
+ return Math.max(options.viewTitleWidth??0,...widths);
+}
+
+export function drawingViewTitle(name,view,options,showScale,aboveGap=4.1){
+ const label=drawingViewTitleLabel(name,view,options,showScale),manual=options.viewTitlePositions?.[name];
+ const width=Math.max(titleWidth(label),commonWidthViews.includes(name)?options.viewTitleWidth??0:0);
+ const height=titleHeight,stroke=border;
  const x=view.x+1.3;
  const overSectionLetter=(options.sections??[]).some(cut=>{
   if(cut.view!==name||cut.review||cut.orientation!=='vertical')return false;

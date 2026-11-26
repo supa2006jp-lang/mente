@@ -8,7 +8,7 @@ import {displayedDrawingSpan,drawingBreakAxis,drawingPaperPoint,drawingPointOmit
 import {drawingHoleMarkers,drawingHoleTableSize,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout} from './drawing-leaders.js';
 import {drawingBoxPlacementIssue,drawingFrameInset,drawingTitleBlock} from './drawing-paper-bounds.js';
-import {drawingViewTitle} from './drawing-view-title.js';
+import {drawingViewTitle,sharedDrawingViewTitleWidth} from './drawing-view-title.js';
 const minimumGap=3;
 const minimumGaps=[minimumGap,minimumGap];
 const preferredGap=12;
@@ -44,10 +44,13 @@ export function decoratedDrawingViews(frames,scale,dimensions,options,{titleView
  const titleGap=titleViews==='top'?.7:undefined;
  for(const [key,f] of Object.entries(frames)){
   const s=scale*f.factor,width=displayedDrawingSpan(f,0)*s,height=displayedDrawingSpan(f,1)*s;
-  const view={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
-  layout[key]=view;
+  layout[key]={x:0,y:0,bx:f.bx,by:f.by,width,height,scale:s,break:f.break};
+ }
+ const titleOptions=titleViews==='none'?options:{...options,viewTitleWidth:sharedDrawingViewTitleWidth(layout,options,mixed)};
+ for(const [key,view] of Object.entries(layout)){
+  const {width,height}=view;
   const includeTitle=titleViews==='all'||titleViews==='top'&&key==='top'||options.viewLocks?.[key]&&options.viewTitlePositions?.[key];
-  const title=includeTitle?drawingViewTitle(key,view,options,mixed,titleGap).bounds:null;
+  const title=includeTitle?drawingViewTitle(key,view,titleOptions,mixed,titleGap).bounds:null;
   const x=Math.min(-.5,title?.x??0),y=Math.min(-.5,title?.y??0);
   boxes[key]={x,y,width:Math.max(width+.5,title?title.x+title.width+.5:0)-x,
    height:Math.max(height+.5,title?title.y+title.height+.5:0)-y};

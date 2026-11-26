@@ -5,7 +5,7 @@ import {commentLines,defaultDrawingCommentColor,drawingCommentFamily,drawingComm
 import {dimensionLabelWidth,dimensionSVG,escapeDrawingText as esc,validDimensionColor} from './drawing-dimensions.js';
 import {dimensionPlacement} from './drawing-dimension-layout.js';
 import {drawingDetailDimensions} from './drawing-detail-dimensions.js';
-import {layoutDrawingViewTitles,drawingViewTitleSVG} from './drawing-view-title.js';
+import {layoutDrawingViewTitles,drawingViewTitleSVG,sharedDrawingViewTitleWidth} from './drawing-view-title.js';
 import {displayedDrawingSpan,drawingPaperPoint,fullDrawingSpan} from './drawing-break.js';
 import {drawingHoleMarkersSVG,drawingHoleTableSize,drawingHoleTableSVG,resolveDrawingHoleTable} from './drawing-hole-table.js';
 import {drawingLeaderLayout,drawingLeadersSVG} from './drawing-leaders.js';
@@ -180,7 +180,8 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  const headerBox={x:width-15-headerWidth,y:8.5,width:headerWidth,height:4.5};
  const contentBottom=height-(options.frame?35:12);
  const paper={width,height,contentBottom,titleBlock:options.frame?drawingTitleBlock(width,height):null};
- const titles=layoutDrawingViewTitles(layout,options,scaleSummary.mixed,paper,[headerBox,...notes,holeBox,...leaderLabels]);
+ const viewTitleWidth=sharedDrawingViewTitleWidth(layout,options,scaleSummary.mixed);
+ const titles=layoutDrawingViewTitles(layout,{...options,viewTitleWidth},scaleSummary.mixed,paper,[headerBox,...notes,holeBox,...leaderLabels]);
  const viewTitles=Object.fromEntries(Object.entries(titles).map(([name,title])=>[name,title.bounds]));
  if(viewColor){
   for(const [name,{x,y,width,height}] of Object.entries(layout))viewBoxes[name]=[{x,y,width,height},viewTitles[name]];
@@ -238,6 +239,6 @@ export function drawingSheet(data,scale=1,hidden=true,dimensions=[],comment='',o
  };
  const dimensionGraphics=inheritedDimensions.map((d,i)=>renderDimension(d,i,true)).join('')+dimensions.map((d,i)=>renderDimension(d,i)).join('');
  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'mm" height="'+height+'mm" viewBox="0 0 '+width+' '+height+'" data-layout="'+(options.layout==='compact'?'compact':'projection')+'"><rect data-paper-background="true" width="'+width+'" height="'+height+'" fill="'+paperColor+'"/>'+backgrounds+silhouettes+'<g font-family="Helvetica,Arial,sans-serif" fill="#111111">'+header+dimensionGraphics+viewsSVG+annotationSVG(options,layout)+drawingLeadersSVG(leaders,layout)+drawingHoleMarkersSVG(options.holeTable,layout[options.holeTable?.view])+commentSVG+drawingHoleTableSVG(options.holeTable,holeBox)+(options.frame?'':text(15,height-8,data.bodyCount+' BODY / '+(Object.keys(layout).some(showsHidden)?'DASHED: HIDDEN EDGES':'VISIBLE EDGES ONLY'),3))+frame+(options.pageCount>1?text(options.frame?15:width-15,height-7,options.pageNumber+' / '+options.pageCount,2.8,(options.frame?'':'text-anchor="end" ')+'data-page-number="true"'):'')+'</g></svg>';
- return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,viewLocks,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom,headerBox,
+ return {svg,fileStem:drawingFileStem(options.name,options.revision),width,height,layout,dimensions,inheritedDimensions,viewTitles,viewTitleWidth,viewLocks,note,notes,holeBox,holeTable:options.holeTable,leaderLabels,titleBlock,contentBottom,headerBox,
   isometricOutline:layout.iso?drawingIsometricOutline(data.bounds):undefined};
 }
