@@ -1,5 +1,5 @@
 import {circles,viewPoints,insideView,withDetails,snapDimension} from './drawing-annotations.js';
-import {assignDrawingPDFPageItem,drawingPDFHasMultiplePages,drawingPDFPageAssignments,drawingPDFPageItems,drawingPDFPages,
+import {assignDrawingPDFPageItem,drawingPDFHasMultiplePages,drawingPDFPageAssignments,drawingPDFPageItems,drawingPDFPagePositions,drawingPDFPages,
  fitDrawingPDFPage,maxDrawingPDFPages,remapDrawingPDFPages} from './drawing-pdf-pages.js';
 import {installDrawingPDFPreview} from './drawing-pdf-preview.js';
 import {drawingOverflowOutline,drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps,markDrawingViewOverlap} from './drawing-sheet-check.js';
@@ -142,7 +142,10 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  const scaleRows=document.createElement('details');scaleRows.id='drawing-view-scales';
  scaleRows.innerHTML='<summary>ビュー別の縮尺・固定</summary><div class="drawing-controls"></div><small>縮尺は 1:2.5 や 0.4 のように入力できます。見出しの枠をドラッグすると、図の左端や他の見出しの高さに吸着します（Altで解除）。連動中の TOP・FRONT・RIGHT はまとめて固定します。</small>';
  $('drawing-view-priority').closest('.drawing-controls').after(scaleRows);
- $('drawing-comment').closest('label').insertAdjacentHTML('beforebegin','<div class="drawing-controls"><label>編集するコメント<select id="drawing-comment-target"><option value="comment">共通コメント</option></select></label><button id="drawing-comment-add" type="button">コメントを追加</button><button id="drawing-comment-remove" type="button" hidden>このコメントを削除</button></div>');
+ $('drawing-comment').closest('label').insertAdjacentHTML('beforebegin','<div class="drawing-controls">'+
+  '<label>編集するコメント<select id="drawing-comment-target"><option value="comment">共通コメント</option></select></label>'+
+  '<button id="drawing-comment-add" type="button">コメントを追加</button><button id="drawing-comment-remove" type="button" hidden>このコメントを削除</button>'+
+  '<label><input id="drawing-comment-repeat" type="checkbox">PDFの全ページに表示</label></div>');
  const alignmentPanel=document.createElement('details');alignmentPanel.id='drawing-alignment';
  alignmentPanel.innerHTML='<summary>図・コメントの整列</summary><div id="drawing-alignment-items" class="drawing-controls"></div><div class="drawing-controls">'+
   drawingAlignmentActions.map(([id,label])=>'<button type="button" data-align-action="'+id+'">'+label+'</button>').join('')+
@@ -235,8 +238,21 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  let inspectedHole=null;
  let pageAssignments={pageCount:2,views:{},comments:{}},selectedPlacements=new Set();
  let overviewSheet=null,editingPage=-1,editPageCount=0,pdfPositions={},pdfPageScales={},pdfViewScales={};
- const pagePositionMap=()=>editingPage>=0?pdfPositions:positions;
- function setPagePositionMap(value){if(editingPage>=0)pdfPositions=value;else positions=value;}
+ let pdfRepeatComments=new Set(),pdfCommentPositions={};
+ const pagePositionMap=(page=editingPage)=>page<0?positions:drawingPDFPagePositions({pdfPositions,pdfRepeatComments,pdfCommentPositions},page+1);
+ function pdfPagePlacement(value,index){
+  if(!pdfRepeatComments.size)return {pdfPositions:value,pdfCommentPositions};
+  const individual={},repeated={},byPage={...pdfCommentPositions};
+  for(const id of pdfRepeatComments)if(pdfPositions[id])individual[id]=pdfPositions[id];
+  for(const [id,at] of Object.entries(value))(pdfRepeatComments.has(id)?repeated:individual)[id]=at;
+  if(Object.keys(repeated).length)byPage[index+1]=repeated;
+  else delete byPage[index+1];
+  return {pdfPositions:individual,pdfCommentPositions:byPage};
+ }
+ function setPagePositionMap(value){
+  if(editingPage<0)positions=value;
+  else ({pdfPositions,pdfCommentPositions}=pdfPagePlacement(value,editingPage));
+ }
  const titlePositionMap=()=>editingPage>=0?pdfViewTitlePositions:viewTitlePositions;
  function setTitlePositionMap(value){if(editingPage>=0)pdfViewTitlePositions=value;else viewTitlePositions=value;}
  function displayedPositions(page){
@@ -313,6 +329,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   ...(pdfLayout?{pdfLayout}:{}),
   ...(pdfPlacement==='auto'?{pdfPlacement}:{}),
   ...(Object.keys(pdfPositions).length?{pdfPositions:currentPDFPositions()}:{}),
+  ...(pdfRepeatComments.size?{pdfRepeatComments:[...pdfRepeatComments]}:{}),
+  ...(Object.keys(pdfCommentPositions).length?{pdfCommentPositions}:{}),
   ...(Object.keys(pdfPageScales).length?{pdfPageScales}:{}),
   ...(Object.keys(pdfViewScales).length?{pdfViewScales:currentPDFViewScales()}:{}),
   ...(Object.keys(viewLocks).length?{viewLocks}:{}),
@@ -471,7 +489,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   if(!sheet||busy||drag||editingPage<0)return;
   for(const id of Object.keys(sheet.layout))delete pdfViewScales[id];
   for(const id of Object.keys(sheet.layout))delete pdfViewTitlePositions[id];
-  for(const id of [...Object.keys(sheet.layout),...sheet.notes.map(note=>note.id),...(sheet.holeBox?['holeTable']:[])])delete pdfPositions[id];
+  const nextPositions={...pagePositionMap()};
+  for(const id of [...Object.keys(sheet.layout),...sheet.notes.map(note=>note.id),...(sheet.holeBox?['holeTable']:[])])delete nextPositions[id];
+  setPagePositionMap(nextPositions);
   for(const index of sheet.dimensionIndices)delete dimensions[index].pdfPlacement;
   details=details.map(detail=>sheet.layout[detail.id]?withoutDetailPDFPlacements(detail):detail);
   render();
@@ -527,9 +547,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     const label=document.createElement('label'),select=document.createElement('select');
     label.append(row.label,select);select.dataset.pageItem=row.id;select.dataset.pageKind=row.kind;
     for(let number=1;number<=pageAssignments.pageCount;number++)select.add(new Option(number+' ページ',String(number)));
+    if(row.kind==='comments')select.add(new Option('全ページに表示','all'));
     select.onchange=()=>{
-     if(busy)return;
-     assignDrawingPDFPageItem(pageAssignments,row,Number(select.value));
+     if(busy||drag)return;
+     const repeated=select.value==='all';
+     if(!repeated)assignDrawingPDFPageItem(pageAssignments,row,Number(select.value));
+     if(row.kind==='comments')setPDFCommentRepeated(row.id,repeated);
      render();
     };
     host.append(label);
@@ -539,14 +562,16 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   for(const select of host.querySelectorAll('select')){
    const {pageKind:kind,pageItem:id}=select.dataset;
    const page=kind==='table'?assignment.holeTable:assignment[kind][id];
-   select.value=String(page??Math.min(assignment.pageCount,kind==='views'&&(id.startsWith('section-')||id.startsWith('detail-'))?2:1));
-   select.disabled=!sheet||busy;
+   select.value=kind==='comments'&&pdfRepeatComments.has(id)?'all':
+    String(page??Math.min(assignment.pageCount,kind==='views'&&(id.startsWith('section-')||id.startsWith('detail-'))?2:1));
+   select.disabled=!sheet||busy||!!drag;
   }
  }
  $('drawing-page-count').onchange=()=>{
   const count=$('drawing-page-count').valueAsNumber;
   if(busy||!Number.isInteger(count)||count<1||count>maxDrawingPDFPages){$('drawing-page-count').value=pageAssignments.pageCount;return;}
   pageAssignments={...pageAssignments,pageCount:count};
+  for(const page of Object.keys(pdfCommentPositions))if(Number(page)>count)delete pdfCommentPositions[page];
   pageAssignments=currentPageAssignments();render();
  };
  function placementItems(){
@@ -763,24 +788,48 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   $('drawing-comment-add').title=autoAuxiliary?'このページにコメントを追加するには「PDFのページ構成」で手動割り当てを選んでください':'';
   $('drawing-comment-remove').hidden=activeComment==='comment';
   $('drawing-comment-remove').disabled=busy;
+  const repeat=$('drawing-comment-repeat');
+  repeat.checked=pdfRepeatComments.has(activeComment);
+  repeat.disabled=!sheet||busy||!!drag;
  }
  function selectDrawingComment(id){
   activeComment=id;
   syncCommentTargets();syncCommentStyle(!!sheet&&!busy);
  }
+ function setPDFCommentRepeated(id,repeated){
+  if(repeated===pdfRepeatComments.has(id))return;
+  const page=pdfLayout==='manual'?(currentPageAssignments().comments[id]??1):1;
+  if(repeated){
+   pdfRepeatComments.add(id);
+   if(pdfLayout&&pdfPositions[id])pdfCommentPositions[page]={...pdfCommentPositions[page],[id]:pdfPositions[id]};
+   return;
+  }
+  pdfRepeatComments.delete(id);
+  const at=pdfCommentPositions[page]?.[id];
+  if(at)pdfPositions[id]=at;
+  for(const [number,notes] of Object.entries(pdfCommentPositions)){
+   delete notes[id];
+   if(!Object.keys(notes).length)delete pdfCommentPositions[number];
+  }
+ }
  function removeDrawingComment(id){
+  setPDFCommentRepeated(id,false);
   delete commentWidths[id];
   if(id==='comment')mainComment='';
-  else {comments=comments.filter(note=>note.id!==id);delete positions[id];}
+  else {comments=comments.filter(note=>note.id!==id);delete positions[id];delete pdfPositions[id];delete pageAssignments.comments[id];}
   activeComment='comment';syncCommentTargets();
  }
  $('drawing-comment-target').onchange=()=>{selection=null;selectDrawingComment($('drawing-comment-target').value);editor();};
+ $('drawing-comment-repeat').onchange=()=>{
+  if(!sheet||busy||drag)return;
+  setPDFCommentRepeated(activeComment,$('drawing-comment-repeat').checked);render();
+ };
  $('drawing-comment-add').onclick=()=>{
   if(!sheet||busy||comments.length>=16)return;
   const id='comment-'+crypto.randomUUID(),style=currentCommentStyle();
   comments.push({id,text:'',size:style.size,font:style.font,color:style.color});
   if(editingPage>=0&&pdfLayout==='manual')pageAssignments.comments[id]=editingPage+1;
-  pagePositionMap()[id]=[15,Math.min(sheet.contentBottom-15,30+comments.length*12)];
+  setPagePositionMap({...pagePositionMap(),[id]:[15,Math.min(sheet.contentBottom-15,30+comments.length*12)]});
   selectDrawingComment(id);render();$('drawing-comment').focus();
  };
  $('drawing-comment-remove').onclick=()=>{if(busy)return;removeDrawingComment(activeComment);selection=null;render();};
@@ -799,7 +848,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function historyControls(){$('drawing-undo').disabled=!data||busy||!undo.length;$('drawing-redo').disabled=!data||busy||!redo.length;}
  function setCommentWidth(note,width){
   if(width===undefined)delete commentWidths[note.id];else commentWidths[note.id]=width;
-  pagePositionMap()[note.id]=[note.x,note.y];
+  setPagePositionMap({...pagePositionMap(),[note.id]:[note.x,note.y]});
  }
  function commentWidthLimit(note){
   const right=$('drawing-paper-size').value==='auto'?maxCommentWidth-15:sheet.width-5;
@@ -2087,7 +2136,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    if(order.length>=maxDrawingPDFPages)throw Error('ページは '+maxDrawingPDFPages+' 枚までです。');
    index=order.length;order.push(null);notice=(index+1)+' ページ目を追加しました';
   }else if(kind==='remove'){
-   if(order.length<2||drawingPDFPageItems(pages[from]).length)throw Error('空白ページを選択してください。');
+   if(order.length<2||drawingPDFPageItems(pages[from]).some(item=>!item.repeated))throw Error('空白ページを選択してください。');
    order.splice(from,1);index=Math.min(from,order.length-1);notice=(from+1)+' ページ目を削除しました';
   }else{
    order.splice(from,1);order.splice(to,0,from);index=to;
@@ -2095,15 +2144,17 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   }
   const savedAssignments=pdfLayout==='manual'?currentPageAssignments():undefined;
   const fromSingle=!pdfLayout,placement=fromSingle?'keep':pdfPlacement;
-  const {assignments,scales}=remapDrawingPDFPages(pages,order,savedAssignments,fromSingle?{}:pdfPageScales);
+  const {assignments,scales,commentPositions={}}=remapDrawingPDFPages(pages,order,savedAssignments,
+   fromSingle?{}:pdfPageScales,fromSingle?{}:pdfCommentPositions);
   // A new page layout starts with the single page as currently shown.
   const sourceDimensions=fromSingle?dimensions.map(({pdfPlacement,...dimension})=>dimension):dimensions;
   const sourceDetails=fromSingle?details.map(withoutDetailPDFPlacements):details;
   const next=preparePDF(makePDFPages({...options(),pdfLayout:'manual',pdfPlacement:placement,details:sourceDetails,
-   pageAssignments:assignments,pdfPageScales:scales,...(fromSingle?{pdfPositions:{},pdfViewScales:{},pdfViewLocks:{},pdfViewTitlePositions:{}}:{})},
+   pageAssignments:assignments,pdfPageScales:scales,pdfCommentPositions:commentPositions,
+   ...(fromSingle?{pdfPositions:{},pdfViewScales:{},pdfViewLocks:{},pdfViewTitlePositions:{}}:{})},
    overviewSheet,sourceDimensions));
   if(fromSingle){pdfPositions={};pdfViewScales={};pdfViewLocks={};pdfViewTitlePositions={};dimensions=sourceDimensions;details=sourceDetails;}
-  pdfLayout='manual';pdfPlacement=placement;pageAssignments=assignments;pdfPageScales=scales;
+  pdfLayout='manual';pdfPlacement=placement;pageAssignments=assignments;pdfPageScales=scales;pdfCommentPositions=commentPositions;
   if(editingPage>=0){
    const remapped=order.indexOf(editingPage);
    editingPage=remapped<0?index:remapped;
@@ -2119,11 +2170,12 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   const failure='縮尺を保ったまま収まりません。縮尺を小さくするか用紙を大きくしてください。';
   if(!fit)throw Error(failure);
 
-  const nextPositions={...(pdfLayout?pdfPositions:positions),...fit.positions};
+  const nextPositions={...(pdfLayout?pagePositionMap(index):positions),...fit.positions};
+  const nextPDFPositions=pdfLayout?pdfPagePlacement(nextPositions,index):null;
   const nextScales=pdfPlacement==='auto'?{...pdfPageScales,[index+1]:page.pageScale}:pdfPageScales;
   let next;
   if(pdfLayout){
-   next=preparePDF(makePDFPages({...settings,pdfPositions:nextPositions,pdfPageScales:nextScales}));
+   next=preparePDF(makePDFPages({...settings,...nextPDFPositions,pdfPageScales:nextScales}));
    if(next.pages.length!==pages.length||next.pages.some((p,i)=>i!==index&&p.svg!==pages[i].svg)){
     throw Error('ほかのページの配置に影響します。このページを開いて位置を調整してください。');
    }
@@ -2132,7 +2184,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
     {...settings,layout:'compact',positions:nextPositions})]);
   }
   if(next.issues.some(issue=>issue.pageIndex===index&&issue.kind==='layout'))throw Error(failure);
-  if(pdfLayout){pdfPositions=nextPositions;pdfPageScales=nextScales;}
+  if(pdfLayout){({pdfPositions,pdfCommentPositions}=nextPDFPositions);pdfPageScales=nextScales;}
   else {positions=nextPositions;layoutKind='compact';}
   render(false);persist();
   return {...next,notice:(index+1)+' ページを同じ縮尺で配置し直しました'};
@@ -2601,7 +2653,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  }
  function preserveActivePDFPlacement(){
   if(editingPage<0||pdfPlacement!=='auto')return;
-  pdfPositions={...pdfPositions,...displayedPositions(sheet)};
+  setPagePositionMap({...pagePositionMap(),...displayedPositions(sheet)});
   pdfPageScales={...pdfPageScales,[editingPage+1]:sheet.pageScale};
  }
  function syncOmittedHoles(){
@@ -3070,7 +3122,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
   else if(page){
    pdfViewScales=withViewScale(state.previousPdfViews,targets,next);
    if(pdfPlacement==='auto')pdfPageScales={...state.previousPdfScales,[page]:state.pageScale};
-   pdfPositions={...state.cancelPositions,...state.pagePositions};
+   setPagePositionMap({...state.cancelPositions,...state.pagePositions});
   }else{
    const nextScale=locked?next:scale;
    if(locked){
@@ -3149,6 +3201,7 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    placements[name]=origin.map((value,i)=>value+(i===axis?delta[i]:0));
   }
   placements[state.name]=state.origin.map((value,i)=>value+delta[i]);
+  setPagePositionMap(placements);
   render(false);
   if(locked){
    for(const name of drawingProjectionNames){
@@ -3395,7 +3448,9 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
    }
    setTitlePositionMap({...titlePositionMap(),[finished.name]:{...titlePositionMap()[finished.name],offset}});
   }
-  if(finished.followers?.length&&sheet)retainViewPositions(sheet.layout,pagePositionMap(),linkedDrawingViews);
+  if(finished.followers?.length&&sheet){
+   const placements=pagePositionMap();retainViewPositions(sheet.layout,placements,linkedDrawingViews);setPagePositionMap(placements);
+  }
   if(finished.type==='break'){
    breakRange=finished.next;if(!applyAutomaticLayout())render();
   }else if(finished.type==='section'){
@@ -3412,6 +3467,8 @@ export function installDrawing({getFeatures,getVisible,getSelected,getFrontFace=
  function restore(s){
   $('drawing-layout-label').checked=s?.options.showLayoutLabel??true;
   pdfPositions=structuredClone(s?.options.pdfPositions??{});
+  pdfRepeatComments=new Set(s?.options.pdfRepeatComments);
+  pdfCommentPositions=structuredClone(s?.options.pdfCommentPositions??{});
   pdfPageScales=structuredClone(s?.options.pdfPageScales??{});
   pdfViewScales=structuredClone(s?.options.pdfViewScales??{});
   viewLocks=structuredClone(s?.options.viewLocks??{});

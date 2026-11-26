@@ -245,7 +245,8 @@
 .drawing-pdf-page-thumb[aria-current=page] { border-color:#68dcec; background:#214c60; }
 .drawing-pdf-page-thumb img { display:block; width:100%; height:clamp(44px,9vh,86px); margin-bottom:3px; object-fit:contain; background:#c4d3dd; border-radius:2px; }
 .drawing-pdf-page-contents { display:grid; align-content:start; gap:3px; max-height:72px; overflow:auto; padding:4px 1px 1px; color:#c7d9e5; font-size:12px; }
-.drawing-pdf-page-contents button { min-width:0; padding:2px 5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:12px; cursor:grab; }
+.drawing-pdf-page-contents :is(button,span) { min-width:0; padding:2px 5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; font-size:12px; }
+.drawing-pdf-page-contents button { cursor:grab; }
 .drawing-pdf-page-contents button[aria-pressed=true] { border-color:#68dcec; }
 #drawing-pdf-preview-pages small { color:#c7d9e5; }
 .drawing-pdf-page-move { gap:8px; margin-top:5px; }

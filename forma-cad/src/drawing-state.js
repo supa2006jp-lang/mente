@@ -14,6 +14,7 @@ import {maxDrawingDimensionPoints} from './drawing-dimension-points.js';
 const extraId=id=>typeof id==='string'&&/^(section|detail)-[a-zA-Z0-9-]{1,60}$/.test(id);
 const coordinates=(p,axes)=>Array.isArray(p)&&p.length===axes&&p.every(n=>Number.isFinite(n)&&Math.abs(n)<=1e6);
 const point=p=>coordinates(p,2);
+const pdfPageKey=key=>/^(?:[1-9]|[12]\d|3[0-2])$/.test(key);
 const validReview=item=>item.review===undefined||typeof item.review==='boolean';
 const validDimensionPlacement=placement=>point(placement?.at)&&
  (placement.alongOffset===undefined||Number.isFinite(placement.alongOffset)&&Math.abs(placement.alongOffset)<=1e6);
@@ -53,6 +54,13 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
    typeof note.text!=='string'||note.text.length>2000||!Number.isFinite(note.size)||note.size<1.5||note.size>10||
    typeof note.font!=='string'||note.font!==''&&!hasDrawingCommentFont(note.font)||!validDimensionColor(note.color))fail();
   commentIds.add(note.id);
+ }
+ const noteIds=new Set(['comment',...commentIds]),repeated=o.pdfRepeatComments===undefined?[]:o.pdfRepeatComments;
+ if(!Array.isArray(repeated)||repeated.length>noteIds.size||new Set(repeated).size!==repeated.length||repeated.some(id=>!noteIds.has(id)))fail();
+ if(o.pdfCommentPositions!==undefined){
+  const positions=o.pdfCommentPositions,shared=new Set(repeated);
+  if(!positions||typeof positions!=='object'||Array.isArray(positions)||Object.entries(positions).some(([page,notes])=>
+   !pdfPageKey(page)||!notes||typeof notes!=='object'||Array.isArray(notes)||Object.entries(notes).some(([id,at])=>!shared.has(id)||!point(at))))fail();
  }
  if(o.commentWidths!==undefined){
   const widths=o.commentWidths;
@@ -127,12 +135,12 @@ export function readDrawingState(value){if(value==null)return null;const fail=()
     (!point(record?.at)||!validDrawingScale(record.scale))))fail();
  }
  if(o.pdfPageScales!==undefined&&(!o.pdfPageScales||typeof o.pdfPageScales!=='object'||Array.isArray(o.pdfPageScales)||
-  Object.entries(o.pdfPageScales).some(([key,scale])=>!/^(?:[1-9]|[12]\d|3[0-2])$/.test(key)||!validDrawingScale(scale))))fail();
+  Object.entries(o.pdfPageScales).some(([key,scale])=>!pdfPageKey(key)||!validDrawingScale(scale))))fail();
  if(o.pageAssignments!==undefined){
   const assignment=o.pageAssignments,validPage=n=>Number.isInteger(n)&&n>=1&&n<=assignment.pageCount;
   const validMap=(map,allowed)=>map&&typeof map==='object'&&!Array.isArray(map)&&Object.entries(map).every(([id,page])=>allowed.has(id)&&validPage(page));
   if(!assignment||!Number.isInteger(assignment.pageCount)||assignment.pageCount<1||assignment.pageCount>32||
-   !validMap(assignment.views,new Set([...viewNames,'iso']))||!validMap(assignment.comments,new Set(['comment',...commentIds]))||
+   !validMap(assignment.views,new Set([...viewNames,'iso']))||!validMap(assignment.comments,noteIds)||
    assignment.holeTable!==undefined&&!validPage(assignment.holeTable))fail();
  }
  if(o.pdfPositions!==undefined){

@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {autoDrawingDimensions,drawingIsometricOverallAnchors,hideDuplicateOverallDimensions} from '../src/drawing-auto-dimensions.js';
 import {arrangeDrawingDimensionConflicts,arrangeDrawingDimensions,dimensionPlacement,drawingDimensionConflicts} from '../src/drawing-dimension-layout.js';
 import {drawingBoxPlacementIssue} from '../src/drawing-paper-bounds.js';
-import {drawingPDFHasMultiplePages,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
+import {drawingPDFHasMultiplePages,drawingPDFPageItems,drawingPDFPages,remapDrawingPDFPages} from '../src/drawing-pdf-pages.js';
 import {drawingPDFIssues,drawingSheetOverflow,drawingViewOverlaps} from '../src/drawing-sheet-check.js';
 import {dimensionLabel,dimensionValue,drawingDimensionGeometry} from '../src/drawing-dimensions.js';
 import {drawingSheet} from '../src/drawing-sheet.js';
@@ -64,6 +64,39 @@ test('splitting off auxiliary views preserves the overview and auto placement st
   viewScales:{right:.5},pageAssignments:{pageCount:2,views:{right:1,front:2,top:2},comments:{}}});
  assert.equal(side.layout.right.scale,.5);
  assert.equal(side.layout.right.y,105);
+});
+
+test('common PDF comments repeat across layouts while position edits follow their respective pages',()=>{
+ const finish={id:'comment-finish',text:'仕上げ面を保護',size:3.5,font:'',color:'#111111'};
+ const local={...finish,id:'comment-local',text:'断面図の指示'};
+ const assignments={pageCount:3,views:{},comments:{comment:2,[local.id]:2}};
+ const at=[31,145],text='全周のバリを除去';
+ const config={...options,comments:[finish,local],pageAssignments:assignments,pdfRepeatComments:['comment',finish.id],
+  pdfPositions:{comment:[280,180]},pdfCommentPositions:{2:{comment:at}}};
+ const editor=drawingSheet(part,1,true,[],text,config);
+ for(const pdfLayout of ['manual','multi'])for(const pdfPlacement of ['keep','auto']){
+  const pages=drawingPDFPages(part,1,true,[],text,{...config,pdfLayout,pdfPlacement},editor);
+  assert.equal(pages.length,pdfLayout==='manual'?3:2);
+  for(const page of pages){
+   assert.deepEqual(drawingPDFPageItems(page).filter(item=>item.repeated).map(({id,text})=>[id,text]),[
+    ['comment',text],[finish.id,finish.text],
+   ]);
+   assert.match(page.svg,/全周のバリを除去/);
+  }
+  assert.deepEqual(pages.map(page=>page.notes.some(note=>note.id===local.id)),pdfLayout==='manual'?[false,true,false]:[true,false]);
+  assert.deepEqual([pages[1].note.x,pages[1].note.y],at);
+  assert.notDeepEqual([pages[0].note.x,pages[0].note.y],config.pdfPositions.comment);
+  assert.notDeepEqual([pages[0].note.x,pages[0].note.y],at);
+ }
+ const pages=drawingPDFPages(part,1,true,[],text,{...config,pdfLayout:'manual'},editor);
+ assert.ok(drawingPDFPageItems(pages[2]).every(item=>item.repeated));
+ const reordered=remapDrawingPDFPages(pages,[2,0,1,null],assignments,{},config.pdfCommentPositions);
+ assert.equal(reordered.assignments.comments.comment,3);
+ assert.equal(reordered.assignments.comments[finish.id],undefined);
+ assert.deepEqual(reordered.commentPositions,{3:{comment:at}});
+ const state={version:1,signature:'test',targets:[],targetMode:'visible',scale:1,hidden:true,comment:text,dimensions:[],options:config};
+ assert.deepEqual(readDrawingState(state),state);
+ assert.throws(()=>readDrawingState({...state,options:{...config,pdfRepeatComments:[local.id]}}));
 });
 
 test('paper and view captions use the actual scale on each page',()=>{

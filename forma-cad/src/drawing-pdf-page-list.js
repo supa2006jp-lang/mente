@@ -92,20 +92,24 @@ export function installDrawingPDFPageList(host,{viewLabel,selectPage,moveItem,ch
    urls.push(url);image.src=url;
    caption.textContent=(index+1)+' ページ';button.append(image,caption);
    items.className='drawing-pdf-page-contents';
-   for(const item of drawingPDFPageItems(page)){
-    const control=document.createElement('button');
+   const pageItems=drawingPDFPageItems(page);
+   for(const item of pageItems){
     const label=item.kind==='views'?viewLabel(item.id):item.kind==='table'?'穴位置表':
      (item.id==='comment'?'共通コメント':'コメント')+' · '+item.text.trim().split(/\r?\n/,1)[0];
-    control.type='button';control.draggable=true;control.dataset.pageItem=item.id;
-    control.textContent=control.title=label;
-    control.setAttribute('aria-pressed','false');
-    control.onclick=()=>choose(control,item,index,label);
-    control.ondragstart=event=>startDrag(event,{item,from:index});
-    control.ondragend=clearDrag;
+    const control=document.createElement(item.repeated?'span':'button');
+    control.dataset.pageItem=item.id;
+    control.textContent=control.title=item.repeated?'全ページ · '+label:label;
+    if(!item.repeated){
+     control.type='button';control.draggable=true;
+     control.setAttribute('aria-pressed','false');
+     control.onclick=()=>choose(control,item,index,label);
+     control.ondragstart=event=>startDrag(event,{item,from:index});
+     control.ondragend=clearDrag;
+    }
     items.append(control);
    }
-   const empty=!items.childElementCount;
-   if(empty)items.textContent='空白ページ';
+   const empty=pageItems.every(item=>item.repeated);
+   if(!pageItems.length)items.textContent='空白ページ';
    node.ondragover=event=>{
     if(!dragged||dragged.from===index||!canEdit())return;
     event.preventDefault();event.dataTransfer.dropEffect='move';node.dataset.pageDrop=dragged.item?'item':'page';

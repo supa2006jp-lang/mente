@@ -19,9 +19,10 @@ export function drawingPDFHasMultiplePages(views,{pdfLayout,pageAssignments,hole
 }
 
 export function drawingPDFPageItems(page){
+ const repeated=new Set(page.repeatedComments);
  return [
   ...Object.keys(page.layout).map(id=>({kind:'views',id})),
-  ...page.notes.map(({id,text})=>({kind:'comments',id,text})),
+  ...page.notes.map(({id,text})=>({kind:'comments',id,text,...(repeated.has(id)?{repeated:true}:{})})),
   ...(page.holeBox?[{kind:'table',id:'holeTable'}]:[]),
  ];
 }
@@ -34,23 +35,32 @@ export function assignDrawingPDFPageItem(assignment,{kind,id},page){
 export function drawingPDFPageAssignments(pages){
  const assignment={pageCount:pages.length,views:{},comments:{}};
  for(const [index,page] of pages.entries()){
-  for(const item of drawingPDFPageItems(page))assignDrawingPDFPageItem(assignment,item,index+1);
+  for(const item of drawingPDFPageItems(page))if(!item.repeated)assignDrawingPDFPageItem(assignment,item,index+1);
  }
  return assignment;
 }
 
-export function remapDrawingPDFPages(pages,order,assignments={},scales={}){
+export function remapDrawingPDFPages(pages,order,assignments={},scales={},commentPositions={}){
  const visible=drawingPDFPageAssignments(pages);
  const numbers=new Map(order.flatMap((old,index)=>old===null?[]:[[old+1,index+1]]));
  const pageOf=old=>numbers.get(old)??Math.min(old,order.length);
  const remap=kind=>Object.fromEntries(Object.entries({...assignments[kind],...visible[kind]})
   .map(([id,page])=>[id,pageOf(page)]));
+ const remapPages=values=>Object.fromEntries([...numbers].flatMap(([old,next])=>values[old]===undefined?[]:[[next,values[old]]]));
  const table=visible.holeTable??assignments.holeTable;
  return {
   assignments:{pageCount:order.length,views:remap('views'),comments:remap('comments'),
    ...(table===undefined?{}:{holeTable:pageOf(table)})},
-  scales:Object.fromEntries([...numbers].flatMap(([old,next])=>scales[old]===undefined?[]:[[next,scales[old]]])),
+  scales:remapPages(scales),
+  ...(Object.keys(commentPositions).length?{commentPositions:remapPages(commentPositions)}:{}),
  };
+}
+
+export function drawingPDFPagePositions({pdfPositions={},pdfRepeatComments,pdfCommentPositions},page){
+ const repeated=new Set(pdfRepeatComments);
+ if(!repeated.size)return pdfPositions;
+ const individual=Object.fromEntries(Object.entries(pdfPositions).filter(([id])=>!repeated.has(id)));
+ return {...individual,...pdfCommentPositions?.[page]};
 }
 
 export function fitDrawingPDFPage(data,page,{scale,dimensions,options}){
@@ -66,7 +76,6 @@ export function fitDrawingPDFPage(data,page,{scale,dimensions,options}){
 
 function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
  const keep=options.pdfPlacement!=='auto';
- const overrides=options.pdfPositions??{};
  const source=keep?(editorSheet??drawingSheet(data,scale,hidden,dimensions,comment,options)):null;
  const overviewTitleWidth=editorSheet?.viewTitleWidth??source?.viewTitleWidth??options.viewTitleWidth;
  const positions=source?Object.fromEntries([
@@ -74,11 +83,13 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
   ...(source.holeBox?[['holeTable',[source.holeBox.x,source.holeBox.y]]]:[]),
  ]):null;
  const comments=(options.comments??[]).filter(note=>note.text.trim());
+ const repeatedComments=new Set(options.pdfRepeatComments);
  const names=Object.keys(withDetails(data,options.details).views).filter(name=>drawingViewVisible(name,options));
  const pages=[];
  let originalFrames;
 
  function add(views,table,text,notes){
+  const pageNumber=pages.length+1,overrides=drawingPDFPagePositions(options,pageNumber);
   const dimensionIndices=[];
   const selected=new Set(views);
   let pageDimensions=dimensions.filter((d,index)=>{
@@ -92,7 +103,7 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
    viewLocks,viewTitleWidth:overviewTitleWidth,viewTitlePositions:{...options.viewTitlePositions,...options.pdfViewTitlePositions}};
   const refitIso=!keep&&selected.has('iso')&&options.autoIsoScale!==undefined;
   if(refitIso)delete pageOptions.autoIsoScale;
-  const specified=options.pdfPageScales?.[pages.length+1];
+  const specified=options.pdfPageScales?.[pageNumber];
   const pageScale=specified??scale;
   const resized=views.filter(id=>options.pdfViewScales?.[id]!==undefined);
   if(resized.length){
@@ -150,21 +161,23 @@ function layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet
    }),page.comment,{...page.options,viewTitleWidth,pageNumber:index+1,pageCount:pages.length}),
    dimensionIndices:page.dimensionIndices,
    pageScale:page.scale,
+   ...(repeatedComments.size?{repeatedComments:[...repeatedComments]}:{}),
   }));
  }
 
- return {names,comments,add,render};
+ return {names,comments,repeatedComments,add,render};
 }
 
 export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
  const assignment=options.pageAssignments??{pageCount:2,views:{},comments:{}};
- const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
+ const {names,comments,repeatedComments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
  const pageOf=(kind,id)=>Math.min(assignment.pageCount,assignment[kind]?.[id]??(
   kind==='views'&&isAuxiliaryView(id)?2:1));
+ const noteOnPage=(id,page)=>repeatedComments.has(id)||pageOf('comments',id)===page;
  for(let page=1;page<=assignment.pageCount;page++){
   const views=names.filter(name=>pageOf('views',name)===page);
-  const notes=comments.filter(note=>pageOf('comments',note.id)===page);
-  const text=pageOf('comments','comment')===page?comment:'';
+  const notes=comments.filter(note=>noteOnPage(note.id,page));
+  const text=noteOnPage('comment',page)?comment:'';
   const table=!!options.holeTable&&Math.min(assignment.holeTable??1,assignment.pageCount)===page;
   try{add(views,table,text,notes);}
   catch(error){throw Error(page+' ページ目を配置できません。'+error.message);}
@@ -174,12 +187,13 @@ export function assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,opt
 
 export function drawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts){
  if(options.pdfLayout==='manual')return assignedDrawingPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
- const {names,comments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
+ const {names,comments,repeatedComments,add,render}=layoutPDFPages(data,scale,hidden,dimensions,comment,options,editorSheet,layouts);
  const overview=names.filter(name=>!isAuxiliaryView(name));
  add(overview,false,comment,comments);
+ const sharedText=repeatedComments.has('comment')?comment:'',sharedNotes=comments.filter(note=>repeatedComments.has(note.id));
  function fitAuxiliary(items){
   if(!items.length)return;
-  try{add(items.filter(item=>item!=='holeTable'),items.includes('holeTable'),'',[]);}
+  try{add(items.filter(item=>item!=='holeTable'),items.includes('holeTable'),sharedText,sharedNotes);}
   catch(error){
    if(items.length===1)throw error;
    const mid=Math.ceil(items.length/2);
