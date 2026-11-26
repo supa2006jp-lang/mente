@@ -99,6 +99,12 @@ export function layoutDrawingViewTitles(layout,options,showScale,paper,annotatio
    });
    if(placed)break;
   }
+  const compact=choices[1],left=alignedX(compact);
+  if(!placed&&name==='top'){
+   const inside={left,right:right-compact.bounds.width-sideGap,top:view.y+sideGap,
+    bottom:Math.min(view.y+9,view.y+view.height-compact.bounds.height-sideGap)};
+   placed=titleInBand(compact,paper,[...drawings.filter(other=>other!==view),...occupied],inside);
+  }
   if(!placed)for(const title of choices){
    const top=view.y-2.3,bottom=view.y+8,left=view.x-title.bounds.width-sideGap;
    placed=titleInBand(title,paper,obstacles,{left:right+sideGap,right:right+10,top,bottom})??
@@ -107,7 +113,6 @@ export function layoutDrawingViewTitles(layout,options,showScale,paper,annotatio
   }
   if(!placed){
    // A view can fill the frame. In that case keep its compact caption inside its upper edge.
-   const compact=choices[1],left=alignedX(compact);
    const inside={left,right:Math.max(left,right-compact.bounds.width-sideGap),top:view.y+sideGap,bottom:view.y+9};
    placed=titleInBand(compact,paper,[...drawings.filter(other=>other!==view),...occupied],inside);
    if(!placed){

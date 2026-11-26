@@ -157,6 +157,36 @@ test('initial large layout keeps every caption inside the frame and clears the a
  assert.match(sheet.svg,/TOP \/ SCALE 1\.8:1/);
 });
 
+test('a tight initial layout fits the TOP heading above its view at the fitted scale',()=>{
+ const width=50,depth=28,isoWidth=2*width/Math.SQRT2,isoHeight=2*(width+depth)/Math.sqrt(6);
+ const data={bodyCount:1,bounds:[[0,0,0],[width,width,depth]],views:{
+  top:rect(width,width),front:rect(width,depth),right:rect(width,depth),
+  iso:{...rect(isoWidth,isoHeight),viewBox:[0,-(width+2*depth)/Math.sqrt(6),isoWidth,isoHeight]},
+ }};
+ const config={...options,layout:'compact',isoMode:'full',sections:[],positions:{},linkedProjections:true,linkedProjectionScales:true};
+ const result=optimizeDrawingLayout(data,{options:config,isoOnRight:true,spreadViews:true,preferProjectionOrder:true});
+ assert.equal(result.scale,2);
+ assert.equal(result.autoIsoScale,1);
+ const sheet=drawingSheet(data,result.scale,true,[],'',{...config,positions:result.positions,autoIsoScale:result.autoIsoScale});
+ const top=sheet.layout.top,title=sheet.viewTitles.top;
+ assert.ok(title.y+title.height<top.y);
+ assert.ok(title.x>=top.x&&title.x+title.width<=top.x+top.width);
+ assert.equal(drawingBoxPlacementIssue(title,sheet),null);
+ assert.deepEqual(drawingViewOverlaps(sheet),[]);
+
+ const saved={...config,positions:{...result.positions,top:[top.x,6.5]},autoIsoScale:result.autoIsoScale,
+  pdfLayout:'manual',pageAssignments:{pageCount:2,views:{iso:2},comments:{}}};
+ const restored=drawingSheet(data,2,true,[],'',saved);
+ const [page]=drawingPDFPages(data,2,true,[],'',saved,restored);
+ for(const s of [restored,page]){
+  const view=s.layout.top,heading=s.viewTitles.top;
+  assert.deepEqual([view.y,view.scale],[6.5,2]);
+  assert.ok(heading.x>=view.x&&heading.x+heading.width<=view.x+view.width);
+  assert.ok(heading.y>=view.y&&heading.y+heading.height<view.y+9);
+  assert.equal(drawingBoxPlacementIssue(heading,s),null);
+ }
+});
+
 test('adjusted view captions follow their view and a PDF page can use its own caption position',()=>{
  const config={...options,sections:[],layout:'compact',viewSelection:['front'],isoMode:'hidden',projectionLocked:false,
   positions:{front:[42,60]},viewTitlePositions:{front:{offset:[31,-20],compact:true}},
