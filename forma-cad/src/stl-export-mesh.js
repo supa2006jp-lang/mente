@@ -16,8 +16,10 @@ export function stlMeshSnapshot(features,meshes,ids){
 }
 export async function createPreciseStl(bodies,run,{isCurrent=()=>true,onProgress,onInspection}={}){
  const ensure=()=>{if(!isCurrent())throw Error('モデルが変更されたためSTL出力を中止しました。もう一度保存してください');};ensure();
- const result=await run([],{type:'stlMeshes',bodies},{onProgress});ensure();onInspection?.(result.inspection);ensure();
- if(!result.inspection?.ok||!result.inspection.complete||result.inspection.checkedBodies!==bodies.length||result.outputs.length!==bodies.length){const error=Error('STLの検査で未解決の問題が見つかったため保存を中止しました。「STL出力の検査」で場所を確認してください');error.code='stl-inspection';error.inspection=result.inspection;throw error;}
+ const result=await run([],{type:'stlMeshes',bodies,repairOverlaps:true},{onProgress});ensure();onInspection?.(result.inspection);ensure();
+ const sourceIds=(result.outputs??[]).flatMap(output=>output.sourceIds??[output.id]);
+ const covered=new Set(sourceIds);
+ if(!result.inspection?.ok||!result.inspection.complete||result.inspection.checkedBodies!==bodies.length||sourceIds.length!==bodies.length||!bodies.every(body=>covered.has(body.id))){const error=Error('STLの検査で未解決の問題が見つかったため保存を中止しました。「STL出力の検査」で場所を確認してください');error.code='stl-inspection';error.inspection=result.inspection;throw error;}
  const group=new THREE.Group();
  try{
   for(const output of result.outputs){const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(output.vertices,3));geometry.setIndex(output.triangles);group.add(new THREE.Mesh(geometry));}

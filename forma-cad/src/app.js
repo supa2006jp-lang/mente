@@ -2041,16 +2041,19 @@ function saveColor3mf(parts,original,{copies=false}={}){
  finally{color3mfBusy=false;button.disabled=![...meshes.values()].some(mesh=>mesh.visible);}
 }
 async function exportCheckedStl(original,ids,{copies=false}={}){
- let token=null;
+ let token=null,removedOverlapFaces=0;
  const current=()=>features===original&&(token===null||stlInspection.current(token));
  try{
   const bodies=stlMeshSnapshot(original,meshes,ids);
   const message=await saveStl(()=>{
    if(!current())throw Error('モデルが変更されたためSTL出力を中止しました');
    token=stlInspection.begin(original);
-   return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:current,onProgress:p=>stlInspection.progress(token,p),onInspection:report=>stlInspection.result(token,report)});
+   return createPreciseStl(bodies,stlInspection.kernel.run.bind(stlInspection.kernel),{isCurrent:current,onProgress:p=>stlInspection.progress(token,p),onInspection:report=>{
+    removedOverlapFaces=report?.removedOverlapFaces||0;
+    stlInspection.result(token,report);
+   }});
   },download,{isCurrent:current,...(copies?{suggestedName:projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'')+'-print-copies.stl'}:{})});
-  if(message)notify(message+'（出力メッシュ検査済み）');
+  if(message)notify(message+(removedOverlapFaces?' 重なった面を'+removedOverlapFaces.toLocaleString()+'枚取り除き、再検査しました。':'（出力メッシュ検査済み）'));
  }catch(error){if(token!==null)stlInspection.error(token,error);throw error;}
 }
 const printSupport3mfLabel='3MF（連結リブサポートの設定付き）';

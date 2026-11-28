@@ -20,7 +20,8 @@ function stlComponents(points,vertexIds,indices,edges,parents){
 
 // Check the actual Float32 coordinates written to binary STL, per body.
 // Do not weld nearby points: a small intentional gap must remain a gap.
-export function inspectStlMesh(mesh,{maxTriangles=400000,maxSegments=300,includeComponents=false,includeIssueSegments=false}={}){
+export const STL_INSPECTION_MAX_TRIANGLES=400000;
+export function inspectStlMesh(mesh,{maxTriangles=STL_INSPECTION_MAX_TRIANGLES,maxSegments=300,includeComponents=false,includeIssueSegments=false}={}){
  const v=mesh.vertices,t=mesh.triangles,issues=[],segments=[],counts={boundary:0,nonmanifold:0,orientation:0,duplicate:0};
  const failure=code=>({ok:false,complete:true,triangles:0,removedDegenerate:0,counts,issues:[{code}],segments,volume:0});
  if(!Array.isArray(v)||!Array.isArray(t)||!v.length||v.length%3||!t.length||t.length%3)return failure('invalid-mesh');
@@ -43,4 +44,13 @@ export function inspectStlMesh(mesh,{maxTriangles=400000,maxSegments=300,include
  return {ok:!issues.length,complete:true,triangles:clean.length/3,removedDegenerate,counts,issues,segments,segmentsTruncated:Object.values(counts).reduce((a,b)=>a+b,0)>maxSegments,volume,...(issueSegments?{issueSegments}:{}),...(removedDegenerate?{cleanTriangles:clean}:{}),...(parents&&!issues.length?{components:stlComponents(points,vertexIds,clean,edges,parents)}:{})};
 }
 
-export function stlInspectionSummary(rows){return {version:1,ok:rows.length>0&&rows.every(r=>r.ok),complete:rows.every(r=>r.complete),rows,checkedBodies:rows.length,repairedBodies:rows.filter(r=>r.repaired).length,removedDegenerate:rows.reduce((n,r)=>n+r.removedDegenerate,0)};}
+export function stlInspectionSummary(rows){
+ const overlaps=new Map();
+ for(const row of rows){
+  const repair=row.overlapRepair;
+  if(repair)overlaps.set(repair.outputId,repair.removedFaces);
+ }
+ return {version:1,ok:rows.length>0&&rows.every(r=>r.ok),complete:rows.every(r=>r.complete),rows,checkedBodies:rows.length,
+  repairedBodies:rows.filter(r=>r.repaired).length,removedDegenerate:rows.reduce((n,r)=>n+r.removedDegenerate,0),
+  removedOverlapFaces:[...overlaps.values()].reduce((total,count)=>total+count,0)};
+}

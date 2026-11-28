@@ -3,6 +3,7 @@ import {cadMesh} from './cad-mesh.js';
 import {THREAD_DISPLAY_MESH,STL_MESH} from './mesh-quality.js';
 import {inspectStlMesh,stlInspectionSummary} from './stl-mesh-health.js';
 import {inspectCadStl} from './stl-cad-inspection.js';
+import {repairStlOverlaps} from './stl-overlap-repair.js';
 
 export function meshBrep(brep,options){
  const shape=R.deserializeShape(brep).asShape3D();
@@ -27,6 +28,10 @@ export function savedBodyMeshes(spec,onProgress){
   if(!Array.isArray(vertices)||!vertices.length||vertices.length%3||!vertices.every(Number.isFinite)||!Array.isArray(triangles)||!triangles.length||triangles.length%3||!triangles.every(i=>Number.isInteger(i)&&i>=0&&i<vertices.length/3))throw Error('STL出力用の形状データが不正です');
   const {cleanTriangles,...audit}=inspectStlMesh(body,{includeComponents:spec.includeComponents});rows.push({id:body.id,...audit,repaired:audit.removedDegenerate>0,attempts:1});
   outputs.push({id:body.id,vertices:[...vertices],triangles:cleanTriangles||[...triangles]});
+ }
+ if(!draft&&spec.repairOverlaps&&rows.some(row=>!row.ok)){
+  const repaired=repairStlOverlaps(outputs,rows,{onProgress,includeComponents:spec.includeComponents});
+  return {outputs:repaired.outputs,remove:[],inspection:stlInspectionSummary(repaired.rows)};
  }
  return {outputs,remove:[],...(!draft?{inspection:stlInspectionSummary(rows)}:{})};
 }
