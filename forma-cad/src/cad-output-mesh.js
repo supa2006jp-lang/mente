@@ -3,7 +3,7 @@ import {cadMesh} from './cad-mesh.js';
 import {THREAD_DISPLAY_MESH,STL_MESH} from './mesh-quality.js';
 import {inspectStlMesh,stlInspectionSummary} from './stl-mesh-health.js';
 import {inspectCadStl} from './stl-cad-inspection.js';
-import {repairStlOverlaps} from './stl-overlap-repair.js';
+import {repairMeshOverlaps} from './stl-overlap-repair.js';
 
 export function meshBrep(brep,options){
  const shape=R.deserializeShape(brep).asShape3D();
@@ -30,7 +30,7 @@ export function savedBodyMeshes(spec,onProgress){
   outputs.push({id:body.id,vertices:[...vertices],triangles:cleanTriangles||[...triangles]});
  }
  if(!draft&&spec.repairOverlaps&&rows.some(row=>!row.ok)){
-  const repaired=repairStlOverlaps(outputs,rows,{onProgress,includeComponents:spec.includeComponents});
+  const repaired=repairMeshOverlaps(outputs,rows,{onProgress,includeComponents:spec.includeComponents});
   return {outputs:repaired.outputs,remove:[],inspection:stlInspectionSummary(repaired.rows)};
  }
  return {outputs,remove:[],...(!draft?{inspection:stlInspectionSummary(rows)}:{})};

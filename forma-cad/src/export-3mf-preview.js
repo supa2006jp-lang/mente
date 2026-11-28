@@ -94,12 +94,24 @@ export function createExport3mfPreview(viewport,onPickAutoFace=()=>{}){
   clear();
   try{
    init();
-   for(const {id,vertices,triangles,color,overlay=false,autoFace=false} of parts){
+   for(const {id,vertices,triangles,color,faceColors,overlay=false,autoFace=false} of parts){
     if(!vertices?.length||!triangles?.length)continue;
-    const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(vertices,3)).setIndex(triangles);
-    geometry.computeVertexNormals();geometry.computeBoundingBox();
+    let geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(vertices,3)).setIndex(triangles);
+    geometry.computeVertexNormals();
+    if(faceColors){
+     const indexed=geometry;geometry=indexed.toNonIndexed();indexed.dispose();
+     const colors=new Float32Array(triangles.length*3),palette=new Map();
+     for(let i=0;i<faceColors.length;i++){
+      const value=faceColors[i];
+      if(!palette.has(value))palette.set(value,new THREE.Color(value));
+      const paint=palette.get(value);
+      for(let j=0;j<3;j++)paint.toArray(colors,i*9+j*3);
+     }
+     geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
+    }
+    geometry.computeBoundingBox();
     const material=autoFace?new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide,transparent:true,depthWrite:false,depthTest:false}):
-     new THREE.MeshStandardMaterial({color,roughness:.77,side:THREE.DoubleSide});
+     new THREE.MeshStandardMaterial({color:faceColors?0xffffff:color,vertexColors:!!faceColors,roughness:.77,side:THREE.DoubleSide});
     const mesh=new THREE.Mesh(geometry,material);mesh.userData={id,overlay,autoFace};objects.add(mesh);
     if(autoFace)mesh.renderOrder=3;
     if(!overlay&&!autoFace)bounds.union(geometry.boundingBox);

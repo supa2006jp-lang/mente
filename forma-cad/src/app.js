@@ -10,7 +10,7 @@ import {createAutoColorDialog,createBodyColorDialog} from './body-color-dialog.j
 import {automaticColorPlan} from './automatic-body-colors.js';
 import {colorChoiceLabel,colorChoiceRgb,isClearColor} from './color-choice.js';
 import {setSlideLidTransparency} from './slide-lid-transparency.js';
-import {colorMeshSnapshot,packColor3mf,prepareColor3mfParts} from './color-3mf.js';
+import {colorMeshSnapshot,color3mfPreviewParts,color3mfRepairMessage,packColor3mf,prepareColor3mfParts} from './color-3mf.js';
 import {installProjectDrafts} from './project-drafts.js';
 import {readNamedDimensions,namedDimensionBinding,linkedDimensionFields,planNamedDimensionChange} from './named-dimensions.js';
 import {installFavoriteCommands} from './favorite-commands.js';
@@ -2019,13 +2019,9 @@ async function remesh3mfPart(part){
 function colorOutputEntry(ids,label,loadParts,run,{plateSize}={}){
  const rows=ids.map(id=>({id,label:bodyDisplayName(id)}));
  return {label,rows,run,async load(isCurrent){
-  const data=await loadParts(isCurrent),colors=new Map();
-  const parts=data.map(part=>{
-   const id=part.group?.id??part.id,color=colorChoiceRgb(part.color);
-   if(!colors.has(id))colors.set(id,color);
-   return {id,color,vertices:part.vertices,triangles:part.triangles};
-  });
-  return {rows:rows.map(row=>({...row,color:colors.get(row.id)})),parts,plateSize,data};
+  const data=await loadParts(isCurrent),parts=color3mfPreviewParts(data),colors=new Map();
+  for(const {id,color} of parts)if(!colors.has(id))colors.set(id,color);
+  return {rows:rows.map(row=>({...row,color:colors.get(row.id)})),parts,plateSize,data,detail:color3mfRepairMessage(data)};
  }};
 }
 function saveColor3mf(parts,original,{copies=false}={}){
@@ -2036,7 +2032,7 @@ function saveColor3mf(parts,original,{copies=false}={}){
  try{
   const {data,colorCount}=packColor3mf(parts);
   download(data,fileName+(copies?'-print-copies':'')+'.3mf','model/3mf');
-  notify('色付き3MFを出力しました。'+colorCount+'色を含みます。'+(parts.some(part=>part.group)?' 色ごとの立体は別パーツです。':''));
+  notify('色付き3MFを出力しました。'+colorCount+'色を含みます。'+color3mfRepairMessage(parts)+(parts.some(part=>part.group)?' 色ごとの立体は別パーツです。':''));
  }catch(error){notify(error.message);}
  finally{color3mfBusy=false;button.disabled=![...meshes.values()].some(mesh=>mesh.visible);}
 }
@@ -5848,7 +5844,7 @@ function reviewLayout3mf(entries,initialIndex,original,isCurrent){
     if(!isCurrent())return;
     try{
      download(packColor3mf(parts).data,plate3mfFilename(name,index),'model/3mf');
-     notify('プレート '+(index+1)+' を3MF出力しました');
+     notify('プレート '+(index+1)+' を3MF出力しました。'+color3mfRepairMessage(parts));
     }catch(error){notify('3MFを保存できませんでした。'+error.message);}
    },{plateSize:PRINT_PLATE_SIZE}))},
  ]});

@@ -2,7 +2,9 @@ import {bodyPaint} from './body-face-paint.js';
 import {cadPosition} from './cad-coordinates.js';
 import {bodyColorHex,bodyColorValue} from './body-appearance.js';
 import {colorChoiceRgb,isClearColor} from './color-choice.js';
-import {indexedPrintSupportMesh} from './print-support-3mf-mesh.js';
+import {indexedPrintSupportMesh,inspectIndexed3mfMesh} from './print-support-3mf-mesh.js';
+import {inspectStlMesh} from './stl-mesh-health.js';
+import {repairMeshOverlaps} from './stl-overlap-repair.js';
 import {pack3mf,xmlAttribute} from './pack-3mf.js';
 
 export function colorMeshSnapshot(mesh,name){
@@ -17,22 +19,101 @@ export function colorMeshSnapshot(mesh,name){
  return {name,vertices,triangles,color:uniform?colors[0]:base,colors:uniform?null:colors};
 }
 
+function preparedPart({id,name,color,group},mesh){
+ return {id,name,color,group,...mesh};
+}
+
+function repairColorParts(entries,selection){
+ if(!selection.some(entry=>entry.error&&entry.mesh&&entry.prepared===undefined))return;
+ const outputs=[],rows=[];
+ for(const entry of selection){
+  if(!entry.mesh)continue;
+  const {key,mesh,error}=entry;
+  const audit=error?(entry.audit??inspectStlMesh(mesh)):{ok:true,complete:true,issues:[]};
+  if(error&&(audit.ok||audit.removedDegenerate))continue;
+  outputs.push({id:key,...mesh});
+  rows.push({id:key,attempts:0,...audit});
+ }
+ const repaired=repairMeshOverlaps(outputs,rows,{color3mf:true});
+ for(const result of repaired.outputs){
+  if(!result.sourceFaces?.some(({id})=>entries[id].error&&entries[id].prepared===undefined))continue;
+  let indexed;
+  try{indexed=indexedPrintSupportMesh(result);}catch{continue;}
+  const colors=[],ranges=[],names=[];
+  for(const {id,indices} of result.sourceFaces){
+   const {part,mesh}=entries[id];
+   ranges.push({id:part.group?.id??part.id,color:part.color,start:colors.length,count:indices.length});
+   names.push(part.name);
+   for(const i of indices)colors.push(mesh.colors?.[i]??part.color);
+  }
+  const first=entries[result.id],part=preparedPart(first.part,indexed);
+  if(colors.every(color=>color===colors[0]))part.color=colors[0];
+  else part.colors=colors;
+  part.name=names.join(' / ');
+  part.sourceRanges=ranges;
+  part.removedFaces=result.sourceFaces.reduce((n,{id,indices})=>n+entries[id].mesh.triangles.length/3-indices.length,0);
+  for(const {id} of result.sourceFaces)entries[id].prepared=null;
+  first.prepared=part;
+ }
+}
+
 export async function prepareColor3mfParts(parts,{remesh,isCurrent=()=>true}={}){
  if(!parts.length)throw Error('表示中のソリッドがありません');
- const prepared=[];
- for(const part of parts){
-  if(!isCurrent())throw Error('モデルが変更されたため3MF出力を中止しました。');
-  let mesh;
-  try{mesh=indexedPrintSupportMesh(part);}catch(error){
-   if(part.colors||!part.brep||!remesh)throw Error(part.name+' の3MF出力に失敗しました。'+error.message);
-   try{mesh=indexedPrintSupportMesh(await remesh(part));}
-   catch(failure){throw Error(part.name+' の3MF出力に失敗しました。'+failure.message);}
+ const checkCurrent=()=>{if(!isCurrent())throw Error('モデルが変更されたため3MF出力を中止しました。');};
+ const entries=[];
+ let lastYield=performance.now();
+ for(const [key,part] of parts.entries()){
+  if(performance.now()-lastYield>50){
+   await new Promise(resolve=>setTimeout(resolve,0));
+   lastYield=performance.now();
   }
-  if(!isCurrent())throw Error('モデルが変更されたため3MF出力を中止しました。');
-  const {id,name,color,group}=part;
-  prepared.push({id,name,color,group,...mesh});
+  checkCurrent();
+  try{entries.push({key,part,...inspectIndexed3mfMesh(part)});}catch(error){entries.push({key,part,error});}
+ }
+ if(entries.some(entry=>entry.error)){
+  // Explicit filament volumes must stay independently closed, even where two
+  // materials meet. Prefer repairing each body on its own, including painted
+  // shells. Combine touching surface-coloured bodies only if they need it.
+  for(const entry of entries)if(entry.error)repairColorParts(entries,[entry]);
+  const surfaces=entries.filter(entry=>!entry.part.group);
+  if(surfaces.length>1)repairColorParts(entries,surfaces);
+ }
+ const prepared=[];
+ for(const entry of entries){
+  checkCurrent();
+  const {part}=entry;
+  if(entry.prepared===null)continue;
+  if(entry.prepared){prepared.push(entry.prepared);continue;}
+  let {mesh,error}=entry;
+  if(error){
+   if(!part.colors&&part.brep&&remesh){
+    try{mesh=indexedPrintSupportMesh(await remesh(part));error=null;}catch(failure){error=failure;}
+    checkCurrent();
+   }
+   if(error)throw Error(part.name+' の3MF出力に失敗しました。'+error.message);
+  }
+  prepared.push(preparedPart(part,mesh));
  }
  return prepared;
+}
+
+export function color3mfRepairMessage(parts){
+ const count=parts.reduce((sum,part)=>sum+(part.removedFaces??0),0);
+ return count?'重複面・内部面を'+count+'枚取り除き、閉じた形状であることを確認しました。':'';
+}
+
+export function color3mfPreviewParts(parts){
+ return parts.flatMap(part=>{
+  const ranges=part.sourceRanges??[{id:part.group?.id??part.id,color:part.color,start:0,count:part.triangles.length/3}];
+  return ranges.filter(range=>range.count>0).map(({id,color,start,count})=>{
+   const whole=count===part.triangles.length/3;
+   const triangles=whole?part.triangles:part.triangles.slice(start*3,(start+count)*3);
+   const paints=whole?part.colors:part.colors?.slice(start,start+count);
+   const mixed=paints?.some(value=>value!==paints[0]);
+   return {id,vertices:part.vertices,triangles,color:colorChoiceRgb(mixed?color:(paints?.[0]??color)),
+    ...(mixed?{faceColors:paints.map(colorChoiceRgb)}:{})};
+  });
+ });
 }
 
 export function packColor3mf(parts){

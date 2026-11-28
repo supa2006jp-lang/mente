@@ -2,7 +2,7 @@ import {inspectStlMesh} from './stl-mesh-health.js';
 
 // 3MF edges share vertex indices, unlike STL's independent triangles. Merge
 // identical positions only, per part. Never bridge a gap with a distance tolerance.
-export function indexedPrintSupportMesh(mesh){
+export function inspectIndexed3mfMesh(mesh){
  const v=mesh?.vertices,t=mesh?.triangles;
  if(!Array.isArray(v)||!Array.isArray(t)||!v.length||v.length%3||!t.length||t.length%3)throw Error('3MFの形状データが不完全です');
  if(t.length/3>400000)throw Error('3MFの三角形数が検査の上限を超えています');
@@ -19,13 +19,20 @@ export function indexedPrintSupportMesh(mesh){
   colors?.push(mesh.colors[i/3]);
   for(const [x,y]of [[a,b],[b,c],[c,a]]){const key=Math.min(x,y)+','+Math.max(x,y);let edge=edges.get(key);if(!edge){edge={count:0,sign:0};edges.set(key,edge);}edge.count++;edge.sign+=x<y?1:-1;}
  }
+ const indexed={vertices,triangles,...(colors?{colors}:{})};
  const irregular=[...edges.values()].filter(edge=>edge.count!==2||edge.sign!==0);
  if(!triangles.length||irregular.length){
   const error=Error('3MFの面の接続に問題があるため出力を中止しました。形状を確認してください');
   if(irregular.length&&irregular.every(edge=>edge.count>2&&edge.sign===0))error.code='coincident-support-edges';
-  throw error;
+  return {mesh:indexed,error};
  }
  const audit=inspectStlMesh({vertices,triangles});
- if(!audit.ok||audit.removedDegenerate)throw Error('3MFの形状をスライサーの精度で確認できません。形状を確認してください');
- return {vertices,triangles,...(colors?{colors}:{})};
+ if(!audit.ok||audit.removedDegenerate)return {mesh:indexed,audit,error:Error('3MFの形状をスライサーの精度で確認できません。形状を確認してください')};
+ return {mesh:indexed};
+}
+
+export function indexedPrintSupportMesh(mesh){
+ const result=inspectIndexed3mfMesh(mesh);
+ if(result.error)throw result.error;
+ return result.mesh;
 }

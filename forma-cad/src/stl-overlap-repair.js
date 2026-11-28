@@ -1,7 +1,8 @@
 import {inspectStlMesh, STL_INSPECTION_MAX_TRIANGLES} from './stl-mesh-health.js';
 
 const edgeKey = (a, b) => a < b ? a + ',' + b : b + ',' + a;
-const positionKey = (v, i) => [Math.fround(v[i]), Math.fround(v[i + 1]), Math.fround(v[i + 2])].join(',');
+const exactCoordinate = value => value;
+const positionKey = (v, i, coordinate) => [coordinate(v[i]), coordinate(v[i+1]), coordinate(v[i+2])].join(',');
 
 function disjointSets(count) {
   const parents = Array.from({length: count}, (_, i) => i);
@@ -23,7 +24,7 @@ function eligible(row) {
 // A selection may split the two sides of a shared wall across different colours.
 // Look up exact edges of failed bodies only. A distant defect must not pull an
 // unrelated selection into the repair or make it exceed the inspection limit.
-function contactGroups(meshes, rows) {
+function contactGroups(meshes, rows, coordinate) {
   const faulty = meshes.filter(m => eligible(rows.get(m.id)));
   if (!faulty.length) return [];
   if (meshes.length === 1) return [faulty];
@@ -37,7 +38,7 @@ function contactGroups(meshes, rows) {
     const vertices = new Int32Array(mesh.vertices.length / 3);
     let matches = 0;
     for (let i = 0; i < vertices.length; i++) {
-      const key = positionKey(mesh.vertices, i * 3);
+      const key = positionKey(mesh.vertices, i * 3, coordinate);
       if (seed && !ids.has(key)) ids.set(key, ids.size);
       vertices[i] = ids.get(key) ?? -1;
       if (vertices[i] >= 0) matches++;
@@ -68,15 +69,15 @@ function contactGroups(meshes, rows) {
   return [...groups.values()];
 }
 
-function indexedFaces(meshes) {
+function indexedFaces(meshes, coordinate) {
   const ids = new Map(), points = [], faces = [];
   for (const mesh of meshes) {
     const indices = new Uint32Array(mesh.vertices.length / 3);
     for (let i = 0; i < indices.length; i++) {
-      const key = positionKey(mesh.vertices, i * 3);
+      const key = positionKey(mesh.vertices, i * 3, coordinate);
       if (!ids.has(key)) {
         ids.set(key, points.length);
-        points.push(mesh.vertices.slice(i * 3, i * 3 + 3).map(Math.fround));
+        points.push(mesh.vertices.slice(i * 3, i * 3 + 3).map(coordinate));
       }
       indices[i] = ids.get(key);
     }
@@ -241,17 +242,22 @@ function perimeterPlane(border, points) {
 
 // A raised panel can have exactly the same boundary as a flat cap. Check every
 // interior vertex to STL coordinate precision; never use a distance to weld.
-function liesOnPlane(patch, {origin,normal}, faces, points) {
+function liesOnPlane(patch, {origin,normal}, faces, points, color3mf) {
+  // Imported, rounded quads can choose opposite diagonals on the very same rim.
+  // 3MF retains doubles: protect raised/recessed vertices inside that rim.
+  const rim=color3mf ? new Set([...patch.border.keys()].flatMap(key=>key.split(',').map(Number))) : null;
   for (const i of patch.indices) for (const id of faces[i]) {
     const p = points[id];
     const distance = Math.abs((p[0]-origin[0])*normal[0]+(p[1]-origin[1])*normal[1]+(p[2]-origin[2])*normal[2]);
-    const precision = normal.reduce((sum,c,k) => sum+Math.abs(c)*Math.max(Math.abs(p[k]),Math.abs(origin[k])),0) * 2**-22;
-    if (distance > Math.max(precision, 2**-148)) return false;
+    const interior=rim&&!rim.has(id);
+    const scale=normal.reduce((sum,c,k) => sum+Math.abs(c)*Math.max(Math.abs(p[k]),Math.abs(origin[k])),0);
+    const tolerance=interior ? Math.max(scale*8*Number.EPSILON,Number.MIN_VALUE) : Math.max(scale*2**-22,2**-148);
+    if (distance > tolerance) return false;
   }
   return true;
 }
 
-function removeMatchingPatches(faces, points, removed, originalEdges) {
+function removeMatchingPatches(faces, points, removed, originalEdges, color3mf) {
   const edges = removed.size ? meshEdges(faces,removed) : originalEdges;
   const patches = planarPatches(faces,points,removed,edges,originalEdges);
   const perimeters = new Map();
@@ -271,7 +277,7 @@ function removeMatchingPatches(faces, points, removed, originalEdges) {
     if (!plane) continue;
     const sides = new Map();
     for (const {patch,orientation} of peers) {
-      if (!liesOnPlane(patch,plane,faces,points)) continue;
+      if (!liesOnPlane(patch,plane,faces,points,color3mf)) continue;
       if (sides.has(orientation)) {
         for (const i of patch.indices) removed.add(i);
       } else sides.set(orientation,patch);
@@ -281,12 +287,12 @@ function removeMatchingPatches(faces, points, removed, originalEdges) {
   }
 }
 
-function checkedRepair(meshes, options) {
+function checkedRepair(meshes, {coordinate, includeComponents, color3mf}) {
   if (meshes.reduce((n,m) => n + m.triangles.length/3, 0) > STL_INSPECTION_MAX_TRIANGLES) return null;
-  const {faces,points} = indexedFaces(meshes);
+  const {faces,points} = indexedFaces(meshes,coordinate);
   const removed = new Set(), buckets = triangleBuckets(faces);
   const originalEdges = removeDuplicateTriangles(faces,buckets,removed);
-  removeMatchingPatches(faces,points,removed,originalEdges);
+  removeMatchingPatches(faces,points,removed,originalEdges,color3mf);
   if (!removed.size || removed.size===faces.length) return null;
   const triangles=[], vertices=[], remap=new Map();
   const min=[Infinity,Infinity,Infinity], max=[-Infinity,-Infinity,-Infinity];
@@ -310,21 +316,31 @@ function checkedRepair(meshes, options) {
     if (points[id].some((v,k)=>v<min[k]||v>max[k])) return null;
   }
   const mesh={id:meshes[0].id,vertices,triangles};
-  const audit=inspectStlMesh(mesh,options);
+  const audit=inspectStlMesh(mesh,{includeComponents});
   if (!audit.ok || !audit.complete) return null;
   if (meshes.length>1) mesh.sourceIds=meshes.map(m=>m.id);
+  if (color3mf) {
+    // Each surviving triangle keeps its original winding, owner and paint slot.
+    let offset=0;
+    mesh.sourceFaces=meshes.map(source=>{
+      const indices=[];
+      for(let i=0;i<source.triangles.length/3;i++)if(!removed.has(offset+i))indices.push(i);
+      offset+=source.triangles.length/3;
+      return {id:source.id,indices};
+    });
+  }
   return {mesh,audit,removedFaces:removed.size};
 }
 
-// The repaired surface can span two selected material bodies. Only STL export
-// calls this routine; model history, native geometry and independent bodies keep
-// their original representation. Each emitted repair is itself a closed mesh.
-export function repairStlOverlaps(outputs, rows, {onProgress, includeComponents=false}={}) {
+// A shared wall can span selected bodies. For colour 3MF, preserve double
+// precision and source face indices so the exporter can restore surface paint.
+export function repairMeshOverlaps(outputs, rows, {onProgress, includeComponents=false, color3mf=false}={}) {
+  const coordinate=color3mf ? exactCoordinate : Math.fround;
   const byId=new Map(rows.map(row=>[row.id,row]));
   const replacements=new Map(), consumed=new Set();
-  for (const group of contactGroups(outputs,byId)) {
+  for (const group of contactGroups(outputs,byId,coordinate)) {
     onProgress?.({stage:'重なった面を整理してSTLを再検査しています',bodyId:group[0].id});
-    const checked=checkedRepair(group,{includeComponents});
+    const checked=checkedRepair(group,{coordinate,includeComponents,color3mf});
     if (!checked) continue;
     replacements.set(group[0].id,checked.mesh);
     for (const m of group) {
