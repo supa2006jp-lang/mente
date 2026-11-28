@@ -11,6 +11,7 @@ import {automaticColorPlan} from './automatic-body-colors.js';
 import {colorChoiceLabel,colorChoiceRgb,isClearColor} from './color-choice.js';
 import {setSlideLidTransparency} from './slide-lid-transparency.js';
 import {colorMeshSnapshot,color3mfPreviewParts,color3mfRepairMessage,packColor3mf,prepareColor3mfParts} from './color-3mf.js';
+import {bambuModelPlacement} from './bambu-a1-mini-project.js';
 import {installProjectDrafts} from './project-drafts.js';
 import {readNamedDimensions,namedDimensionBinding,linkedDimensionFields,planNamedDimensionChange} from './named-dimensions.js';
 import {installFavoriteCommands} from './favorite-commands.js';
@@ -2016,22 +2017,43 @@ async function remesh3mfPart(part){
  if(!result.inspection?.ok||result.outputs.length!==1)throw Error('出力用メッシュの検査に合格しませんでした。');
  return result.outputs[0];
 }
-function colorOutputEntry(ids,label,loadParts,run,{plateSize}={}){
+function colorOutputEntry(ids,label,loadParts,run,{plateSize,getPlacement}={}){
  const rows=ids.map(id=>({id,label:bodyDisplayName(id)}));
  return {label,rows,run,async load(isCurrent){
   const data=await loadParts(isCurrent),parts=color3mfPreviewParts(data),colors=new Map();
+  let profileLabel='';
+  if(getPlacement){
+   const {scale,offset,size}=getPlacement(data),transformed=new Map();
+   for(const part of parts){
+    if(!transformed.has(part.vertices))transformed.set(part.vertices,part.vertices.map((v,i)=>v*scale+offset[i%3]));
+    part.vertices=transformed.get(part.vertices);
+   }
+   profileLabel='A1 mini・0.4 mm・Generic PLA。印刷寸法 '+size.map(n=>n.toFixed(1)).join(' × ')+' mm（'+(scale*100).toFixed(2)+'%）。';
+  }
   for(const {id,color} of parts)if(!colors.has(id))colors.set(id,color);
-  return {rows:rows.map(row=>({...row,color:colors.get(row.id)})),parts,plateSize,data,detail:color3mfRepairMessage(data)};
+  return {rows:rows.map(row=>({...row,color:colors.get(row.id)})),parts,plateSize,data,detail:[profileLabel,color3mfRepairMessage(data)].filter(Boolean).join(' ')};
  }};
 }
-function saveColor3mf(parts,original,{copies=false}={}){
+function bambuColorOutputEntry(ids,label,original){
+ let fit=true;
+ const entry=colorOutputEntry(ids,label,active=>color3mfBodyParts(original,ids,active),
+  parts=>saveColor3mf(parts,original,{bambuA1Mini:true,fit}),{plateSize:180,getPlacement:parts=>bambuModelPlacement(parts,fit)});
+ entry.controls=(host,refresh)=>{
+  const label=document.createElement('label'),box=document.createElement('input');
+  box.type='checkbox';box.checked=fit;box.onchange=()=>{fit=box.checked;refresh();};
+  label.append(box,' 大きいモデルをプレートに収める');host.append(label);
+ };
+ return entry;
+}
+function saveColor3mf(parts,original,{copies=false,bambuA1Mini=false,fit=false}={}){
  if(color3mfBusy||features!==original||!canSwitchSketchNumber()||stage!=='model')return;
  const button=$('export-color-3mf');
  const fileName=projectFileName.replace(/(?:\.forma)?\.json$|\.forma$/i,'');
  color3mfBusy=true;button.disabled=true;
  try{
-  const {data,colorCount}=packColor3mf(parts);
-  download(data,fileName+(copies?'-print-copies':'')+'.3mf','model/3mf');
+  const {data,colorCount}=packColor3mf(parts,{bambuA1Mini,assemblyName:bambuA1Mini&&!copies?fileName:undefined,
+   placement:bambuA1Mini?bambuModelPlacement(parts,fit):undefined});
+  download(data,fileName+(copies?'-print-copies':'')+(bambuA1Mini?'-A1-mini':'')+'.3mf','model/3mf');
   notify('色付き3MFを出力しました。'+colorCount+'色を含みます。'+color3mfRepairMessage(parts)+(parts.some(part=>part.group)?' 色ごとの立体は別パーツです。':''));
  }catch(error){notify(error.message);}
  finally{color3mfBusy=false;button.disabled=![...meshes.values()].some(mesh=>mesh.visible);}
@@ -2213,6 +2235,7 @@ function openOutput(initial){
   }).map(entry=>({...entry,detail:saved.length?'形状を保存します。自動サポートの除外範囲は設定付き3MFで保存できます。':''}))},
   {id:'color3mf',label:'3MF（色付き）',entries:stage==='model'?groups.map(({ids,label})=>colorOutputEntry(ids,label,
    isCurrent=>color3mfBodyParts(original,ids,isCurrent),parts=>saveColor3mf(parts,original))):[]},
+  {id:'bambu3mf',label:'3MF（Bambu Studio・A1 mini）',entries:stage==='model'?groups.map(({ids,label})=>bambuColorOutputEntry(ids,label,original)):[]},
   {id:'support3mf',label:printSupport3mfLabel,entries:supportEntries},
   {id:'pdf',label:'PDF（図面）',entries:visible.length?[{label:'図面のページ',rows:[],
    detail:'図面でページ構成を確認してから保存できます。',action:'図面を開く',run:()=>drawingController.openForPDF()}]:[]},

@@ -6,6 +6,7 @@ import {indexedPrintSupportMesh,inspectIndexed3mfMesh} from './print-support-3mf
 import {inspectStlMesh} from './stl-mesh-health.js';
 import {repairMeshOverlaps} from './stl-overlap-repair.js';
 import {pack3mf,xmlAttribute} from './pack-3mf.js';
+import {bambuA1MiniProject} from './bambu-a1-mini-project.js';
 
 export function colorMeshSnapshot(mesh,name){
  const geometry=mesh.geometry,position=cadPosition(geometry),index=geometry.index;
@@ -116,11 +117,23 @@ export function color3mfPreviewParts(parts){
  });
 }
 
-export function packColor3mf(parts){
+// Bambu stores an unsplit painted triangle as a stream of reversed hex nibbles.
+// State 0 inherits the volume's filament. Filament slots are one-based.
+export function bambuPaintCode(filament){
+ if(filament<3)return String(filament*4);
+ const extra=filament-3;
+ return (extra%15).toString(16).toUpperCase()+'F'.repeat(Math.floor(extra/15))+'C';
+}
+
+export function packColor3mf(parts,{assemblyName,bambuA1Mini=false,placement}={}){
  const objects=[],palette=new Map(),build=[],groups=new Map();
+ const assembly=assemblyName&&parts.length>1?{id:Symbol(),name:assemblyName}:null;
  for(const [index,part] of parts.entries()){
   function colorIndex(color){
-   if(!palette.has(color))palette.set(color,palette.size);
+   if(!palette.has(color)){
+    if(bambuA1Mini&&palette.size===32)throw Error('Bambu Studioの面の色分けは32色までです。色数を減らすか「3MF（色付き）」で保存してください。');
+    palette.set(color,palette.size);
+   }
    return palette.get(color);
   }
   const defaultIndex=colorIndex(part.colors?.[0]??part.color),vertices=[],triangles=[];
@@ -131,13 +144,15 @@ export function packColor3mf(parts){
   for(let i=0;i<part.triangles.length;i+=3){
    const [a,b,c]=part.triangles.slice(i,i+3);
    const paint=part.colors?colorIndex(part.colors[i/3]):defaultIndex;
-   triangles.push('<triangle v1="'+a+'" v2="'+b+'" v3="'+c+'" pid="1" p1="'+paint+'" p2="'+paint+'" p3="'+paint+'"/>');
+   const assignment=bambuA1Mini&&part.colors?' paint_color="'+bambuPaintCode(paint+1)+'"':'';
+   triangles.push('<triangle v1="'+a+'" v2="'+b+'" v3="'+c+'" pid="1" p1="'+paint+'" p2="'+paint+'" p3="'+paint+'"'+assignment+'/>');
   }
   objects.push('<object id="'+(index+2)+'" type="model" name="'+xmlAttribute(part.name)+'" pid="1" pindex="'+defaultIndex+'"><mesh><vertices>'+vertices.join('')+'</vertices><triangles>'+triangles.join('')+'</triangles></mesh></object>');
   const entry={id:index+2,name:part.name,filament:defaultIndex+1};
-  if(part.group){
-   let group=groups.get(part.group.id);
-   if(!group){group={id:parts.length+2+groups.size,name:part.group.name,parts:[]};groups.set(part.group.id,group);build.push(group);}
+  const parent=assembly||part.group;
+  if(parent){
+   let group=groups.get(parent.id);
+   if(!group){group={id:parts.length+2+groups.size,name:parent.name,filament:entry.filament,parts:[]};groups.set(parent.id,group);build.push(group);}
    group.parts.push(entry);
   }else build.push(entry);
  }
@@ -145,7 +160,7 @@ export function packColor3mf(parts){
  const paletteColors=[...palette.keys()];
  const reserved=new Set(paletteColors.map(colorChoiceRgb));
  const used=new Set(paletteColors.filter(color=>!isClearColor(color)));
- const colors=paletteColors.map(color=>{
+ const swatches=paletteColors.map(color=>{
   let rgb=colorChoiceRgb(color);
   if(isClearColor(color)&&used.has(rgb)){
    let marker=parseInt(rgb.slice(1),16);
@@ -154,16 +169,22 @@ export function packColor3mf(parts){
    reserved.add(rgb);
   }
   used.add(rgb);
-  return '<m:color color="'+rgb.toUpperCase()+'FF"/>';
- }).join('');
+  return rgb.toUpperCase();
+ });
+ const colors=swatches.map(rgb=>'<m:color color="'+rgb+'FF"/>').join('');
  for(const group of groups.values())objects.push('<object id="'+group.id+'" type="model" name="'+xmlAttribute(group.name)+'"><components>'+group.parts.map(part=>'<component objectid="'+part.id+'"/>').join('')+'</components></object>');
- const items=build.map(({id})=>'<item objectid="'+id+'"/>').join('');
- const bambu=groups.size?'<metadata name="BambuStudio:3mfVersion">1</metadata>':'';
- const model='<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" requiredextensions="m"><metadata name="Application">FormaCAD</metadata>'+bambu+'<resources><m:colorgroup id="1">'+colors+'</m:colorgroup>'+objects.join('')+'</resources><build>'+items+'</build></model>';
+ const transform=placement?' transform="'+[placement.scale,0,0,0,placement.scale,0,0,0,placement.scale,...placement.offset].join(' ')+'"':'';
+ const items=build.map(({id})=>'<item objectid="'+id+'"'+transform+'/>').join('');
+ // Studio opens project settings only for its native Application signature.
+ const header=bambuA1Mini?'<metadata name="Application">BambuStudio-02.04.00.70</metadata><metadata name="Designer">FORMA CAD</metadata><metadata name="BambuStudio:3mfVersion">1</metadata>':
+  '<metadata name="Application">FormaCAD</metadata>'+(groups.size?'<metadata name="BambuStudio:3mfVersion">1</metadata>':'');
+ const model='<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="ja" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" requiredextensions="m">'+header+'<resources><m:colorgroup id="1">'+colors+'</m:colorgroup>'+objects.join('')+'</resources><build>'+items+'</build></model>';
  const meta=(key,value)=>'<metadata key="'+key+'" value="'+xmlAttribute(String(value))+'"/>';
  const objectsConfig=build.map(item=>'<object id="'+item.id+'">'+meta('name',item.name)+meta('extruder',item.filament??1)+(item.parts||[]).map(part=>'<part id="'+part.id+'" subtype="normal_part">'+meta('name',part.name)+meta('extruder',part.filament)+meta('matrix','1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1')+'</part>').join('')+'</object>').join('');
  const plate='<plate>'+meta('plater_id',1)+build.map((item,index)=>'<model_instance>'+meta('object_id',item.id)+meta('instance_id',0)+meta('identify_id',index+1)+'</model_instance>').join('')+'</plate>';
- const config=groups.size?{'Metadata/model_settings.config':'<?xml version="1.0" encoding="UTF-8"?><config>'+objectsConfig+plate+'</config>'}:undefined;
+ const config={};
+ if(bambuA1Mini||groups.size)config['Metadata/model_settings.config']='<?xml version="1.0" encoding="UTF-8"?><config>'+objectsConfig+plate+'</config>';
+ if(bambuA1Mini)config['Metadata/project_settings.config']=JSON.stringify(bambuA1MiniProject(swatches));
  return {data:pack3mf(model,config),colorCount:palette.size};
 }
 
